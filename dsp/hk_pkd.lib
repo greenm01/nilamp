@@ -9,12 +9,15 @@ with {
     // Add small epsilon to xdiode to avoid div by zero
     eps = 1e-10;
     xd = max(eps, xdiode);
-    
-    x_val = select2(x > xth, 0,
-                select2(x > xth + 2.0 * xd,
-                    0.25 * (x - xth) * (x - xth) / xd,
-                    (x - xth) - xd));
-    
+
+    // x <= xth ? 0
+    // x >= xth + 2*xd ? (x - xth) - xd
+    // else 0.25 * (x - xth)^2 / xd
+    x_val = select2(x <= xth, 0,
+                select2(x >= xth + 2.0 * xd,
+                    (x - xth) - xd,
+                    0.25 * (x - xth) * (x - xth) / xd));
+
     // Stage 2: Attack low pass (s1)
     s1 = loop1 ~ _
     with {
@@ -29,5 +32,14 @@ with {
 };
 
 // PKD Setters
-pkd_k1(tau_attack) = select2(tau_attack > 0, 1.0, 1.0 - exp(-1.0 / (tau_attack * ma.SR)));
-pkd_k2(tau_release) = select2(tau_release > 0, 0.0, exp(-1.0 / (tau_release * ma.SR)));
+// tau_attack  > 0 => 1.0 - exp(-1/(tau*SR))  (LP attack)
+// tau_attack <= 0 => 1.0                        (instant attack)
+pkd_k1(tau_attack) = select2(tau_attack > 0,
+                                1.0 - exp(-1.0 / (tau_attack * ma.SR)),
+                                1.0);
+
+// tau_release  > 0 => exp(-1/(tau*SR))         (LP release)
+// tau_release <= 0 => 0.0                      (instant release)
+pkd_k2(tau_release) = select2(tau_release > 0,
+                                 exp(-1.0 / (tau_release * ma.SR)),
+                                 0.0);
