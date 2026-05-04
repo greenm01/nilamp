@@ -177,18 +177,22 @@ class AdnlProcessor:
                 z1 = ((((b4 * w + b3) * w + b2) * w + b1) * w + b0)
 
             # --- ADAA ---
+            # Keller's JSFX (HK_LIB_ADNL.jsfx-inc:245):
+            #   reldx0 < 1e-4   -> 0.5 * (y1 + y0)   (avg / limit form)
+            #   reldx0 >= 1e-4  -> (z1 - z0) / dx0   (antiderivative quotient)
             dx0 = x - self.x_prev
             reldx0 = abs(dx0) / (abs(x + self.x_prev) + 1e-7)
 
             z0 = self.z_prev
             y0 = self.y_prev
 
-            if dx0 == 0:
+            if reldx0 < 0.0001:
                 adaa_result = 0.5 * (y1 + y0)
-            elif reldx0 < 0.0001:
-                adaa_result = (z1 - z0) / dx0
             else:
-                adaa_result = 0.5 * (y1 + y0)
+                # safe_dx0 guards against the (theoretical) reldx0 >= 1e-4
+                # but dx0 == 0 case; matches Faust's safe_dx0 in hk_adnl.lib.
+                safe_dx0 = dx0 if dx0 != 0.0 else 1e-20
+                adaa_result = (z1 - z0) / safe_dx0
 
             out[n] = adaa_result
 

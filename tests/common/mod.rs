@@ -141,12 +141,14 @@ use std::path::Path;
 
 pub fn read_f32_bin(path: impl AsRef<Path>) -> Vec<f32> {
     let path = path.as_ref();
-    let mut f = File::open(path)
-        .unwrap_or_else(|e| panic!("open fixture {}: {e}", path.display()));
+    let mut f = File::open(path).unwrap_or_else(|e| panic!("open fixture {}: {e}", path.display()));
     let mut bytes = Vec::new();
     f.read_to_end(&mut bytes).expect("read fixture");
-    assert!(bytes.len() % 4 == 0, "fixture {} not a multiple of 4 bytes",
-            path.display());
+    assert!(
+        bytes.len() % 4 == 0,
+        "fixture {} not a multiple of 4 bytes",
+        path.display()
+    );
     bytes
         .chunks_exact(4)
         .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
@@ -172,9 +174,13 @@ pub struct CompareReport {
 }
 
 pub fn compare(actual: &[f32], expected: &[f32]) -> CompareReport {
-    assert_eq!(actual.len(), expected.len(),
-               "length mismatch: actual={}, expected={}",
-               actual.len(), expected.len());
+    assert_eq!(
+        actual.len(),
+        expected.len(),
+        "length mismatch: actual={}, expected={}",
+        actual.len(),
+        expected.len()
+    );
     let n = actual.len();
     let mut max_abs = 0f32;
     let mut sum_sq = 0f64;
@@ -199,4 +205,22 @@ impl CompareReport {
             );
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Block-process helper
+// ---------------------------------------------------------------------------
+
+/// Run a single-input, single-output Faust DSP over `input` and return the
+/// produced output buffer.  Saves callers from re-typing the slice-of-slice
+/// dance for every regression test.
+pub fn run_siso<D: FaustDsp<T = f32>>(dsp: &mut D, input: &[f32]) -> Vec<f32> {
+    let n = input.len();
+    let mut output = vec![0f32; n];
+    {
+        let inputs: [&[f32]; 1] = [input];
+        let mut outputs: [&mut [f32]; 1] = [&mut output];
+        dsp.compute(n as i32, &inputs, &mut outputs);
+    }
+    output
 }
