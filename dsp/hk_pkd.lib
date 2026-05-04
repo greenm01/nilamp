@@ -10,13 +10,16 @@ with {
     eps = 1e-10;
     xd = max(eps, xdiode);
 
-    // x <= xth ? 0
-    // x >= xth + 2*xd ? (x - xth) - xd
-    // else 0.25 * (x - xth)^2 / xd
-    x_val = select2(x <= xth, 0,
-                select2(x >= xth + 2.0 * xd,
-                    (x - xth) - xd,
-                    0.25 * (x - xth) * (x - xth) / xd));
+    // Three-region piecewise diode response.
+    // NB: Faust select2(c, a, b) picks a when c=0, b when c=1 — opposite of C ?:.
+    // x <= xth                 -> 0
+    // x >= xth + 2*xd          -> (x - xth) - xd
+    // xth < x < xth + 2*xd     -> 0.25 * (x - xth)^2 / xd
+    x_val = select2(x <= xth,
+                    select2(x >= xth + 2.0 * xd,
+                            0.25 * (x - xth) * (x - xth) / xd,
+                            (x - xth) - xd),
+                    0);
 
     // Stage 2: Attack low pass (s1)
     s1 = loop1 ~ _
@@ -32,14 +35,15 @@ with {
 };
 
 // PKD Setters
+// NB: Faust select2(c, a, b) picks a when c=0, b when c=1 — opposite of C ?:.
 // tau_attack  > 0 => 1.0 - exp(-1/(tau*SR))  (LP attack)
-// tau_attack <= 0 => 1.0                        (instant attack)
+// tau_attack <= 0 => 1.0                     (instant attack)
 pkd_k1(tau_attack) = select2(tau_attack > 0,
-                                1.0 - exp(-1.0 / (tau_attack * ma.SR)),
-                                1.0);
+                                1.0,
+                                1.0 - exp(-1.0 / (tau_attack * ma.SR)));
 
-// tau_release  > 0 => exp(-1/(tau*SR))         (LP release)
-// tau_release <= 0 => 0.0                      (instant release)
+// tau_release  > 0 => exp(-1/(tau*SR))       (LP release)
+// tau_release <= 0 => 0.0                    (instant release)
 pkd_k2(tau_release) = select2(tau_release > 0,
-                                 exp(-1.0 / (tau_release * ma.SR)),
-                                 0.0);
+                                 0.0,
+                                 exp(-1.0 / (tau_release * ma.SR)));
