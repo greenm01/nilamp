@@ -6,8 +6,9 @@
 // sites; the high-level summary lives here:
 //   1. Multi-PSS chain.  TWD chains three PSS lumps (p1/p2/p3 at
 //      lines 189-191 of the JSFX); we collapse them into one.
-//   2. Push-pull power section.  T4 + T5 6V6 pair with advk averaging
-//      and dia summation (TWD lines 376-379) -> we run T4 alone.
+//   2. Push-pull sag feedback.  T4 + T5 6V6 audio mixing is ported, but
+//      PSS dia feedback intentionally stays on the current T4-only path
+//      until the T5 dia/PSS interaction has its own ABX-safe diagnostic.
 //   3. ADNL post-EQ.  flt_df2_set_adnl_eq populates a per-stage
 //      DF2 biquad after the ADNL nonlinearity; currently bypassed
 //      with identity coefficients (1,0,0,0,0).
@@ -63,6 +64,16 @@ t1_table = tables.t1_12ax7_table;
 t2_table = tables.t2_12ax7_table;
 t3_table = tables.t3_cd_table;
 t4_table = tables.t4_6v6_table;
+t5_table = tables.t5_6v6_table;
+
+// Mode-0 T5 aux branch constants from twd_dlx_ii_harness.jsfx.
+k2_mode0 = 0.940;
+hp4_hz = 6.4;
+kp1 = 1.1220184543;
+fp_hz = 80.0;
+qp1 = 2.6685237666;
+ks1 = 1.4125375446;
+fs1_hz = 2098.1359672;
 
 // --- 5E3 Processing with Global dvs Loop ---
 process = _ : *(gain1) : global_loop
@@ -141,12 +152,12 @@ with {
                 res4_vk = res4 : ! , _ , !;
                 res4_dia = res4 : ! , ! , _;
 
-                // Stage 5: T4 (6V6, single triode-mode power tube).
-                // The full 5E3 has a push-pull pair (T4 + T5); we
-                // collapse it to one for the prototype.
-                // TODO(5e3-v2): re-introduce T5 and the push-pull
-                // mixing (see TWD-DLX-II:376-379 for advk averaging
-                // and dia summation).
+                // Stage 5: T4/T5 6V6 push-pull output.  The T5 branch
+                // mirrors twd_dlx_ii_harness.jsfx:419-428 and subtracts
+                // the cathode-driven aux tube from the current T4 plate
+                // path.  Keep total_dia below on the current T4-only
+                // path; adding T5 dia to PSS regressed ABX and needs a
+                // separate sag-feedback diagnostic.
                 res5 = tube.tube_ck_simple(
                     TBL_SIZE, t4_table, XMAX, DX,
                     c.t4_kpre, c.t4_isat, c.t4_rl, c.t4_kpk,
@@ -156,6 +167,23 @@ with {
                     res4_v, old_dvs);
                 res5_v   = res5 : _ , !;
                 res5_dia = res5 : ! , _;
+
+                aux_in = res4_vk
+                    : *(k2_mode0)
+                    : flt.flt_ii1_hp(hp4_hz)
+                    : flt.flt_sv2_peq(kp1, fp_hz, qp1, 1, 1)
+                    : flt.flt_sv1_hs(ks1, fs1_hz, 1);
+
+                res_t5 = tube.tube_ck_simple(
+                    TBL_SIZE, t5_table, XMAX, DX,
+                    c.t5_kpre, c.t5_isat, c.t5_rl, c.t5_kpk,
+                    c.t5_kspre, c.t5_kspost, c.t5_ksva, c.t5_ksib, c.t5_kfb,
+                    c.t5_pk_xth, c.t5_pk_xdiode, c.t5_pk_k1, c.t5_pk_k2,
+                    c.t5_avg_f,
+                    aux_in, old_dvs);
+                res_t5_v = res_t5 : _ , !;
+
+                post_pp = res5_v - res_t5_v;
 
                 total_dia = res1_dia + res3_dia + res4_dia + res5_dia;
 
@@ -169,10 +197,6 @@ with {
 
                 // Output normalization.  Mirrors TWD-DLX-II:356:
                 //   gout = 0.5 / (t4.rl*t4.isat + t5.rl*t5.isat) at 0 dB.
-                // We collapse T5 for now (5e3-v2 TODO above), so use
-                // T4 alone in the denominator.  This brings plate-volt-
-                // scale signals back to normalized audio scale.
-                //
                 // HP5: 40 Hz subsonic / DC blocker mirroring TWD-DLX-II:184
                 // (final hp5.flt_ii1_set_frequency(40), applied at line 431
                 // just before spl0 is written).  Without this the prototype
@@ -180,8 +204,8 @@ with {
                 // the missing intermediate HP2/HP3/HP4 stages (see
                 // 5e3-v2 TODO above).  Scope-0 fix: add HP5 alone; the
                 // remaining HP2/HP3/HP4 stay deferred to 5e3-v2.
-                v_out = res5_v
-                    : *(0.5 / (c.t4_rl * c.t4_isat))
+                v_out = post_pp
+                    : *(0.5 / (c.t4_rl * c.t4_isat + c.t5_rl * c.t5_isat))
                     : flt.flt_ii1_hp(40);
             };
         };

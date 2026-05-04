@@ -402,3 +402,9 @@ output denominator, and current T4-only PSS dia feedback.  Metrics improved
 to sine −15.5 dB and sweep −9.8 dB.  The prior failed public-path attempt
 also added T5 dia to the sag loop; that is now the prime suspect.  Port T5
 without changing `total_dia` first, and diagnose T5 dia/PSS separately.
+
+Ported that candidate to `dsp/nilamp.dsp`: T5 is now in the public audio
+path as `res5_v - res_t5_v` with the full T4+T5 output denominator, while
+`total_dia` remains on the T4-only current path.  Normal-renderer ABX matches
+the diagnostic result: sine −15.5 dB, sweep −9.8 dB, sweep peak 0.3688 vs
+JSFX 0.3698.  This is the new baseline for future back-end EQ work.

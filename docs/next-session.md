@@ -1,12 +1,13 @@
-# Next session — port ABX-safe T5 branch with current sag loop
+# Next session — port backend EQ after ABX-safe T5 branch
 
 ## State of the tree
 
-As of committed base `5603984` plus the current diagnostic work, branch
-`main` is 8 commits ahead of `origin/main`.  T5 table/constants are
-generated and committed.  Isolated T5, synthetic T4/T5 power-pair
-diagnostics, frozen-default top-level taps, and T5 balance ABX variants now
-pass far enough to identify a safe public-path candidate.
+As of committed base `f64d5fb` plus the current public T5 wiring, T5
+table/constants are generated and committed.  Isolated T5, synthetic T4/T5
+power-pair diagnostics, frozen-default top-level taps, and T5 balance ABX
+variants all pass.  `dsp/nilamp.dsp` now uses an ABX-safe T5 subtractive
+audio branch while intentionally keeping PSS dia feedback on the current
+T4-only path.
 
 Recent commits (newest last):
 - `d98f17a` — HP5 40 Hz output subsonic blocker
@@ -17,16 +18,17 @@ Recent commits (newest last):
 - `bb8458a` — isolated T5 and synthetic power-pair diagnostics
 - `aded13e` — frozen-default top-level power-stage tap comparison
 - `5603984` — documented the failed public-path T5 attempt
+- `f64d5fb` — T5 branch-balance diagnostics and diagnostic renderer
 
 22/22 regression tests pass; `cargo build --release --bin nilamp_render` clean.
 
-Current baseline ABX at `gain=+6, defaults` is unchanged:
+Current ABX at `gain=+6, defaults`:
 
 | Test | Current baseline |
 |---|---|
-| 440 Hz sine RMS residual | −13.4 dB |
-| 5 s log-sweep RMS residual | −9.2 dB |
-| Sweep peak A / B | 0.366 / 0.370 |
+| 440 Hz sine RMS residual | −15.5 dB |
+| 5 s log-sweep RMS residual | −9.8 dB |
+| Sweep peak A / B | 0.3688 / 0.3698 |
 | Sweep align lag | 1 sample |
 
 ## What was attempted this session
@@ -171,7 +173,9 @@ five variants.  ABX results:
 Conclusion: the earlier public-path T5 regression came from changing the sag
 feedback current to include T5 dia at the same time.  The ABX-safe candidate
 is `res5_v - res_t5_v` with the full T4+T5 output denominator, while leaving
-the PSS `total_dia` on the current T4-only path for now.
+the PSS `total_dia` on the current T4-only path for now.  This candidate has
+now been ported to `dsp/nilamp.dsp` and verified through the normal renderer:
+sine −15.5 dB, sweep −9.8 dB.
 
 ## Next steps (in order)
 
@@ -180,70 +184,25 @@ the PSS `total_dia` on the current T4-only path for now.
 No further generator work is needed unless the JSFX T5 parameters are found
 to be wrong.
 
-### 2. Port the ABX-safe T5 branch
+### 2. Re-attempt full back-end chain after public T5
 
-In `dsp/nilamp.dsp`, after the current T4 invocation, add the `v1` branch:
-
-In `dsp/nilamp.dsp`, after the T4 invocation:
-
-```
-// Aux branch: T5 driven by k2 * t3.vk through its own EQ.
-// Mirrors twd_dlx_ii_harness.jsfx:419-427.
-aux_in = res4_vk : *(k2_mode0)
-                 : flt.flt_ii1_hp(hp4_hz)            // 6.4 Hz
-                 : flt.flt_sv2_peq(kp1, fp_hz, qp1, 1, 1)
-                 : flt.flt_sv1_hs (ks1, fs1_hz, 1);
-
-res_t5 = tube.tube_ck_simple(
-    TBL_SIZE, t5_table, XMAX, DX,
-    c.t5_kpre, c.t5_isat, c.t5_rl, c.t5_kpk,
-    c.t5_kspre, c.t5_kspost, c.t5_ksva, c.t5_ksib, c.t5_kfb,
-    c.t5_pk_xth, c.t5_pk_xdiode, c.t5_pk_k1, c.t5_pk_k2,
-    c.t5_avg_f,
-    aux_in, old_dvs);
-res_t5_v   = res_t5 : _ , !;
-res_t5_dia = res_t5 : ! , _;
-
-// Push-pull subtract.  twd_dlx_ii_harness.jsfx:428: spl0 -= aux.
-post_pp = res5_v - res_t5_v;
-```
-
-Then feed `post_pp` into the output HP5 and switch `gout` to:
-
-```
-0.5 / (c.t4_rl*c.t4_isat + c.t5_rl*c.t5_isat)
-```
-
-Constants needed inline (mode==0): `k2_mode0 = 0.940`, `hp4_hz = 6.4`.
-
-Do **not** add `res_t5_dia` to `total_dia` in this commit.  Keeping the
-current T4-only sag loop is what made `v1_raw_t4_filtered_t5` ABX-safe.
-
-### 3. Re-attempt full back-end chain after public T5 is committed
-
-After public T5 is ABX-stable, layer in pre-T4 (hp2, k1, hp3, peq1, hs1)
+Public T5 is now ABX-stable.  Layer in pre-T4 (hp2, k1, hp3, peq1, hs1)
 and post-T4 (peq3, hs3, lp2) chain pieces. Keep T5 dia/PSS changes separate;
 the failed public attempt shows that sag feedback needs its own diagnostic.
 
-Switch the gout denom to the full `0.5 / (t4.rl*t4.isat + t5.rl*t5.isat)`
-when committing the T5 stage — the existing `0.5/(c.t4_rl*c.t4_isat)`
-was a half-denom hack to compensate for missing T5.
-
-### 4. Verify and commit
+### 3. Verify and commit
 
 For each commit:
 1. `cargo build --release --bin nilamp_render` clean.
 2. `cargo test --release` — 22/22 still pass.
 3. `python3 tools/abx_compare.py /tmp/sine_440.wav --gain 6 --label sine440_<step> --jsfx-timeout 120`
 4. `python3 tools/abx_compare.py /tmp/sweep_5s.wav --gain 6 --label sweep_<step> --jsfx-timeout 120`
-5. RMS residual MUST be at least as good as the pre-edit baseline (sine
-   −13.4 dB, sweep −9.2 dB) — any regression triggers immediate revert.
+5. RMS residual MUST be at least as good as the current T5 baseline (sine
+   −15.5 dB, sweep −9.8 dB) — any regression triggers immediate revert.
 
 Suggested commit slicing from here:
-1. `test(dsp): add T5 branch-balance diagnostic variants`
-2. `feat(dsp): port ABX-safe T5 push-pull aux branch`
-3. `feat(dsp): port JSFX back-end EQ chain`
-4. `test(dsp): diagnose T5 dia/PSS feedback separately`
+1. `feat(dsp): port JSFX back-end EQ chain`
+2. `test(dsp): diagnose T5 dia/PSS feedback separately`
 
 ## Files to read first
 
