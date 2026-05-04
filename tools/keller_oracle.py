@@ -5,11 +5,17 @@ This module reproduces Keller's block-diagram + ADAA tube-amp model in NumPy
 for regression testing the Faust port.  It is intentionally close-to-source,
 not refactored.  Tolerance target: per-sample absolute error < 1e-3, RMS < -60 dB.
 
-TODO(5e3-v2): add a Dempwolf-Zölzer ECC83 triode oracle alongside the GLF
-implementation here so the analytical-tube path (planned for the v2 5E3
-amp) can be regression-tested the same way.  Reference parameters live in
-docs/notes/dsp-project-notes.md § 4 (ECC83), and a MATLAB implementation
-exists at ~/src/NodalDKFramework/triode.m.
+Two static-NL paths are provided:
+
+* ``adnl_set_glf(...)``: Keller's behavioral generalized-logistic function,
+  matched 1:1 against the JSFX reference.  Used for the v1 5E3 stages and
+  for the 6V6 power tubes (where Keller's ``b > 0`` shape is intentional).
+
+* ``adnl_set_dz_ck(...)`` / ``adnl_set_dz_cd(...)``: physically-motivated
+  Dempwolf-Zölzer ECC83 / 12AX7 model with per-stage DC load-line solve.
+  These replace Keller's symmetric-tanh fit (``b=0, type=0.5``) with the
+  asymmetric grid-current / soft-turn-off behaviour of a real 12AX7.  Used
+  for the v2 5E3 ECC83 stages (T1 in the 12AX7-mod variant, T2, T3).
 """
 
 import numpy as np
@@ -40,25 +46,15 @@ def glf(x, k0, b, type_b):
 # ADNL — antiderivative anti-aliasing with polynomial lookup tables
 # ---------------------------------------------------------------------------
 
-def adnl_set_glf(k0, b, type_b, kloop, xmax=15.0, dx=0.02):
-    """Build the Keller ADNL table (cubic per segment + antiderivative coeffs).
+def _curve_to_adnl_table(f_closed, xmax, dx, ymin, ymax):
+    """Convert a curve sampled at dx/3 spacing into Keller's cubic + antider table.
 
-    Returns a dict with the raw polynomial table and metadata (ymin, ymax,
-    num_segments, xmax, dx) so the runtime is self-contained.
+    ``f_closed`` must be sampled at the high-res grid ``arange(-xmax, xmax+dx, dx/3)``
+    (i.e. 3 sub-samples per output segment plus a trailing endpoint).  Each output
+    segment fits a cubic ``a3 w^3 + a2 w^2 + a1 w + a0`` to the four sub-samples,
+    and stores the antiderivative ``b4 w^4 + b3 w^3 + b2 w^2 + b1 w + b0`` with
+    ``b0`` chained across segments so ADAA's quotient form is well-defined.
     """
-    # Keller uses dx1 = dx / 3 for the internal high-res grid
-    dx1 = dx / 3.0
-    x_internal = np.arange(-xmax, xmax + dx, dx1)
-    f_internal = glf(x_internal, k0, b, type_b)
-
-    if kloop > 0:
-        # Closed-loop resampling: x_ext_norm = (x_internal + kloop * f_internal) / (kloop + 1)
-        x_ext_norm = (x_internal + kloop * f_internal) / (kloop + 1.0)
-        x_target = np.arange(-xmax, xmax + dx, dx1)
-        f_closed = np.interp(x_target, x_ext_norm, f_internal, left=-k0, right=1.0 - k0)
-    else:
-        f_closed = f_internal
-
     num_segments = int(2 * xmax / dx)
     table = []
 
@@ -97,9 +93,6 @@ def adnl_set_glf(k0, b, type_b, kloop, xmax=15.0, dx=0.02):
 
         b00, b10, b20, b30, b40 = b0, b1, b2, b3, b4
 
-    # append metadata at the tail so the runtime can read it back
-    ymin = -k0
-    ymax = 1.0 - k0
     return {
         "coeffs": np.array(table, dtype=np.float32),
         "num_segments": num_segments,
@@ -108,6 +101,365 @@ def adnl_set_glf(k0, b, type_b, kloop, xmax=15.0, dx=0.02):
         "ymin": ymin,
         "ymax": ymax,
     }
+
+
+def adnl_set_glf(k0, b, type_b, kloop, xmax=15.0, dx=0.02):
+    """Build the Keller ADNL table from a GLF curve (the v1 / behavioral path)."""
+    # Keller uses dx1 = dx / 3 for the internal high-res grid
+    dx1 = dx / 3.0
+    x_internal = np.arange(-xmax, xmax + dx, dx1)
+    f_internal = glf(x_internal, k0, b, type_b)
+
+    if kloop > 0:
+        # Closed-loop resampling: x_ext_norm = (x_internal + kloop * f_internal) / (kloop + 1)
+        x_ext_norm = (x_internal + kloop * f_internal) / (kloop + 1.0)
+        x_target = np.arange(-xmax, xmax + dx, dx1)
+        f_closed = np.interp(x_target, x_ext_norm, f_internal, left=-k0, right=1.0 - k0)
+    else:
+        f_closed = f_internal
+
+    return _curve_to_adnl_table(f_closed, xmax, dx, ymin=-k0, ymax=1.0 - k0)
+
+
+# ---------------------------------------------------------------------------
+# Dempwolf-Zölzer ECC83 / 12AX7 triode model
+# ---------------------------------------------------------------------------
+#
+# Reference: K. Dempwolf and U. Zölzer, "A Physically-Motivated Triode Model
+# for Circuit Simulations", DAFx-11.  Parameters and Jacobian taken directly
+# from Jaromir Macák's NodalDKFramework (triode.m, ecc83_tube_model).
+#
+# Sign convention matches the MATLAB reference: ig and ip are returned with
+# negative sign for the standard "current flows from plate to cathode" flow,
+# i.e. ip < 0 means quiescent conduction.  Downstream callers either flip the
+# sign when wiring against Keller's positive-current convention, or work with
+# magnitudes (|ip|) directly.
+
+# DZ ECC83 model parameters — Macák triode.m:35-58 lines.
+DZ_ECC83 = {
+    "Gg": 606e-6,
+    "xi": 1.354,
+    "Cg": 13.9,
+    "Gp": 2.14e-3,
+    "gamma": 1.303,
+    "Cp": 3.04,
+    "mu": 100.8,
+}
+
+
+def _softplus(x):
+    """Numerically stable log(1+exp(x))."""
+    # For x large positive, log(1+exp(x)) ≈ x; for x very negative, ≈ exp(x).
+    return np.where(x > 30.0, x, np.log1p(np.exp(np.minimum(x, 30.0))))
+
+
+def triode_dz_ecc83(vgk, vpk, params=DZ_ECC83):
+    """Dempwolf-Zölzer ECC83 currents.
+
+    Returns ``(ig, ip)`` matching the MATLAB sign convention (ig <= 0,
+    ip <= 0 in conduction).  Both inputs may be scalars or NumPy arrays.
+    """
+    Gg = params["Gg"]
+    xi = params["xi"]
+    Cg = params["Cg"]
+    Gp = params["Gp"]
+    gamma = params["gamma"]
+    Cp = params["Cp"]
+    mu = params["mu"]
+
+    # ig: grid-cathode diode (asymmetric, very stiff turn-on near vgk = 0).
+    sg = _softplus(Cg * vgk) / Cg
+    ig = -Gg * np.power(np.maximum(sg, 0.0), xi)
+
+    # ip: plate current = -Gp*(softplus(Cp*(vpk/mu+vgk))/Cp)^gamma minus ig.
+    sp = _softplus(Cp * (vpk / mu + vgk)) / Cp
+    ip = -Gp * np.power(np.maximum(sp, 0.0), gamma) - ig
+
+    return ig, ip
+
+
+def triode_dz_ecc83_jac(vgk, vpk, params=DZ_ECC83):
+    """Jacobian of the DZ ECC83 model.
+
+    Returns ``(dig_dvgk, dig_dvpk, dip_dvgk, dip_dvpk)`` for scalar inputs.
+    """
+    Gg = params["Gg"]
+    xi = params["xi"]
+    Cg = params["Cg"]
+    Gp = params["Gp"]
+    gamma = params["gamma"]
+    Cp = params["Cp"]
+    mu = params["mu"]
+
+    # ig branch
+    expg_arg = Cg * vgk
+    if expg_arg > 30.0:
+        sg = vgk
+        sigmoid_g = 1.0
+    else:
+        sg = np.log1p(np.exp(expg_arg)) / Cg
+        sigmoid_g = 1.0 / (1.0 + np.exp(-expg_arg))
+    if sg <= 0.0:
+        dig_dvgk = 0.0
+    else:
+        dig_dvgk = -Gg * xi * (sg ** (xi - 1.0)) * sigmoid_g
+    dig_dvpk = 0.0
+
+    # ip branch — d/dv softplus(C v)/C = sigmoid(C v)
+    expp_arg = Cp * (vpk / mu + vgk)
+    if expp_arg > 30.0:
+        sp = vpk / mu + vgk
+        sigmoid_p = 1.0
+    else:
+        sp = np.log1p(np.exp(expp_arg)) / Cp
+        sigmoid_p = 1.0 / (1.0 + np.exp(-expp_arg))
+    if sp <= 0.0:
+        dip_part_dvgk = 0.0
+    else:
+        dip_part_dvgk = -Gp * gamma * (sp ** (gamma - 1.0)) * sigmoid_p
+    dip_dvgk = dip_part_dvgk - dig_dvgk
+    dip_dvpk = dip_part_dvgk / mu
+
+    return dig_dvgk, dig_dvpk, dip_dvgk, dip_dvpk
+
+
+# ---------------------------------------------------------------------------
+# DC load-line solver — DZ triode in a Keller CK / CD / CC topology
+# ---------------------------------------------------------------------------
+
+def loadline_solve_ck(vin, vs, ra, rl, rk, params=DZ_ECC83,
+                      tol=1e-9, max_iter=80,
+                      ip_init=0.0, ig_init=0.0, alpha=0.5):
+    """Solve the DC operating point of a common-cathode triode stage.
+
+    Topology (DZ in Keller's CK slot, anode loaded by rl to vs, cathode bypassed
+    in the small-signal sense but DC-coupled through rk):
+
+        vp = vs - |ip| * rl + ip_grid_correction
+        vk = (|ip| + |ig|) * rk
+        vgk = vin - vk
+        vpk = vp - vk
+
+    We Newton-iterate on the unknown ``ip`` (the plate current magnitude).
+    ``ra`` is the small-signal plate resistance and is NOT used in the DC solve
+    (it's already implicit in the DZ model); it's only kept in the signature
+    for symmetry with Keller's tube_ck_set call site.
+
+    ``ip_init`` / ``ig_init`` allow warm-starting from a previous solve;
+    callers sweeping a vin grid should pass the previous result for stability
+    in the high-positive-grid region (where naive ``ip=0`` start can oscillate
+    between cutoff and saturation).  ``alpha`` controls the damped fixed-point
+    mixing rate.
+    """
+    ip = float(ip_init)
+    ig = float(ig_init)
+    vk = 0.0
+    vp = vs
+    for _ in range(max_iter):
+        vk = (-ip - ig) * rk  # ip, ig are negative in DZ convention -> vk >= 0
+        vp = vs - (-ip) * rl
+        vgk = vin - vk
+        vpk = vp - vk
+        ig_new, ip_new = triode_dz_ecc83(vgk, vpk, params)
+        if abs(ip - ip_new) < tol:
+            ip = ip_new
+            ig = ig_new
+            break
+        # Damped fixed-point step.
+        ip = (1.0 - alpha) * ip + alpha * ip_new
+        ig = ig_new
+    return ip, ig, vp, vk
+
+
+def loadline_curve_ck(vs, ra, rl, rk, isat, ibias, vin_grid, params=DZ_ECC83):
+    """Compute the static plate-current curve over an array of input voltages.
+
+    Sweeps the grid using a warm-started fixed-point solver: the iteration
+    is seeded with the previous solve's result and uses a stronger damping
+    factor (alpha=0.1) once the sweep moves away from the quiescent point.
+    This avoids the bistable oscillation the plain ip=0 / alpha=0.5 solver
+    suffers at high positive vgk in low-headroom topologies (e.g. cathodyne).
+
+    Returns ``ip_arr`` (shape == vin_grid.shape, DZ sign: ip <= 0) and the
+    corresponding ``vk_arr`` and ``vp_arr`` for diagnostics / plotting.
+    """
+    n = len(vin_grid)
+    ip_arr = np.zeros(n)
+    vp_arr = np.zeros(n)
+    vk_arr = np.zeros(n)
+
+    # Solve at the closest-to-zero grid point first (canonical quiescent),
+    # then sweep outward in both directions warm-starting from the previous
+    # neighbour's result.
+    mid = int(np.argmin(np.abs(vin_grid)))
+    ip0, ig0, vp0, vk0 = loadline_solve_ck(
+        float(vin_grid[mid]), vs, ra, rl, rk, params, alpha=0.5)
+    ip_arr[mid] = ip0
+    vp_arr[mid] = vp0
+    vk_arr[mid] = vk0
+
+    ip, ig = ip0, ig0
+    for i in range(mid + 1, n):
+        ip, ig, vp, vk = loadline_solve_ck(
+            float(vin_grid[i]), vs, ra, rl, rk, params,
+            ip_init=ip, ig_init=ig, alpha=0.1, max_iter=300)
+        ip_arr[i] = ip
+        vp_arr[i] = vp
+        vk_arr[i] = vk
+
+    ip, ig = ip0, ig0
+    for i in range(mid - 1, -1, -1):
+        ip, ig, vp, vk = loadline_solve_ck(
+            float(vin_grid[i]), vs, ra, rl, rk, params,
+            ip_init=ip, ig_init=ig, alpha=0.1, max_iter=300)
+        ip_arr[i] = ip
+        vp_arr[i] = vp
+        vk_arr[i] = vk
+
+    return ip_arr, vp_arr, vk_arr
+
+
+def loadline_solve_cd(vin, vs, ra, rl, rk, params=DZ_ECC83,
+                      tol=1e-9, max_iter=80,
+                      ip_init=0.0, ig_init=0.0, alpha=0.5):
+    """Solve the DC operating point of a cathodyne (split-load) triode stage.
+
+    Topology: rl on the plate, rk on the cathode (rk == rl typically).
+    Output is taken differentially across rl (anode) and rk (cathode).
+
+    Same warm-start interface as :func:`loadline_solve_ck`; callers sweeping
+    a grid should use :func:`loadline_curve_cd` (which warm-starts properly)
+    rather than calling this directly.
+    """
+    ip = float(ip_init)
+    ig = float(ig_init)
+    vk = 0.0
+    vp = vs
+    for _ in range(max_iter):
+        vk = (-ip - ig) * rk
+        vp = vs - (-ip) * rl
+        vgk = vin - vk
+        vpk = vp - vk
+        ig_new, ip_new = triode_dz_ecc83(vgk, vpk, params)
+        if abs(ip - ip_new) < tol:
+            ip = ip_new
+            ig = ig_new
+            break
+        ip = (1.0 - alpha) * ip + alpha * ip_new
+        ig = ig_new
+    return ip, ig, vp, vk
+
+
+def loadline_curve_cd(vs, ra, rl, rk, vin_grid, params=DZ_ECC83):
+    """Sweep a vin grid through a cathodyne load-line, warm-starting.
+
+    Mirrors :func:`loadline_curve_ck`'s sweep strategy.  Returns
+    ``(ip_arr, ig_arr, vp_arr, vk_arr)`` (DZ sign convention: ip, ig <= 0).
+    """
+    n = len(vin_grid)
+    ip_arr = np.zeros(n)
+    ig_arr = np.zeros(n)
+    vp_arr = np.zeros(n)
+    vk_arr = np.zeros(n)
+
+    mid = int(np.argmin(np.abs(vin_grid)))
+    ip0, ig0, vp0, vk0 = loadline_solve_cd(
+        float(vin_grid[mid]), vs, ra, rl, rk, params, alpha=0.5)
+    ip_arr[mid] = ip0
+    ig_arr[mid] = ig0
+    vp_arr[mid] = vp0
+    vk_arr[mid] = vk0
+
+    ip, ig = ip0, ig0
+    for i in range(mid + 1, n):
+        ip, ig, vp, vk = loadline_solve_cd(
+            float(vin_grid[i]), vs, ra, rl, rk, params,
+            ip_init=ip, ig_init=ig, alpha=0.1, max_iter=300)
+        ip_arr[i] = ip; ig_arr[i] = ig
+        vp_arr[i] = vp; vk_arr[i] = vk
+
+    ip, ig = ip0, ig0
+    for i in range(mid - 1, -1, -1):
+        ip, ig, vp, vk = loadline_solve_cd(
+            float(vin_grid[i]), vs, ra, rl, rk, params,
+            ip_init=ip, ig_init=ig, alpha=0.1, max_iter=300)
+        ip_arr[i] = ip; ig_arr[i] = ig
+        vp_arr[i] = vp; vk_arr[i] = vk
+
+    return ip_arr, ig_arr, vp_arr, vk_arr
+
+
+def adnl_set_dz_ck(vs, ra, rl, rk, isat, ibias, kpre, kloop_ignored=None,
+                   xmax=15.0, dx=0.02, params=DZ_ECC83):
+    """Build a Keller-format ADNL table whose curve is derived from the DZ
+    ECC83 model + DC load-line of a common-cathode stage.
+
+    The output is normalized to match Keller's convention exactly:
+
+      * x-axis is normalized grid-drive ``x = kpre * vin``.
+      * y-axis is the plate-current excursion from the DZ-derived quiescent,
+        normalized by ``isat``: ``y = (|ip(vin)| - |ip(0)|) / isat``.
+        At ``vin = 0`` this gives ``y = 0`` exactly (matching Keller's
+        ``glf(0) = 0`` convention), so downstream Keller wiring (``*isat`` then
+        ``+ksib*dvs``) keeps producing ``dia = ip - ibias_effective``.
+
+    Note: Keller's ``ibias`` parameter is used only to define ``kbias`` for
+    the table's nominal ``ymin/ymax``; the actual quiescent comes from the
+    DZ load-line solve and may differ (typically by 5–25%).  This is the
+    intended physical correction: a real ECC83 doesn't sit at exactly the
+    Keller-fitted bias.
+
+    The internal CK feedback loop (cathode self-bias) is already baked into
+    the load-line solve, so ``kloop`` is not needed here — pass None or
+    Keller's value (it's ignored, kept for call-site symmetry).
+    """
+    dx1 = dx / 3.0
+    x_norm_grid = np.arange(-xmax, xmax + dx, dx1)
+    vin_grid = x_norm_grid / kpre
+    ip_arr, _vp, _vk = loadline_curve_ck(vs, ra, rl, rk, isat, ibias, vin_grid, params)
+
+    # Center on the DZ-derived quiescent so f(x=0) = 0 (matches GLF convention).
+    # |ip| is in amps; subtract the value at x=0 (closest grid index).
+    ip_pos = -ip_arr  # to positive (Keller convention)
+    zero_idx = int(np.argmin(np.abs(x_norm_grid)))
+    ip_q = ip_pos[zero_idx]
+    f_raw = (ip_pos - ip_q) / isat
+
+    # Clip to GLF saturation range [-kbias_actual, 1-kbias_actual].  See
+    # gen_tables.gen_adnl_table_dz_ck for rationale: the bare DZ model has
+    # no plate-bottoming mechanism and produces unphysical ip ≫ isat at
+    # large positive grid drive; the real-world clamp comes from grid current
+    # at the previous coupling cap, modelled by Keller's PKD path.
+    kbias_actual = ip_q / isat
+    ymin = float(-kbias_actual)
+    ymax = float(1.0 - kbias_actual)
+    f_closed = np.clip(f_raw, ymin, ymax)
+    return _curve_to_adnl_table(f_closed, xmax, dx, ymin=ymin, ymax=ymax)
+
+
+def adnl_set_dz_cd(vs, ra, rl, rk, isat, ibias, kpre,
+                   xmax=15.0, dx=0.02, params=DZ_ECC83):
+    """Build a Keller-format ADNL table for a DZ-modelled cathodyne stage.
+
+    Same normalization convention as :func:`adnl_set_dz_ck`.
+    """
+    dx1 = dx / 3.0
+    x_norm_grid = np.arange(-xmax, xmax + dx, dx1)
+    vin_grid = x_norm_grid / kpre
+    n = len(vin_grid)
+    ip_arr = np.zeros(n)
+    for i, vin in enumerate(vin_grid):
+        ip, _ig, _vp, _vk = loadline_solve_cd(float(vin), vs, ra, rl, rk, params)
+        ip_arr[i] = ip
+    ip_pos = -ip_arr
+    zero_idx = int(np.argmin(np.abs(x_norm_grid)))
+    ip_q = ip_pos[zero_idx]
+    f_raw = (ip_pos - ip_q) / isat
+    kbias_actual = ip_q / isat
+    ymin = float(-kbias_actual)
+    ymax = float(1.0 - kbias_actual)
+    f_closed = np.clip(f_raw, ymin, ymax)
+    return _curve_to_adnl_table(f_closed, xmax, dx, ymin=ymin, ymax=ymax)
 
 
 def _adnl_eval(table, x):
@@ -578,7 +930,61 @@ def _self_test():
     assert np.all(np.isfinite(y_pk)), "PKD produced non-finite output"
     rms_pk = float(np.sqrt(np.mean(y_pk * y_pk)))
 
-    print(f"[oracle self-test] ADNL rms={rms_adnl:.4f}  PKD rms={rms_pk:.4f}  OK")
+    # ---- DZ ECC83 model ----
+    # Reference values from MATLAB triode.m at vgk = -1.5 V, vpk = 250 V.
+    # Hand-calc (Gp=2.14e-3, Cp=3.04, gamma=1.303, mu=100.8, Cg=13.9):
+    #   sp = log1p(exp(3.04*(250/100.8 - 1.5)))/3.04 ≈ 0.978
+    #   ip ≈ -2.14e-3 * 0.978^1.303 ≈ -2.07e-3 A   (dominated by the ip term;
+    #   ig ≈ -Gg*log1p(exp(-20.85))^xi/Cg^xi → ~0).
+    ig_ref, ip_ref = triode_dz_ecc83(-1.5, 250.0)
+    assert abs(ig_ref) < 1e-12, f"DZ ig at vgk=-1.5V should be ~0, got {ig_ref}"
+    assert -3e-3 < ip_ref < -1e-3, f"DZ ip at -1.5V/250V should be ~-2mA, got {ip_ref}"
+
+    # Grid-current onset: at vgk = +1.0 V we should see clear ig conduction.
+    ig_pos, _ = triode_dz_ecc83(1.0, 100.0)
+    assert ig_pos < -1e-5, f"DZ ig at vgk=+1V should be clearly negative, got {ig_pos}"
+
+    # ---- Load-line at T2 (12AX7) quiescent point ----
+    # Keller TWD-DLX-II.jsfx:180 → mu=100, ra=62.5k, isat=1.55mA, ibias=0.76mA,
+    # vs=238, rl=100k, rk=1.5k.  At vin=0 the load-line should give ip ≈ ibias.
+    ip_q, _ig_q, vp_q, vk_q = loadline_solve_ck(
+        vin=0.0, vs=238.0, ra=62500.0, rl=100_000.0, rk=1500.0
+    )
+    ibias_keller = 0.00076
+    err = abs(-ip_q - ibias_keller) / ibias_keller
+    assert err < 0.4, (
+        f"DZ-derived T2 quiescent ip={-ip_q*1e3:.3f}mA differs from Keller's "
+        f"ibias={ibias_keller*1e3:.3f}mA by {err*100:.1f}% (>40%)."
+    )
+
+    # ---- DZ table generation (T2 stage) — same dx/xmax as Keller ----
+    kpre_t2 = 100.0 / 0.00155 / (62500.0 + 100_000.0 + 101.0 * 1500.0)
+    spec_dz = adnl_set_dz_ck(
+        vs=238.0, ra=62500.0, rl=100_000.0, rk=1500.0,
+        isat=0.00155, ibias=0.00076, kpre=kpre_t2,
+    )
+    assert spec_dz["coeffs"].shape == (spec_dz["num_segments"], 9)
+    assert np.all(np.isfinite(spec_dz["coeffs"]))
+    # Sanity: DC excursion at x=0 should be exactly 0 (curve is centered there).
+    # Process a long DC ramp so ADAA settles.
+    dz = AdnlProcessor(spec_dz)
+    y_at_zero = dz.process_block(np.zeros(64, dtype=np.float32))[-1]
+    assert abs(y_at_zero) < 1e-3, f"DZ table at x=0 = {y_at_zero}, expected ~0"
+    # Asymmetry sanity: positive drive should saturate (clip) before negative
+    # drive runs out — confirms the DZ curve is asymmetric (unlike GLF tanh).
+    y_pos = dz.process_block(np.full(64, 5.0, dtype=np.float32))[-1]
+    y_neg = dz.process_block(np.full(64, -5.0, dtype=np.float32))[-1]
+    asymmetry = abs(y_pos + y_neg) / max(abs(y_pos), abs(y_neg), 1e-9)
+    assert asymmetry > 0.05, (
+        f"DZ-derived curve is too symmetric (asymmetry={asymmetry:.3f}); "
+        f"expected clear ECC83 plate-current asymmetry."
+    )
+
+    print(
+        f"[oracle self-test] ADNL rms={rms_adnl:.4f}  PKD rms={rms_pk:.4f}  "
+        f"DZ_ip(T2 Q)={-ip_q*1e3:.3f}mA  y0={y_at_zero:.4f}  "
+        f"asym={asymmetry:.3f}  OK"
+    )
 
 
 if __name__ == "__main__":
