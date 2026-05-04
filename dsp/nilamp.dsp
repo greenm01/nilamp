@@ -69,7 +69,12 @@ process = _ : *(gain1) : global_loop
 with {
     global_loop(vin) = loop_block(vin)
     with {
-        loop_block(v_in_ext) = loop_core(v_in_ext) ~ _
+        // loop_core has 2 outputs (next_dvs, v_out).  In Faust, `A ~ B`
+        // does NOT reduce A's output count — it only routes B's outputs
+        // back into A's first inputs.  So `loop_core ~ _` still emits
+        // both signals; we cull next_dvs with `(! , _)` to leave just
+        // v_out for the outer chain.
+        loop_block(v_in_ext) = (loop_core(v_in_ext) ~ _) : ! , _
         with {
             loop_core(v_in_ext, old_dvs) = next_dvs, v_out
             with {
