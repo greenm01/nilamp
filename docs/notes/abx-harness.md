@@ -408,3 +408,34 @@ path as `res5_v - res_t5_v` with the full T4+T5 output denominator, while
 `total_dia` remains on the T4-only current path.  Normal-renderer ABX matches
 the diagnostic result: sine −15.5 dB, sweep −9.8 dB, sweep peak 0.3688 vs
 JSFX 0.3698.  This is the new baseline for future back-end EQ work.
+
+## Investigation 2026-05-04 (cont.): backend EQ diagnostics after public T5
+
+After the ABX-safe public T5 branch landed, the backend-chain work moved back
+into `nilamp_t5_balance_render` instead of changing the public path directly.
+Two new variants were added:
+
+| Variant | Meaning |
+|---------|---------|
+| `v5_post_backend_current_sag` | current T4/T5 audio mix, then JSFX post-power `peq3 -> hs3 -> hp5 -> lp2` |
+| `v6_full_backend_current_sag` | HP2 before T3, backend-fed T4/T5 branches, then `peq3 -> hs3 -> hp5 -> lp2` |
+
+`dsp/hk_filters.lib` now includes `flt_df2_lp`, matching
+`HK_LIB_FLT_DF.jsfx-inc`'s `flt_df2_set_lp`, so the diagnostic can model the
+JSFX 10 kHz Butterworth-ish output low-pass.
+
+ABX at `gain=+6, defaults`:
+
+| Variant | Sine residual | Sweep residual | Result |
+|---------|---------------|----------------|--------|
+| public T5 baseline | -15.5 dB | -9.8 dB | superseded |
+| `v5_post_backend_current_sag` | -16.0 dB | -11.2 dB | ported to public path |
+| `v6_full_backend_current_sag` | -15.8 dB | -9.4 dB | sweep regression |
+
+The post-power filter block alone improves both probes and was ported to
+`dsp/nilamp.dsp`.  Normal-renderer ABX matches the diagnostic result: sine
+-16.0 dB and sweep -11.2 dB.  The full coupled backend path still does not
+clear the public-port gate; backend T3 and T4/T5 feed changes bring the sweep
+back above the current baseline.  Do not port the coupled backend block as-is.
+The next diagnostic should split v6 into smaller toggles: HP2 before T3,
+`k1`/`k2`, HP3/HP4, PEQ/HS before T4/T5, and LP2.

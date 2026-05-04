@@ -32,6 +32,8 @@ enum Variant {
     FilteredT4FilteredT5,
     SignAdd,
     HalfDenomControl,
+    PostBackendCurrentSag,
+    FullBackendCurrentSag,
 }
 
 impl Variant {
@@ -44,6 +46,12 @@ impl Variant {
             }
             "v3_sign_add" | "sign_add" | "3" => Ok(Self::SignAdd),
             "v4_half_denom_control" | "half_denom_control" | "4" => Ok(Self::HalfDenomControl),
+            "v5_post_backend_current_sag" | "post_backend_current_sag" | "5" => {
+                Ok(Self::PostBackendCurrentSag)
+            }
+            "v6_full_backend_current_sag" | "full_backend_current_sag" | "6" => {
+                Ok(Self::FullBackendCurrentSag)
+            }
             _ => Err(format!("unknown variant: {s}")),
         }
     }
@@ -55,6 +63,8 @@ impl Variant {
             Self::FilteredT4FilteredT5 => 2,
             Self::SignAdd => 3,
             Self::HalfDenomControl => 4,
+            Self::PostBackendCurrentSag => 5,
+            Self::FullBackendCurrentSag => 6,
         }
     }
 
@@ -65,6 +75,8 @@ impl Variant {
             Self::FilteredT4FilteredT5 => "v2_filtered_t4_filtered_t5",
             Self::SignAdd => "v3_sign_add",
             Self::HalfDenomControl => "v4_half_denom_control",
+            Self::PostBackendCurrentSag => "v5_post_backend_current_sag",
+            Self::FullBackendCurrentSag => "v6_full_backend_current_sag",
         }
     }
 }
@@ -162,6 +174,8 @@ Variants:
   v2_filtered_t4_filtered_t5
   v3_sign_add
   v4_half_denom_control
+  v5_post_backend_current_sag
+  v6_full_backend_current_sag
 
 Params:
   --gain    -24..24    Input gain (dB)
@@ -234,9 +248,9 @@ fn run(args: &Args) -> Result<(), String> {
 
     let n_inputs = dsp.get_num_inputs() as usize;
     let n_outputs = dsp.get_num_outputs() as usize;
-    if n_inputs != 1 || n_outputs < 5 {
+    if n_inputs != 1 || n_outputs < 7 {
         return Err(format!(
-            "expected 1-in / >=5-out diagnostic DSP, got {n_inputs}-in / {n_outputs}-out"
+            "expected 1-in / >=7-out diagnostic DSP, got {n_inputs}-in / {n_outputs}-out"
         ));
     }
 

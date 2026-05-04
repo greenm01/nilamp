@@ -117,3 +117,24 @@ flt_ii1_hp(f, x) = x - flt_ii1_lp(f, x);
 // --- Direct Form 2 ---
 
 flt_df2(b0, b1, b2, a1, a2, x) = fi.tf2(b0, b1, b2, a1, a2, x);
+
+// 2nd-order DF2 low-pass. Mirrors HK_LIB_FLT_DF.jsfx-inc flt_df2_set_lp.
+flt_df2_lp(f, Q, pwf, pwQ, x) = flt_df2(b0, b1, b2, a1, a2, x)
+with {
+    piT = ma.PI / ma.SR;
+    k0 = f * piT;
+    kq0 = select2(pwQ, 1.0 / Q, exp(aux2) - exp(-aux2))
+    with {
+        aux1 = sqrt(1.0 + 4.0 * Q * Q);
+        aux2 = (k0 / sin(2.0 * k0 + 1e-20)) * log((aux1 + 1.0) / (aux1 - 1.0));
+    };
+    k = select2(pwf, k0, tan(f * piT));
+    kq = k * kq0;
+    ksqr = k * k;
+    kdiv = 1.0 / (1.0 + kq + ksqr);
+    a1 = (-2.0 + 2.0 * ksqr) * kdiv;
+    a2 = (1.0 - kq + ksqr) * kdiv;
+    b0 = ksqr * kdiv;
+    b1 = 2.0 * ksqr * kdiv;
+    b2 = ksqr * kdiv;
+};

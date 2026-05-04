@@ -70,10 +70,14 @@ t5_table = tables.t5_6v6_table;
 k2_mode0 = 0.940;
 hp4_hz = 6.4;
 kp1 = 1.1220184543;
+kp2 = 1.2589254118;
 fp_hz = 80.0;
 qp1 = 2.6685237666;
+qp2 = 2.2440931043;
 ks1 = 1.4125375446;
+ks2 = 1.4125375446;
 fs1_hz = 2098.1359672;
+fs2_hz = 1485.8089753;
 
 // --- 5E3 Processing with Global dvs Loop ---
 process = _ : *(gain1) : global_loop
@@ -197,16 +201,16 @@ with {
 
                 // Output normalization.  Mirrors TWD-DLX-II:356:
                 //   gout = 0.5 / (t4.rl*t4.isat + t5.rl*t5.isat) at 0 dB.
-                // HP5: 40 Hz subsonic / DC blocker mirroring TWD-DLX-II:184
-                // (final hp5.flt_ii1_set_frequency(40), applied at line 431
-                // just before spl0 is written).  Without this the prototype
-                // accumulates a steady ~-0.040 DC offset at the output from
-                // the missing intermediate HP2/HP3/HP4 stages (see
-                // 5e3-v2 TODO above).  Scope-0 fix: add HP5 alone; the
-                // remaining HP2/HP3/HP4 stay deferred to 5e3-v2.
+                // Post-power backend mirrors the ABX-safe diagnostic subset:
+                // peq3, hs3, hp5, lp2, then gout.  The pre-T4 backend chain
+                // remains diagnostic-only until its sweep regression is
+                // isolated.
                 v_out = post_pp
-                    : *(0.5 / (c.t4_rl * c.t4_isat + c.t5_rl * c.t5_isat))
-                    : flt.flt_ii1_hp(40);
+                    : flt.flt_sv2_peq(kp2, fp_hz, qp2, 1, 1)
+                    : flt.flt_sv1_hs(ks2, fs2_hz, 1)
+                    : flt.flt_ii1_hp(40)
+                    : flt.flt_df2_lp(10000, sqrt(0.5), 1, 0)
+                    : *(0.5 / (c.t4_rl * c.t4_isat + c.t5_rl * c.t5_isat));
             };
         };
     };
