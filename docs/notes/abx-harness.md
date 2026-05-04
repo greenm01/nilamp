@@ -393,3 +393,12 @@ but ABX still regressed: sine −12.7 dB and sweep −8.9 dB, with sweep peak
 0.2905 vs JSFX 0.3698.  Reverted the public-path DSP edit and timeout bump.
 The next attempt should diagnose branch balance/sign variants before another
 `dsp/nilamp.dsp` audio-path change.
+
+Follow-up branch-balance diagnostic: added a separate
+`nilamp_t5_balance_render` path with five mono-selectable variants.  The
+baseline control reproduced current ABX exactly.  The best T5 candidate was
+`v1_raw_t4_filtered_t5`: raw current T4 path minus filtered T5, full T4+T5
+output denominator, and current T4-only PSS dia feedback.  Metrics improved
+to sine −15.5 dB and sweep −9.8 dB.  The prior failed public-path attempt
+also added T5 dia to the sag loop; that is now the prime suspect.  Port T5
+without changing `total_dia` first, and diagnose T5 dia/PSS separately.

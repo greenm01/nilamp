@@ -4,7 +4,19 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn faust_compile(input: &Path, output: &Path, class_name: Option<&str>) {
+    faust_compile_with_timeout(input, output, class_name, None);
+}
+
+fn faust_compile_with_timeout(
+    input: &Path,
+    output: &Path,
+    class_name: Option<&str>,
+    timeout_s: Option<&str>,
+) {
     let mut cmd = Command::new("faust");
+    if let Some(timeout_s) = timeout_s {
+        cmd.args(["-t", timeout_s]);
+    }
     cmd.args(["-lang", "rust", "-i", "-I", "dsp"]);
     if let Some(cn) = class_name {
         cmd.args(["-cn", cn]);
@@ -79,6 +91,25 @@ fn main() {
             println!("cargo:rerun-if-changed={}", path.display());
             let out_path = out_dir.join(format!("{stem}.rs"));
             faust_compile(&path, &out_path, Some(stem));
+        }
+    }
+
+    let diagnostics_dir = Path::new("dsp/diagnostics");
+    println!("cargo:rerun-if-changed=dsp/diagnostics");
+    if diagnostics_dir.is_dir() {
+        for entry in fs::read_dir(diagnostics_dir).expect("read dsp/diagnostics") {
+            let entry = entry.expect("read dir entry");
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("dsp") {
+                continue;
+            }
+            let stem = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .expect("diagnostic dsp filename utf8");
+            println!("cargo:rerun-if-changed={}", path.display());
+            let out_path = out_dir.join(format!("{stem}.rs"));
+            faust_compile_with_timeout(&path, &out_path, Some(stem), Some("300"));
         }
     }
 }

@@ -202,9 +202,17 @@ def scale_wav(in_path: Path, out_path: Path, scale: float) -> None:
 # Renderers
 # --------------------------------------------------------------------------- #
 
-def render_nilamp(input_wav: Path, output_wav: Path, params: Params) -> None:
-    cmd = [str(NILAMP_RENDER), "--input", str(input_wav), "--output", str(output_wav),
+def render_nilamp(
+    input_wav: Path,
+    output_wav: Path,
+    params: Params,
+    renderer: Path,
+    variant: str | None,
+) -> None:
+    cmd = [str(renderer), "--input", str(input_wav), "--output", str(output_wav),
            *params.to_nilamp_args()]
+    if variant is not None:
+        cmd.extend(["--variant", variant])
     subprocess.run(cmd, check=True, capture_output=True)
 
 
@@ -356,7 +364,9 @@ def compute_metrics(a: list[float], b: list[float], sr: int) -> Metrics:
 # --------------------------------------------------------------------------- #
 
 def run_one(input_wav: Path, params: Params, out_dir: Path, label: str,
-            input_scale: float = 1.0, jsfx_timeout_s: float = 60.0) -> Metrics:
+            input_scale: float = 1.0, jsfx_timeout_s: float = 60.0,
+            nilamp_renderer: Path = NILAMP_RENDER,
+            nilamp_variant: str | None = None) -> Metrics:
     out_dir.mkdir(parents=True, exist_ok=True)
     nilamp_wav = out_dir / f"{label}_nilamp.wav"
     jsfx_wav = out_dir / f"{label}_jsfx.wav"
@@ -376,7 +386,7 @@ def run_one(input_wav: Path, params: Params, out_dir: Path, label: str,
     if input_scale != 1.0:
         print(f"[{label}] input pre-scale = {input_scale:g}", flush=True)
     print(f"[{label}] rendering nilamp...", flush=True)
-    render_nilamp(rendered_input, nilamp_wav, params)
+    render_nilamp(rendered_input, nilamp_wav, params, nilamp_renderer, nilamp_variant)
     print(f"[{label}] rendering jsfx...", flush=True)
     render_jsfx(rendered_input, jsfx_wav, params, jsfx_timeout_s)
 
@@ -411,6 +421,10 @@ def main() -> int:
                          "linear filter mismatch.")
     ap.add_argument("--jsfx-timeout", type=float, default=60.0,
                     help="REAPER/JSFX render timeout in seconds (default: 60).")
+    ap.add_argument("--nilamp-render", type=Path, default=NILAMP_RENDER,
+                    help=f"nilamp renderer binary (default: {NILAMP_RENDER})")
+    ap.add_argument("--nilamp-variant",
+                    help="Optional diagnostic variant passed to nilamp renderer.")
     ap.add_argument("--rms-threshold-db", type=float, default=-60.0)
     args = ap.parse_args()
 
@@ -425,7 +439,9 @@ def main() -> int:
     print()
 
     m = run_one(args.input, params, args.out_dir, args.label,
-                input_scale=args.input_scale, jsfx_timeout_s=args.jsfx_timeout)
+                input_scale=args.input_scale, jsfx_timeout_s=args.jsfx_timeout,
+                nilamp_renderer=args.nilamp_render,
+                nilamp_variant=args.nilamp_variant)
     print(f"\nresults [{args.label}]:")
     print(m.report())
     ok = m.passed(args.rms_threshold_db)

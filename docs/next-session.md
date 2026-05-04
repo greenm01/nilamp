@@ -1,11 +1,12 @@
-# Next session — resolve T5 ABX regression before public wiring
+# Next session — port ABX-safe T5 branch with current sag loop
 
 ## State of the tree
 
-As of committed base `aded13e`, branch `main` is 7 commits ahead of
-`origin/main`.  T5 table/constants are generated and committed.  Isolated
-T5, synthetic T4/T5 power-pair diagnostics, and frozen-default top-level tap
-diagnostics now pass, but T5 is still **not** wired into `dsp/nilamp.dsp`.
+As of committed base `5603984` plus the current diagnostic work, branch
+`main` is 8 commits ahead of `origin/main`.  T5 table/constants are
+generated and committed.  Isolated T5, synthetic T4/T5 power-pair
+diagnostics, frozen-default top-level taps, and T5 balance ABX variants now
+pass far enough to identify a safe public-path candidate.
 
 Recent commits (newest last):
 - `d98f17a` — HP5 40 Hz output subsonic blocker
@@ -15,6 +16,7 @@ Recent commits (newest last):
 - `7dab2c3` — generated T5 6V6 table/constants and committed this handoff doc
 - `bb8458a` — isolated T5 and synthetic power-pair diagnostics
 - `aded13e` — frozen-default top-level power-stage tap comparison
+- `5603984` — documented the failed public-path T5 attempt
 
 22/22 regression tests pass; `cargo build --release --bin nilamp_render` clean.
 
@@ -155,10 +157,21 @@ That edit was reverted from `dsp/nilamp.dsp` and `build.rs`.
 
 Conclusion: the tap math is not the blocker, but the public T5 branch is
 still not ABX-safe.  Do **not** retry the same public-path T5-only patch.
-Suspect areas are branch balance between raw T4 and filtered T5 paths,
-JSFX-vs-Faust phase/sign assumptions around the subtractive aux branch,
-missing multi-stage PSS behavior, and gain staging around the downstream
-back-end filters.
+Follow-up diagnostics added a separate `nilamp_t5_balance_render` path with
+five variants.  ABX results:
+
+| Variant | 440 Hz sine | 5 s sweep | Note |
+|---|---:|---:|---|
+| `v0_current` | −13.4 dB | −9.2 dB | reproduces baseline |
+| `v1_raw_t4_filtered_t5` | **−15.5 dB** | **−9.8 dB** | best candidate |
+| `v2_filtered_t4_filtered_t5` | −15.1 dB | −9.4 dB | also improves |
+| `v3_sign_add` | +4.6 dB | +2.8 dB | wrong sign/phase |
+| `v4_half_denom_control` | −7.6 dB | −9.2 dB | wrong gain |
+
+Conclusion: the earlier public-path T5 regression came from changing the sag
+feedback current to include T5 dia at the same time.  The ABX-safe candidate
+is `res5_v - res_t5_v` with the full T4+T5 output denominator, while leaving
+the PSS `total_dia` on the current T4-only path for now.
 
 ## Next steps (in order)
 
@@ -167,10 +180,9 @@ back-end filters.
 No further generator work is needed unless the JSFX T5 parameters are found
 to be wrong.
 
-### 2. Diagnose the public-path T5 branch balance
+### 2. Port the ABX-safe T5 branch
 
-Use a temporary harness or render variant before changing `dsp/nilamp.dsp`
-again.  The exact failed patch was:
+In `dsp/nilamp.dsp`, after the current T4 invocation, add the `v1` branch:
 
 In `dsp/nilamp.dsp`, after the T4 invocation:
 
@@ -196,8 +208,7 @@ res_t5_dia = res_t5 : ! , _;
 post_pp = res5_v - res_t5_v;
 ```
 
-Then updating `total_dia` to include `res_t5_dia`, feeding `post_pp` into
-the output HP5, and switching `gout` to:
+Then feed `post_pp` into the output HP5 and switch `gout` to:
 
 ```
 0.5 / (c.t4_rl*c.t4_isat + c.t5_rl*c.t5_isat)
@@ -205,20 +216,14 @@ the output HP5, and switching `gout` to:
 
 Constants needed inline (mode==0): `k2_mode0 = 0.940`, `hp4_hz = 6.4`.
 
-The next diagnostic should compare at least these variants against ABX or
-against JSFX-side taps if available:
+Do **not** add `res_t5_dia` to `total_dia` in this commit.  Keeping the
+current T4-only sag loop is what made `v1_raw_t4_filtered_t5` ABX-safe.
 
-- raw T4 minus filtered T5 (already failed above; use as control)
-- filtered T4 pre-power path plus filtered T5, but without post-power EQ
-- branch sign/gout variants only in a temporary harness, not as committed
-  public audio behavior
+### 3. Re-attempt full back-end chain after public T5 is committed
 
-### 3. Re-attempt full back-end chain only after T5 balance is known
-
-After T5 is ABX-stable, layer in pre-T4 (hp2, k1, hp3, peq1, hs1)
-and post-T4 (peq3, hs3, lp2) chain pieces. With T5 present the gain
-budget should now match JSFX, and the back-end EQ should stop regressing
-residuals.
+After public T5 is ABX-stable, layer in pre-T4 (hp2, k1, hp3, peq1, hs1)
+and post-T4 (peq3, hs3, lp2) chain pieces. Keep T5 dia/PSS changes separate;
+the failed public attempt shows that sag feedback needs its own diagnostic.
 
 Switch the gout denom to the full `0.5 / (t4.rl*t4.isat + t5.rl*t5.isat)`
 when committing the T5 stage — the existing `0.5/(c.t4_rl*c.t4_isat)`
@@ -237,8 +242,8 @@ For each commit:
 Suggested commit slicing from here:
 1. `test(dsp): add T5 branch-balance diagnostic variants`
 2. `feat(dsp): port ABX-safe T5 push-pull aux branch`
-3. `fix(dsp): use full t4+t5 gout denom now that T5 is present`
-4. `feat(dsp): port JSFX back-end EQ chain`
+3. `feat(dsp): port JSFX back-end EQ chain`
+4. `test(dsp): diagnose T5 dia/PSS feedback separately`
 
 ## Files to read first
 
