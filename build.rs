@@ -44,10 +44,10 @@ fn main() {
     // var is kept as an *opt-out* (`NILAMP_BUILD_TOPLEVEL=0`) so we can
     // skip it again if a future change resurrects the timeout.
     println!("cargo:rerun-if-env-changed=NILAMP_BUILD_TOPLEVEL");
-    let toplevel = match env::var("NILAMP_BUILD_TOPLEVEL").as_deref() {
-        Ok("0") | Ok("false") | Ok("off") | Ok("no") => false,
-        _ => true,
-    };
+    let toplevel = !matches!(
+        env::var("NILAMP_BUILD_TOPLEVEL").as_deref(),
+        Ok("0") | Ok("false") | Ok("off") | Ok("no")
+    );
     if toplevel {
         faust_compile(Path::new("dsp/nilamp.dsp"), &out_dir.join("dsp.rs"), None);
         println!("cargo:rustc-cfg=nilamp_toplevel");
