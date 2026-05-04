@@ -384,3 +384,12 @@ oracle runs the cascade sample-by-sample with the current T4-only delayed
 `dvs` feedback path.  This passes, so the next public-path T5 attempt can
 start from known-good Faust/Python tap math; JSFX ABX remains the gate for
 phase/sign and gain-staging parity.
+
+Tried that public-path T5 wiring after the tap diagnostic: T5 driven from
+`res4_vk` through the mode-0 aux HP/PEQ/HS branch, `post_pp = res5_v -
+res_t5_v`, T5 dia included in `total_dia`, and `gout` switched to the full
+T4+T5 denominator.  It built only after raising Faust's compiler timeout,
+but ABX still regressed: sine −12.7 dB and sweep −8.9 dB, with sweep peak
+0.2905 vs JSFX 0.3698.  Reverted the public-path DSP edit and timeout bump.
+The next attempt should diagnose branch balance/sign variants before another
+`dsp/nilamp.dsp` audio-path change.
