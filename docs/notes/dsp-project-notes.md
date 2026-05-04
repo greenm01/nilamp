@@ -50,16 +50,18 @@ Improvements ranked by value/effort, sourced from the broader exploration. Each 
 - Apply to: any amp where power-amp clipping is a tone feature (Plexi, AC30, Bassman)
 - Decision gate: ABX vs. triode-shaped GLF; ship pentode where audible
 
-**T2.2 — Dempwolf-Zölzer triode tables for non-symmetric amps** (PAK — see §6.1, §7)
+**T2.2 — Dempwolf-Zölzer triode tables for non-symmetric amps** (PAK — see §6.1, §7)  *(implemented for 5E3 ECC83 stages — see status note below)*
 
 - For amps where asymmetric grid-current behavior matters (high-gain Marshalls, AC30 boost, grid-blocking effects)
-- For 5E3 (`b=0, type=0.5` in Keller, effectively symmetric tanh), the delta is negligible — keep GLF
+- ~~For 5E3 (`b=0, type=0.5` in Keller, effectively symmetric tanh), the delta is negligible — keep GLF~~
+  Retracted.  Keller's 5E3 ECC83 fits use `b=0, type=0.5` not because the underlying tube is symmetric but because that's the simplest GLF that lands in the right ballpark.  Comparing to a load-line-solved Dempwolf-Zölzer ECC83 at the same operating point shows clear asymmetry around the quiescent (~5–35% depending on stage), and the DZ-derived `kbias_actual` differs from Keller's hand-fitted `kbias` by 5–80%.  See `tools/plot_dz_vs_glf.py` (figures in `docs/notes/figures/dz_vs_glf*.png`).
 - Reference impl: `~/src/NodalDKFramework/triode.m` (lines 35–58)
   - SoftPlus + power-law: `Ip = -Gp · (ln(1+exp(Cp·(Vpk/μ+Vgk)))/Cp)^γ − Ig`
   - ECC83 params: `Gg=606e-6, xi=1.354, Cg=13.9, Gp=2.14e-3, gamma=1.303, Cp=3.04, mu=100.8`
   - Full Jacobian provided (useful for offline load-line iteration)
-- Implementation: Python uses the formula to generate tables; replace per-tube tables in Keller's framework
-- Decision gate: ABX per amp; keep GLF where Dempwolf delta isn't hearable
+- Implementation: `tools/keller_oracle.py` provides `triode_dz_ecc83`, its Jacobian, and warm-startable `loadline_solve_ck/cd` + outward-sweep `loadline_curve_ck/cd` helpers.  `tools/gen_tables.py` consumes those via `gen_adnl_table_dz_ck/cd` and emits per-stage `<stage>_table_dz` waveforms in `dsp/5e3_tables.lib`.  `dsp/nilamp.dsp` exposes per-stage `<stage>_table` aliases at the top of the file so each ECC83 stage can be flipped to the DZ table by editing one line (Faust waveforms aren't first-class, so a runtime flag isn't possible).
+- Regression: `dsp/tests/test_tube_ck_t2_dz.dsp` and `dsp/tests/test_tube_cd_t3_dz.dsp` pin the DZ generator + Faust wiring path against the oracle's `adnl_set_dz_ck/cd`.
+- Decision gate: ABX per amp; keep GLF where Dempwolf delta isn't hearable (default still ships GLF on all stages).
 
 **T2.3 — Mačák Algorithm 1 data reduction on tables** (Mačák spline-DK — see §6.4)
 
@@ -88,7 +90,7 @@ Improvements ranked by value/effort, sourced from the broader exploration. Each 
 - **OPT hysteresis modeling (JA, GC, Frohlich)** — Mačák ABX listening test (§6.1) shows linear OPT is statistically indistinguishable from Jiles-Atherton hysteresis. Mačák doesn't ship transformer code himself despite developing all three models. Strong implicit confirmation.
 - **Replace block-diagram architecture with WDF/DK** for solo-tube stages — Keller's Wiener-Hammerstein is correct for single-tube circuits.
 - **NAM-style ML capture** — different category. Users can chain a NAM plugin downstream if they want.
-- **Replace GLF for 5E3 specifically** — `b=0, type=0.5` is already perceptually adequate; the curve-fit is acoustically equivalent to a Dempwolf-Zölzer triode for this circuit.
+- ~~**Replace GLF for 5E3 specifically** — `b=0, type=0.5` is already perceptually adequate; the curve-fit is acoustically equivalent to a Dempwolf-Zölzer triode for this circuit.~~  Retracted; see T2.2 status note above.  The DZ replacement for ECC83 stages is implemented and reachable by editing the `<stage>_table` aliases in `dsp/nilamp.dsp`.  Whether to *ship* it as the default for the 5E3 still needs an ABX listening test against the GLF baseline.
 
 ### Implementation order (when work begins)
 
@@ -101,7 +103,7 @@ Improvements ranked by value/effort, sourced from the broader exploration. Each 
 7. T1.1 (refactor source impedance into per-amp data structure).
 8. Add a second amp (Bassman or Plexi) with different damping factor; verify "feel" difference.
 9. T2.1 (pentode for power amps); ABX-decide per amp.
-10. T2.2 (Dempwolf-Zölzer triode tables) where audible.
+10. T2.2 (Dempwolf-Zölzer triode tables) where audible. ✅ *implemented for 5E3 ECC83 stages (T1-12AX7-mod, T2, T3); selectable per-stage via `<stage>_table` aliases in `dsp/nilamp.dsp`.  ABX vs GLF default still pending.*
 11. T2.3 (data reduction) as polish.
 12. Tier 3 only if motivated by specific listening complaints.
 
