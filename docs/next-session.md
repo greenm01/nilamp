@@ -1,13 +1,12 @@
-# Next session - isolate backend EQ regression after T5
+# Next session - inspect backend pre-chain mismatch
 
 ## State of the tree
 
-Public `dsp/nilamp.dsp` now includes the ABX-safe T5 subtractive audio branch
-plus the JSFX post-power backend filter subset. The public output path is:
+Public `dsp/nilamp.dsp` includes the ABX-safe T5 subtractive audio branch plus
+the JSFX post-power backend filter subset. The public output path is:
 `post_pp = res5_v - res_t5_v`, `peq3 -> hs3 -> hp5 -> lp2`, then full T4+T5
 output denominator. PSS dia feedback intentionally remains on the existing
-T4-only path. Do not add T5 dia to `total_dia` without a separate sag/PSS
-diagnostic; that was the source of the earlier public T5 regression.
+T4-only path.
 
 Current normal-renderer ABX baseline at `gain=+6, defaults`:
 
@@ -18,60 +17,49 @@ Current normal-renderer ABX baseline at `gain=+6, defaults`:
 | Sweep peak A / B | 0.4195 / 0.3698 |
 | Sweep align lag | 1 sample |
 
-Regression status before this handoff:
-
-- `cargo test --release` passed 22/22.
-- `cargo build --release --bin nilamp_render` passed.
-- `cargo build --release --bin nilamp_t5_balance_render` passed.
-
 ## What was added
 
-The T5 branch-balance diagnostic now has two extra backend-chain probes:
+`tools/abx_compare.py` now caches JSFX reference renders under
+`/tmp/abx_compare/jsfx_cache/`, keyed by input audio content and JSFX slider
+settings. This avoids rerunning REAPER for every nilamp diagnostic variant.
+Use `--no-jsfx-cache` to force a fresh JSFX render.
 
-| Variant | Meaning |
-|---|---|
-| `v5_post_backend_current_sag` | current T4/T5 mix plus JSFX post-power PEQ3/HS3/HP5/LP2 |
-| `v6_full_backend_current_sag` | HP2 before T3, backend T4/T5 branches, then PEQ3/HS3/HP5/LP2 |
+The T5 branch-balance diagnostic now splits the rejected full backend path into
+variants `v7` through `v12`:
 
-`dsp/hk_filters.lib` also now exports `flt_df2_lp`, mirroring Keller
-`flt_df2_set_lp`, so diagnostics can model JSFX `lp2` at 10 kHz.
-
-ABX results from these probes at `gain=+6, defaults`:
-
-| Variant | 440 Hz sine | 5 s sweep | Decision |
+| Variant | 440 Hz sine | 5 s sweep | Result |
 |---|---:|---:|---|
-| prior public T5 baseline | -15.5 dB | -9.8 dB | superseded |
-| `v5_post_backend_current_sag` | -16.0 dB | -11.2 dB | ported to public path |
-| `v6_full_backend_current_sag` | -15.8 dB | -9.4 dB | reject for public path |
+| current public baseline / `v5` | -16.0 dB | -11.2 dB | keep |
+| `v6_full_backend_current_sag` | -15.8 dB | -9.4 dB | reject |
+| `v7_t4_k1_current_t3` | -15.1 dB | -11.1 dB | `k1` alone regresses sine |
+| `v8_t4_hp3_current_t3` | -15.5 dB | -10.7 dB | `hp3` regresses sweep |
+| `v9_t4_peq_hs_current_t3` | -15.6 dB | -9.9 dB | PEQ/HS regresses sweep |
+| `v10_t4_full_pre_current_t3` | -15.1 dB | -9.5 dB | full T4 pre-chain regresses |
+| `v11_hp2_t5_source_only` | -16.1 dB | -11.1 dB | diagnostic-only, sweep misses gate |
+| `v12_hp2_both_raw` | -16.6 dB | -11.1 dB | HP2 helps sine, sweep misses gate |
 
-Interpretation: post-power backend filtering by itself improves both probes,
-so `v5` was ported to `dsp/nilamp.dsp`. The full coupled backend path still
-regresses the sweep, so `v6` remains diagnostic-only.
+No split variant clears both public gates, so no new public `dsp/nilamp.dsp`
+audio-path edit was made.
 
 ## Next steps
 
-1. Keep `v5`/`v6` diagnostics as the reference harness for backend work.
-2. Split the rejected full backend path into smaller diagnostic variants:
-   - HP2 before T3 only.
-   - T4/T5 `k1`/`k2` attenuators only.
-   - HP3/HP4 only.
-   - PEQ1/PEQ2 + HS1/HS2 only.
-   - LP2 only.
-3. Gate every variant against the current public baseline: sine must be at
-   least -16.0 dB and sweep must be at least -11.2 dB.
-4. If one stage regresses sweep, inspect Faust vs JSFX coefficient math and
-   ordering before trying another public-path port.
-5. Diagnose T5 dia/PSS feedback separately from audio EQ. It is still a known
-   failure mode and should not be bundled with backend EQ work.
+1. Inspect the T4 pre-chain coefficient math and ordering against JSFX:
+   `k1`, `hp3`, `peq1`, and `hs1`.
+2. Add smaller diagnostics for the PEQ/HS block:
+   - PEQ1 only.
+   - HS1 only.
+   - PEQ1/HS1 with alternate ordering if JSFX state/order inspection suggests it.
+3. Add T5-side mirrors for the same block only if T4-side diagnostics implicate
+   branch imbalance rather than coefficient error.
+4. Keep using the current public gate: sine at least -16.0 dB and sweep at
+   least -11.2 dB.
+5. Keep T5 dia/PSS feedback separate; do not add T5 dia to `total_dia` during
+   backend EQ work.
 
 ## Files to read first
 
-- `dsp/nilamp.dsp` - public T5 branch and current PSS dia feedback.
-- `dsp/diagnostics/nilamp_t5_balance.dsp` - backend diagnostic variants.
+- `dsp/diagnostics/nilamp_t5_balance.dsp` - split backend variants.
 - `src/bin/nilamp_t5_balance_render.rs` - diagnostic variant selection.
-- `dsp/hk_filters.lib` - JSFX-mirrored `flt_df2_lp` helper.
-- `docs/notes/abx-harness.md` - full ABX investigation log.
+- `tools/abx_compare.py` - JSFX cache and ABX driver.
 - `~/.config/REAPER/Effects/nilamp_abx/twd_dlx_ii_harness.jsfx` - backend
   chain around lines 395-434.
-- `~/.config/REAPER/Effects/nilamp_abx/HK_LIB_FLT_DF.jsfx-inc` -
-  `flt_df2_set_lp`.

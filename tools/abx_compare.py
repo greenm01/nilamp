@@ -43,7 +43,9 @@ unconditionally.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import math
+import shutil
 import struct
 import subprocess
 import sys
@@ -228,6 +230,45 @@ def render_jsfx(input_wav: Path, output_wav: Path, params: Params, timeout_s: fl
     subprocess.run(cmd, check=True, capture_output=True, cwd=REPO_ROOT)
 
 
+def jsfx_cache_key(input_wav: Path, params: Params) -> str:
+    h = hashlib.sha256()
+    h.update(b"nilamp-jsfx-cache-v1\0")
+    h.update(input_wav.read_bytes())
+    h.update(b"\0")
+    for arg in params.to_jsfx_args():
+        h.update(arg.encode("utf-8"))
+        h.update(b"\0")
+    return h.hexdigest()
+
+
+def render_jsfx_cached(
+    input_wav: Path,
+    output_wav: Path,
+    params: Params,
+    timeout_s: float,
+    cache_dir: Path,
+    use_cache: bool,
+    label: str,
+) -> None:
+    if not use_cache:
+        print(f"[{label}] rendering jsfx...", flush=True)
+        render_jsfx(input_wav, output_wav, params, timeout_s)
+        return
+
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cached_wav = cache_dir / f"{jsfx_cache_key(input_wav, params)}.wav"
+    if cached_wav.exists():
+        print(f"[{label}] jsfx cache hit: {cached_wav}", flush=True)
+    else:
+        tmp_wav = cached_wav.with_suffix(".tmp.wav")
+        if tmp_wav.exists():
+            tmp_wav.unlink()
+        print(f"[{label}] rendering jsfx cache miss...", flush=True)
+        render_jsfx(input_wav, tmp_wav, params, timeout_s)
+        tmp_wav.replace(cached_wav)
+    shutil.copyfile(cached_wav, output_wav)
+
+
 # --------------------------------------------------------------------------- #
 # Signal processing helpers
 # --------------------------------------------------------------------------- #
@@ -366,7 +407,8 @@ def compute_metrics(a: list[float], b: list[float], sr: int) -> Metrics:
 def run_one(input_wav: Path, params: Params, out_dir: Path, label: str,
             input_scale: float = 1.0, jsfx_timeout_s: float = 60.0,
             nilamp_renderer: Path = NILAMP_RENDER,
-            nilamp_variant: str | None = None) -> Metrics:
+            nilamp_variant: str | None = None,
+            use_jsfx_cache: bool = True) -> Metrics:
     out_dir.mkdir(parents=True, exist_ok=True)
     nilamp_wav = out_dir / f"{label}_nilamp.wav"
     jsfx_wav = out_dir / f"{label}_jsfx.wav"
@@ -387,8 +429,15 @@ def run_one(input_wav: Path, params: Params, out_dir: Path, label: str,
         print(f"[{label}] input pre-scale = {input_scale:g}", flush=True)
     print(f"[{label}] rendering nilamp...", flush=True)
     render_nilamp(rendered_input, nilamp_wav, params, nilamp_renderer, nilamp_variant)
-    print(f"[{label}] rendering jsfx...", flush=True)
-    render_jsfx(rendered_input, jsfx_wav, params, jsfx_timeout_s)
+    render_jsfx_cached(
+        rendered_input,
+        jsfx_wav,
+        params,
+        jsfx_timeout_s,
+        out_dir / "jsfx_cache",
+        use_jsfx_cache,
+        label,
+    )
 
     a, sr_a = read_wav_f32(nilamp_wav)
     b, sr_b = read_wav_f32(jsfx_wav)
@@ -421,6 +470,8 @@ def main() -> int:
                          "linear filter mismatch.")
     ap.add_argument("--jsfx-timeout", type=float, default=60.0,
                     help="REAPER/JSFX render timeout in seconds (default: 60).")
+    ap.add_argument("--no-jsfx-cache", action="store_true",
+                    help="Disable JSFX reference-render cache.")
     ap.add_argument("--nilamp-render", type=Path, default=NILAMP_RENDER,
                     help=f"nilamp renderer binary (default: {NILAMP_RENDER})")
     ap.add_argument("--nilamp-variant",
@@ -441,7 +492,8 @@ def main() -> int:
     m = run_one(args.input, params, args.out_dir, args.label,
                 input_scale=args.input_scale, jsfx_timeout_s=args.jsfx_timeout,
                 nilamp_renderer=args.nilamp_render,
-                nilamp_variant=args.nilamp_variant)
+                nilamp_variant=args.nilamp_variant,
+                use_jsfx_cache=not args.no_jsfx_cache)
     print(f"\nresults [{args.label}]:")
     print(m.report())
     ok = m.passed(args.rms_threshold_db)

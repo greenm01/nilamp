@@ -34,6 +34,12 @@ enum Variant {
     HalfDenomControl,
     PostBackendCurrentSag,
     FullBackendCurrentSag,
+    T4K1CurrentT3,
+    T4Hp3CurrentT3,
+    T4PeqHsCurrentT3,
+    T4FullPreCurrentT3,
+    Hp2T5SourceOnly,
+    Hp2BothRaw,
 }
 
 impl Variant {
@@ -52,6 +58,14 @@ impl Variant {
             "v6_full_backend_current_sag" | "full_backend_current_sag" | "6" => {
                 Ok(Self::FullBackendCurrentSag)
             }
+            "v7_t4_k1_current_t3" | "t4_k1_current_t3" | "7" => Ok(Self::T4K1CurrentT3),
+            "v8_t4_hp3_current_t3" | "t4_hp3_current_t3" | "8" => Ok(Self::T4Hp3CurrentT3),
+            "v9_t4_peq_hs_current_t3" | "t4_peq_hs_current_t3" | "9" => Ok(Self::T4PeqHsCurrentT3),
+            "v10_t4_full_pre_current_t3" | "t4_full_pre_current_t3" | "10" => {
+                Ok(Self::T4FullPreCurrentT3)
+            }
+            "v11_hp2_t5_source_only" | "hp2_t5_source_only" | "11" => Ok(Self::Hp2T5SourceOnly),
+            "v12_hp2_both_raw" | "hp2_both_raw" | "12" => Ok(Self::Hp2BothRaw),
             _ => Err(format!("unknown variant: {s}")),
         }
     }
@@ -65,6 +79,12 @@ impl Variant {
             Self::HalfDenomControl => 4,
             Self::PostBackendCurrentSag => 5,
             Self::FullBackendCurrentSag => 6,
+            Self::T4K1CurrentT3 => 7,
+            Self::T4Hp3CurrentT3 => 8,
+            Self::T4PeqHsCurrentT3 => 9,
+            Self::T4FullPreCurrentT3 => 10,
+            Self::Hp2T5SourceOnly => 11,
+            Self::Hp2BothRaw => 12,
         }
     }
 
@@ -77,6 +97,12 @@ impl Variant {
             Self::HalfDenomControl => "v4_half_denom_control",
             Self::PostBackendCurrentSag => "v5_post_backend_current_sag",
             Self::FullBackendCurrentSag => "v6_full_backend_current_sag",
+            Self::T4K1CurrentT3 => "v7_t4_k1_current_t3",
+            Self::T4Hp3CurrentT3 => "v8_t4_hp3_current_t3",
+            Self::T4PeqHsCurrentT3 => "v9_t4_peq_hs_current_t3",
+            Self::T4FullPreCurrentT3 => "v10_t4_full_pre_current_t3",
+            Self::Hp2T5SourceOnly => "v11_hp2_t5_source_only",
+            Self::Hp2BothRaw => "v12_hp2_both_raw",
         }
     }
 }
@@ -176,6 +202,12 @@ Variants:
   v4_half_denom_control
   v5_post_backend_current_sag
   v6_full_backend_current_sag
+  v7_t4_k1_current_t3
+  v8_t4_hp3_current_t3
+  v9_t4_peq_hs_current_t3
+  v10_t4_full_pre_current_t3
+  v11_hp2_t5_source_only
+  v12_hp2_both_raw
 
 Params:
   --gain    -24..24    Input gain (dB)
@@ -248,9 +280,9 @@ fn run(args: &Args) -> Result<(), String> {
 
     let n_inputs = dsp.get_num_inputs() as usize;
     let n_outputs = dsp.get_num_outputs() as usize;
-    if n_inputs != 1 || n_outputs < 7 {
+    if n_inputs != 1 || n_outputs < 13 {
         return Err(format!(
-            "expected 1-in / >=7-out diagnostic DSP, got {n_inputs}-in / {n_outputs}-out"
+            "expected 1-in / >=13-out diagnostic DSP, got {n_inputs}-in / {n_outputs}-out"
         ));
     }
 

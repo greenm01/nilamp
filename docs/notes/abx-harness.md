@@ -439,3 +439,33 @@ clear the public-port gate; backend T3 and T4/T5 feed changes bring the sweep
 back above the current baseline.  Do not port the coupled backend block as-is.
 The next diagnostic should split v6 into smaller toggles: HP2 before T3,
 `k1`/`k2`, HP3/HP4, PEQ/HS before T4/T5, and LP2.
+
+## Investigation 2026-05-04 (cont.): split backend pre-chain diagnostics
+
+`tools/abx_compare.py` now caches JSFX reference renders by input audio content
+and JSFX slider settings under `/tmp/abx_compare/jsfx_cache/`.  This keeps
+large nilamp diagnostic sweeps from launching REAPER repeatedly for identical
+JSFX references.  Pass `--no-jsfx-cache` to force a fresh JSFX render.
+
+Added `nilamp_t5_balance_render` variants `v7` through `v12` to split the
+rejected full-backend path while keeping the public post-power backend block
+and current T4-only PSS feedback path.
+
+ABX at `gain=+6, defaults`:
+
+| Variant | Sine residual | Sweep residual | Result |
+|---------|---------------|----------------|--------|
+| public baseline / `v5` | -16.0 dB | -11.2 dB | keep |
+| `v6_full_backend_current_sag` | -15.8 dB | -9.4 dB | reject |
+| `v7_t4_k1_current_t3` | -15.1 dB | -11.1 dB | misses sine gate |
+| `v8_t4_hp3_current_t3` | -15.5 dB | -10.7 dB | misses sweep gate |
+| `v9_t4_peq_hs_current_t3` | -15.6 dB | -9.9 dB | misses sweep gate |
+| `v10_t4_full_pre_current_t3` | -15.1 dB | -9.5 dB | misses both gates |
+| `v11_hp2_t5_source_only` | -16.1 dB | -11.1 dB | diagnostic-only, misses sweep gate |
+| `v12_hp2_both_raw` | -16.6 dB | -11.1 dB | improves sine, misses sweep gate |
+
+No split variant clears both public gates, so no new public DSP edit was made.
+The strongest signal is that HP2 before T3 helps the sine residual but still
+does not improve the sweep, while the T4-side pre-chain pieces (`k1`, `hp3`,
+`peq1`, `hs1`) all regress at least one gate.  Next work should inspect PEQ/HS
+coefficient math and ordering before trying another public backend port.

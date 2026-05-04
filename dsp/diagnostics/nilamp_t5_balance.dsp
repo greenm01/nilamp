@@ -10,6 +10,12 @@
 //   4. v4_half_denom_control       filtered T4 - filtered T5 + half denominator
 //   5. v5_post_backend_current_sag post-power PEQ/HS/HP/LP on current T5 mix
 //   6. v6_full_backend_current_sag pre/post backend around T4/T5
+//   7. v7_t4_k1_current_t3         T4 k1 only, current T5, post backend
+//   8. v8_t4_hp3_current_t3        T4 hp3 only, current T5, post backend
+//   9. v9_t4_peq_hs_current_t3     T4 PEQ1/HS1 only, current T5, post backend
+//  10. v10_t4_full_pre_current_t3  T4 full pre-chain, current T5, post backend
+//  11. v11_hp2_t5_source_only      raw T4 - HP2-sourced T5, post backend
+//  12. v12_hp2_both_raw            HP2-sourced raw T4/T5, post backend
 import("stdfaust.lib");
 tube = library("hk_tube.lib");
 flt = library("hk_filters.lib");
@@ -58,7 +64,7 @@ process = _ : *(gain1) : global_loop
 with {
     global_loop(vin) = loop_block(vin)
     with {
-        loop_block(v_in_ext) = (loop_core(v_in_ext) ~ _) : !, _, _, _, _, _, _, _
+        loop_block(v_in_ext) = (loop_core(v_in_ext) ~ _) : !, _, _, _, _, _, _, _, _, _, _, _, _, _
         with {
             loop_core(v_in_ext, old_dvs) =
                 next_dvs_current,
@@ -68,7 +74,13 @@ with {
                 v3_sign_add,
                 v4_half_denom_control,
                 v5_post_backend_current_sag,
-                v6_full_backend_current_sag
+                v6_full_backend_current_sag,
+                v7_t4_k1_current_t3,
+                v8_t4_hp3_current_t3,
+                v9_t4_peq_hs_current_t3,
+                v10_t4_full_pre_current_t3,
+                v11_hp2_t5_source_only,
+                v12_hp2_both_raw
             with {
                 res1 = tube.tube_ck_simple(
                     TBL_SIZE, t1_table, XMAX, DX,
@@ -158,6 +170,47 @@ with {
                     t4_backend_in, old_dvs);
                 t4_backend_v = res_t4_backend : _ , !;
 
+                t4_k1_in = res4_v : *(k1_mode0);
+                res_t4_k1 = tube.tube_ck_simple(
+                    TBL_SIZE, t4_table, XMAX, DX,
+                    c.t4_kpre, c.t4_isat, c.t4_rl, c.t4_kpk,
+                    c.t4_kspre, c.t4_kspost, c.t4_ksva, c.t4_ksib, c.t4_kfb,
+                    c.t4_pk_xth, c.t4_pk_xdiode, c.t4_pk_k1, c.t4_pk_k2,
+                    c.t4_avg_f,
+                    t4_k1_in, old_dvs);
+                t4_k1_v = res_t4_k1 : _ , !;
+
+                t4_hp3_in = res4_v : flt.flt_ii1_hp(hp3_hz);
+                res_t4_hp3 = tube.tube_ck_simple(
+                    TBL_SIZE, t4_table, XMAX, DX,
+                    c.t4_kpre, c.t4_isat, c.t4_rl, c.t4_kpk,
+                    c.t4_kspre, c.t4_kspost, c.t4_ksva, c.t4_ksib, c.t4_kfb,
+                    c.t4_pk_xth, c.t4_pk_xdiode, c.t4_pk_k1, c.t4_pk_k2,
+                    c.t4_avg_f,
+                    t4_hp3_in, old_dvs);
+                t4_hp3_v = res_t4_hp3 : _ , !;
+
+                t4_peq_hs_in = res4_v
+                    : flt.flt_sv2_peq(kp1, fp_hz, qp1, 1, 1)
+                    : flt.flt_sv1_hs(ks1, fs1_hz, 1);
+                res_t4_peq_hs = tube.tube_ck_simple(
+                    TBL_SIZE, t4_table, XMAX, DX,
+                    c.t4_kpre, c.t4_isat, c.t4_rl, c.t4_kpk,
+                    c.t4_kspre, c.t4_kspost, c.t4_ksva, c.t4_ksib, c.t4_kfb,
+                    c.t4_pk_xth, c.t4_pk_xdiode, c.t4_pk_k1, c.t4_pk_k2,
+                    c.t4_avg_f,
+                    t4_peq_hs_in, old_dvs);
+                t4_peq_hs_v = res_t4_peq_hs : _ , !;
+
+                res_t4_backend_raw = tube.tube_ck_simple(
+                    TBL_SIZE, t4_table, XMAX, DX,
+                    c.t4_kpre, c.t4_isat, c.t4_rl, c.t4_kpk,
+                    c.t4_kspre, c.t4_kspost, c.t4_ksva, c.t4_ksib, c.t4_kfb,
+                    c.t4_pk_xth, c.t4_pk_xdiode, c.t4_pk_k1, c.t4_pk_k2,
+                    c.t4_avg_f,
+                    res4_backend_v, old_dvs);
+                t4_backend_raw_v = res_t4_backend_raw : _ , !;
+
                 t5_in = res4_vk
                     : *(k2_mode0)
                     : flt.flt_ii1_hp(hp4_hz)
@@ -217,6 +270,42 @@ with {
                     : flt.flt_df2_lp(10000, sqrt(0.5), 1, 0)
                     : *(full_gout);
                 v6_full_backend_current_sag = (t4_backend_v - t5_backend_v)
+                    : flt.flt_sv2_peq(kp2, fp_hz, qp2, 1, 1)
+                    : flt.flt_sv1_hs(ks2, fs2_hz, 1)
+                    : flt.flt_ii1_hp(40)
+                    : flt.flt_df2_lp(10000, sqrt(0.5), 1, 0)
+                    : *(full_gout);
+                v7_t4_k1_current_t3 = (t4_k1_v - t5_v)
+                    : flt.flt_sv2_peq(kp2, fp_hz, qp2, 1, 1)
+                    : flt.flt_sv1_hs(ks2, fs2_hz, 1)
+                    : flt.flt_ii1_hp(40)
+                    : flt.flt_df2_lp(10000, sqrt(0.5), 1, 0)
+                    : *(full_gout);
+                v8_t4_hp3_current_t3 = (t4_hp3_v - t5_v)
+                    : flt.flt_sv2_peq(kp2, fp_hz, qp2, 1, 1)
+                    : flt.flt_sv1_hs(ks2, fs2_hz, 1)
+                    : flt.flt_ii1_hp(40)
+                    : flt.flt_df2_lp(10000, sqrt(0.5), 1, 0)
+                    : *(full_gout);
+                v9_t4_peq_hs_current_t3 = (t4_peq_hs_v - t5_v)
+                    : flt.flt_sv2_peq(kp2, fp_hz, qp2, 1, 1)
+                    : flt.flt_sv1_hs(ks2, fs2_hz, 1)
+                    : flt.flt_ii1_hp(40)
+                    : flt.flt_df2_lp(10000, sqrt(0.5), 1, 0)
+                    : *(full_gout);
+                v10_t4_full_pre_current_t3 = (t4_filtered_v - t5_v)
+                    : flt.flt_sv2_peq(kp2, fp_hz, qp2, 1, 1)
+                    : flt.flt_sv1_hs(ks2, fs2_hz, 1)
+                    : flt.flt_ii1_hp(40)
+                    : flt.flt_df2_lp(10000, sqrt(0.5), 1, 0)
+                    : *(full_gout);
+                v11_hp2_t5_source_only = (t4_raw_v - t5_backend_v)
+                    : flt.flt_sv2_peq(kp2, fp_hz, qp2, 1, 1)
+                    : flt.flt_sv1_hs(ks2, fs2_hz, 1)
+                    : flt.flt_ii1_hp(40)
+                    : flt.flt_df2_lp(10000, sqrt(0.5), 1, 0)
+                    : *(full_gout);
+                v12_hp2_both_raw = (t4_backend_raw_v - t5_backend_v)
                     : flt.flt_sv2_peq(kp2, fp_hz, qp2, 1, 1)
                     : flt.flt_sv1_hs(ks2, fs2_hz, 1)
                     : flt.flt_ii1_hp(40)
