@@ -18,7 +18,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).parent))
 import keller_oracle as ko  # noqa: E402
 import gen_5e3_tables as t5e3  # noqa: E402
-from gen_tables import gen_adnl_table  # noqa: E402
+from gen_tables import gen_adnl_table, gen_adnl_table_dz_ck, gen_adnl_table_dz_cd  # noqa: E402
 
 FIXTURES_DIR = Path("tests/fixtures")
 SAMPLE_RATE = 48_000
@@ -80,10 +80,52 @@ def _ck_oracle(cfg) -> ko.TubeCk:
     )
 
 
+def _ck_oracle_dz(cfg) -> ko.TubeCk:
+    """DZ-table variant of :func:`_ck_oracle`.  Same params, only the
+    ADNL waveform changes (Dempwolf-Zölzer ECC83 + per-stage CK load
+    line, with the same saturation clipping the Faust-side DZ table
+    uses)."""
+    table = gen_adnl_table_dz_ck(
+        vs=cfg.vs, ra=cfg.ra, rl=cfg.rl, rk=cfg.rk,
+        isat=cfg.isat, ibias=cfg.ibias, kpre=cfg.kpre,
+    )
+    pk_k1 = 1.0 - np.exp(-1.0 / (cfg.tattack * SAMPLE_RATE))
+    pk_k2 = np.exp(-1.0 / (cfg.trelease * SAMPLE_RATE))
+    avg_f = 1.0 / (2.0 * np.pi * cfg.tck)
+    return ko.TubeCk(
+        kpre=cfg.kpre, isat=cfg.isat, rl=cfg.rl, kpk=cfg.kpk,
+        kspre=cfg.kspre, kspost=cfg.kspost, ksva=cfg.ksva,
+        ksib=cfg.ksib, kfb=cfg.kfb,
+        pk_xth=cfg.pk_xth, pk_xdiode=cfg.pk_xdrop,
+        pk_k1=pk_k1, pk_k2=pk_k2, avg_f=avg_f,
+        neq_b0=1.0, neq_b1=0.0, neq_b2=0.0, neq_a1=0.0, neq_a2=0.0,
+        sr=SAMPLE_RATE, adnl_table=table,
+    )
+
+
 def _cd_oracle(cfg) -> ko.TubeCd:
     """Build a TubeCd oracle matching dsp/tests/test_tube_cd.dsp.
     No tck/avg_f for cathodyne (no advk path)."""
     table = gen_adnl_table(cfg.kbias, cfg.b, cfg.type_b, cfg.kloop)
+    pk_k1 = 1.0 - np.exp(-1.0 / (cfg.tattack * SAMPLE_RATE))
+    pk_k2 = np.exp(-1.0 / (cfg.trelease * SAMPLE_RATE))
+    return ko.TubeCd(
+        kpre=cfg.kpre, isat=cfg.isat, rl=cfg.rl, rkl=(cfg.rk + cfg.rl),
+        kpk=cfg.kpk, kspre=cfg.kspre, kspost=cfg.kspost,
+        ksva=cfg.ksva, ksvk=cfg.ksvk, ksib=cfg.ksib,
+        pk_xth=cfg.pk_xth, pk_xdiode=cfg.pk_xdrop,
+        pk_k1=pk_k1, pk_k2=pk_k2,
+        neq_b0=1.0, neq_b1=0.0, neq_b2=0.0, neq_a1=0.0, neq_a2=0.0,
+        sr=SAMPLE_RATE, adnl_table=table,
+    )
+
+
+def _cd_oracle_dz(cfg) -> ko.TubeCd:
+    """DZ-table variant of :func:`_cd_oracle`."""
+    table = gen_adnl_table_dz_cd(
+        vs=cfg.vs, ra=cfg.ra, rl=cfg.rl, rk=cfg.rk,
+        isat=cfg.isat, ibias=cfg.ibias, kpre=cfg.kpre,
+    )
     pk_k1 = 1.0 - np.exp(-1.0 / (cfg.tattack * SAMPLE_RATE))
     pk_k2 = np.exp(-1.0 / (cfg.trelease * SAMPLE_RATE))
     return ko.TubeCd(
@@ -171,6 +213,20 @@ def main() -> None:
     write(FIXTURES_DIR / "tube_cd_t3_v_sine05_48k.f32",  cd_v)
     write(FIXTURES_DIR / "tube_cd_t3_vk_sine05_48k.f32", cd_vk)
     write(FIXTURES_DIR / "tube_cd_t3_dia_sine05_48k.f32", cd_dia)
+
+    # DZ variants — same harness shape, swap the ADNL table for the
+    # Dempwolf-Zölzer load-line curve.  See dsp/tests/test_tube_ck_t2_dz.dsp
+    # / test_tube_cd_t3_dz.dsp.
+    ck_dz = _ck_oracle_dz(t5e3.T2_12AX7)
+    ck_dz_v, ck_dz_dia = ck_dz.process_block(sine.copy(), dvs_zero)
+    write(FIXTURES_DIR / "tube_ck_t2_dz_v_sine05_48k.f32", ck_dz_v)
+    write(FIXTURES_DIR / "tube_ck_t2_dz_dia_sine05_48k.f32", ck_dz_dia)
+
+    cd_dz = _cd_oracle_dz(t5e3.T3_CD)
+    cd_dz_v, cd_dz_vk, cd_dz_dia = cd_dz.process_block(sine.copy(), dvs_zero)
+    write(FIXTURES_DIR / "tube_cd_t3_dz_v_sine05_48k.f32",  cd_dz_v)
+    write(FIXTURES_DIR / "tube_cd_t3_dz_vk_sine05_48k.f32", cd_dz_vk)
+    write(FIXTURES_DIR / "tube_cd_t3_dz_dia_sine05_48k.f32", cd_dz_dia)
 
     # PSS \u2014 standalone, snext=dvs_in=0.  dia values in a real amp are
     # ~mA-range, but tube_pss is linear in dia so any scale exercises

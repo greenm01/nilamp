@@ -62,6 +62,9 @@ fn main() {
     // mydsp struct is renamed to <stem>, avoiding collisions when the test
     // crate includes multiple files in the same module.
     let tests_dir = Path::new("dsp/tests");
+    // Ensure cargo re-runs this build script when test DSPs are added or
+    // removed (a plain rerun-if-changed on each file misses additions).
+    println!("cargo:rerun-if-changed=dsp/tests");
     if tests_dir.is_dir() {
         for entry in fs::read_dir(tests_dir).expect("read dsp/tests") {
             let entry = entry.expect("read dir entry");
