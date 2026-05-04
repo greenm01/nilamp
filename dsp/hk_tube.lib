@@ -1,0 +1,77 @@
+import("stdfaust.lib");
+adnl = library("hk_adnl.lib");
+pkd = library("hk_pkd.lib");
+flt = library("hk_filters.lib");
+
+// HK Tube Library
+// Tube stage models (Common Cathode, etc.)
+
+// --- Tube stage common cathode (CK) ---
+tube_ck(table, xmax, dx, kpre, isat, rl, kpk, kspre, kspost, ksva, ksib, kfb, 
+        pk_xth, pk_xdiode, pk_k1, pk_k2, avg_f, neq_b0, neq_b1, neq_b2, neq_a1, neq_a2,
+        v, dvs) = res : ! , _
+with {
+    tick(old_advk) = next_advk, v_out
+    with {
+        v1 = v + old_advk;
+        v2 = v1 * kpre;
+        v3 = v2 / (1.0 + kspre * dvs);
+        v4 = v3 - kpk * pkd.pkd_process(pk_xth, pk_xdiode, pk_k1, pk_k2, v3);
+        v5 = adnl.adnl_process(table, xmax, dx, v4);
+        v6 = fi.tf2(neq_b0, neq_b1, neq_b2, neq_a1, neq_a2, v5);
+        v7 = v6 * (1.0 + kspost * dvs);
+        v8 = v7 * isat;
+        dia = v8 + ksib * dvs;
+        v_out = dia * (-rl) + ksva * dvs;
+        next_advk = flt.flt_ii1_lp(avg_f, v_out - dvs) * kfb;
+    };
+    res = tick ~ _;
+};
+
+tube_ck_simple(table, xmax, dx, kpre, isat, rl, kpk, kspre, kspost, ksva, ksib, kfb, 
+        pk_xth, pk_xdiode, pk_k1, pk_k2, avg_f,
+        v, dvs) = tube_ck(table, xmax, dx, kpre, isat, rl, kpk, kspre, kspost, ksva, ksib, kfb, 
+        pk_xth, pk_xdiode, pk_k1, pk_k2, avg_f, 1, 0, 0, 0, 0, v, dvs);
+
+// --- Tube stage cathodyne (CD) ---
+tube_cd(table, xmax, dx, kpre, isat, rl, rkl, kpk, kspre, kspost, ksva, ksvk, ksib,
+        pk_xth, pk_xdiode, pk_k1, pk_k2, neq_b0, neq_b1, neq_b2, neq_a1, neq_a2,
+        v, dvs) = (v_out, vk_out)
+with {
+    v2 = v * kpre;
+    v3 = v2 / (1.0 + kspre * dvs);
+    v4 = v3 - kpk * pkd.pkd_process(pk_xth, pk_xdiode, pk_k1, pk_k2, v3);
+    v5 = adnl.adnl_process(table, xmax, dx, v4);
+    v6 = fi.tf2(neq_b0, neq_b1, neq_b2, neq_a1, neq_a2, v5);
+    v7 = v6 * (1.0 + kspost * dvs);
+    v8 = v7 * isat;
+    dia = v8 + ksib * dvs;
+    vk_out = dia * rkl + ksvk * dvs;
+    v_out = dia * (-rl) + ksva * dvs;
+};
+
+// --- Tube stage long tail pair (LTP) ---
+tube_ltp(table1, table2, xmax, dx, 
+         kpre11, kpre12, kpre22, kpre21, kprek1, kprek2,
+         isat, rl1, rl2, kpk, kspre, kspost, ksv1, ksv2, ksib,
+         pk_xth, pk_xdiode, pk_k1, pk_k2, neq_b0, neq_b1, neq_b2, neq_a1, neq_a2,
+         vin1, vink, vin2, dvs) = (v_out1, v_out2)
+with {
+    v_t2 = vin1 * kpre12 + vink * kprek2 + vin2 * kpre22;
+    v_t2_w = v_t2 / (1.0 + kspre * dvs);
+    v_t2_pk = v_t2_w - kpk * pkd.pkd_process(pk_xth, pk_xdiode, pk_k1, pk_k2, v_t2_w);
+    v_t2_ad = adnl.adnl_process(table2, xmax, dx, v_t2_pk);
+    v_t2_eq = fi.tf2(neq_b0, neq_b1, neq_b2, neq_a1, neq_a2, v_t2_ad);
+    v_t2_ps = v_t2_eq * (1.0 + kspost * dvs);
+    dia2 = v_t2_ps * isat + ksib * dvs;
+    v_out2 = dia2 * (-rl2) + ksv2 * dvs;
+
+    v_t1 = vin1 * kpre11 + vink * kprek1 + vin2 * kpre21;
+    v_t1_w = v_t1 / (1.0 + kspre * dvs);
+    v_t1_pk = v_t1_w - kpk * pkd.pkd_process(pk_xth, pk_xdiode, pk_k1, pk_k2, v_t1_w);
+    v_t1_ad = adnl.adnl_process(table1, xmax, dx, v_t1_pk);
+    v_t1_eq = fi.tf2(neq_b0, neq_b1, neq_b2, neq_a1, neq_a2, v_t1_ad);
+    v_t1_ps = v_t1_eq * (1.0 + kspost * dvs);
+    dia1 = v_t1_ps * isat + ksib * dvs;
+    v_out1 = dia1 * (-rl1) + ksv1 * dvs;
+};

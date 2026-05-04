@@ -1,0 +1,25 @@
+[package]
+name = "nilamp"
+version = "0.1.0"
+edition = "2021"
+authors = ["Mason Austin Green <mason@greenm01.net>"]
+description = "A Linux-native CLAP guitar amp plugin"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", features = ["vst3"] }
+# faust-decode = "0.1.0" # Not needed if we use -lang rust directly
+
+[workspace]
+members = ["xtask"]
+
+[profile.release]
+lto = "thin"
+strip = "symbols"
+
+[profile.profiling]
+inherits = "release"
+debug = true

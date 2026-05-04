@@ -1,0 +1,33 @@
+import("stdfaust.lib");
+
+// HK Peak Detector Library
+// Ported from Helmut Keller's JSFX pkd_process
+
+pkd_process(xth, xdiode, k1, k2, x) = s2
+with {
+    // Stage 1: x value after diode
+    // Add small epsilon to xdiode to avoid div by zero
+    eps = 1e-10;
+    xd = max(eps, xdiode);
+    
+    x_val = select2(x > xth, 0,
+                select2(x > xth + 2.0 * xd,
+                    0.25 * (x - xth) * (x - xth) / xd,
+                    (x - xth) - xd));
+    
+    // Stage 2: Attack low pass (s1)
+    s1 = loop1 ~ _
+    with {
+        loop1(old_s1) = (x_val - old_s1) * k1 + old_s1;
+    };
+
+    // Stage 3: Max release circuit (s2)
+    s2 = loop2 ~ _
+    with {
+        loop2(old_s2) = max(s1, k2 * old_s2);
+    };
+};
+
+// PKD Setters
+pkd_k1(tau_attack) = select2(tau_attack > 0, 1.0, 1.0 - exp(-1.0 / (tau_attack * ma.SR)));
+pkd_k2(tau_release) = select2(tau_release > 0, 0.0, exp(-1.0 / (tau_release * ma.SR)));
