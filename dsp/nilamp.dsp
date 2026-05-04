@@ -36,12 +36,33 @@ sag = hslider("Sag [%]", 50, 0, 100, 1) / 100.0 : si.smoo;
 r_pss = sag * 22000.0;          // matches p3 (final PSS) at sag=1.0
 tau_pss = 0.05;                 // 50 ms time constant
 
-// 5E3 stage table size — all four GLF tables share the same xmax/dx
-// grid, so they all have 13503 cells (= 2 * xmax / dx + 3, see
-// gen_tables.py).
+// 5E3 stage table size — all four tables share the same xmax/dx grid,
+// so they all have 13503 cells (= 2 * xmax / dx + 3, see gen_tables.py).
 TBL_SIZE = 13503;
 XMAX = 15.0;
 DX = 0.02;
+
+// --- Tube curve selection ---------------------------------------------------
+// Two parallel families of tube tables are emitted by tools/gen_5e3_tables.py:
+//
+//   <stage>_table     — Keller's behavioral GLF (b/type fitted by ear).
+//                       What the canonical Keller JSFX patch ships; all 15
+//                       regression tests are pinned against this path.
+//   <stage>_table_dz  — Dempwolf-Zölzer ECC83 + per-stage DC load-line.
+//                       Asymmetric grid-current / cutoff behaviour matching
+//                       a real 12AX7.  See docs/notes/dsp-project-notes.md §T2.2.
+//
+// To switch a stage to the DZ curve, change its ``_table`` alias below to
+// the ``_table_dz`` variant.  Faust resolves these aliases at compile time
+// (waveforms are not first-class values, hence the manual swap rather than
+// an ``if``-on-flag).  T4 (6V6) is a pentode and only has a GLF table.
+//
+// The 5E3 ECC83/12AX7 stages (T1 in the 12AX7-mod variant, T2, T3) all have
+// DZ counterparts.  T1's default 12AY7 voicing has no DZ params and stays GLF.
+t1_table = tables.t1_12ax7_table;
+t2_table = tables.t2_12ax7_table;
+t3_table = tables.t3_cd_table;
+t4_table = tables.t4_6v6_table;
 
 // --- 5E3 Processing with Global dvs Loop ---
 process = _ : *(gain1) : global_loop
@@ -56,7 +77,7 @@ with {
                 // sourced from c.t1_* (see tools/gen_5e3_tables.py for
                 // their derivations).
                 res1 = tube.tube_ck_simple(
-                    TBL_SIZE, tables.t1_12ax7_table, XMAX, DX,
+                    TBL_SIZE, t1_table, XMAX, DX,
                     c.t1_kpre, c.t1_isat, c.t1_rl, c.t1_kpk,
                     c.t1_kspre, c.t1_kspost, c.t1_ksva, c.t1_ksib, c.t1_kfb,
                     c.t1_pk_xth, c.t1_pk_xdiode, c.t1_pk_k1, c.t1_pk_k2,
@@ -75,7 +96,7 @@ with {
 
                 // Stage 3: T2 (12AX7 v2) — overdrive preamp.
                 res3 = tube.tube_ck_simple(
-                    TBL_SIZE, tables.t2_12ax7_table, XMAX, DX,
+                    TBL_SIZE, t2_table, XMAX, DX,
                     c.t2_kpre, c.t2_isat, c.t2_rl, c.t2_kpk,
                     c.t2_kspre, c.t2_kspost, c.t2_ksva, c.t2_ksib, c.t2_kfb,
                     c.t2_pk_xth, c.t2_pk_xdiode, c.t2_pk_k1, c.t2_pk_k2,
@@ -91,7 +112,7 @@ with {
                 // TODO(5e3-v2): port flt_df2_set_adnl_eq and pull the
                 // real coefficients from c.t3_neq_*.
                 res4 = tube.tube_cd(
-                    TBL_SIZE, tables.t3_cd_table, XMAX, DX,
+                    TBL_SIZE, t3_table, XMAX, DX,
                     c.t3_kpre, c.t3_isat, c.t3_rl, c.t3_rkl, c.t3_kpk,
                     c.t3_kspre, c.t3_kspost, c.t3_ksva, c.t3_ksvk, c.t3_ksib,
                     c.t3_pk_xth, c.t3_pk_xdiode, c.t3_pk_k1, c.t3_pk_k2,
@@ -108,7 +129,7 @@ with {
                 // mixing (see TWD-DLX-II:376-379 for advk averaging
                 // and dia summation).
                 res5 = tube.tube_ck_simple(
-                    TBL_SIZE, tables.t4_6v6_table, XMAX, DX,
+                    TBL_SIZE, t4_table, XMAX, DX,
                     c.t4_kpre, c.t4_isat, c.t4_rl, c.t4_kpk,
                     c.t4_kspre, c.t4_kspost, c.t4_ksva, c.t4_ksib, c.t4_kfb,
                     c.t4_pk_xth, c.t4_pk_xdiode, c.t4_pk_k1, c.t4_pk_k2,
