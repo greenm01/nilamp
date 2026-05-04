@@ -17,6 +17,14 @@ mod plugin {
     pub struct Nilamp {
         params: Arc<NilampParams>,
         dsp: faust::mydsp,
+        // Per-channel scratch input buffers.  nih-plug `Block` is in-place
+        // (input and output share the same slice), but Faust's compute()
+        // demands disjoint input/output views, so we snapshot the host
+        // samples into `input_scratch` before each compute() call.  Sized
+        // to the maximum (channel, block) the plugin can ever see and
+        // pre-allocated in `initialize()` so the audio thread never
+        // allocates.
+        input_scratch: Vec<Vec<f32>>,
     }
 
     #[derive(Params)]
@@ -40,6 +48,7 @@ mod plugin {
             Self {
                 params: Arc::new(NilampParams::default()),
                 dsp: faust::mydsp::new(),
+                input_scratch: Vec::new(),
             }
         }
     }
@@ -137,11 +146,20 @@ mod plugin {
 
         fn initialize(
             &mut self,
-            _audio_io_layout: &AudioIOLayout,
+            audio_io_layout: &AudioIOLayout,
             buffer_config: &BufferConfig,
             _context: &mut impl InitContext<Self>,
         ) -> bool {
             self.dsp.init(buffer_config.sample_rate as i32);
+            // Pre-allocate the input scratch buffers up to the worst case
+            // we might see at runtime: max output channels × max block
+            // size.  Sized once here so process() never has to allocate.
+            let n_channels = audio_io_layout
+                .main_output_channels
+                .map(|n| n.get() as usize)
+                .unwrap_or(0);
+            let block = buffer_config.max_buffer_size as usize;
+            self.input_scratch = (0..n_channels).map(|_| vec![0.0; block]).collect();
             true
         }
 
@@ -172,22 +190,50 @@ mod plugin {
                     .set_param(faust::ParamIndex(5), self.params.volume.value());
 
                 let samples = block.samples();
-                let channels: Vec<*mut f32> = block.into_iter().map(|c| c.as_mut_ptr()).collect();
 
-                if !channels.is_empty() {
-                    unsafe {
-                        let input_ptrs: Vec<&[f32]> = channels
-                            .iter()
-                            .map(|&ptr| std::slice::from_raw_parts(ptr, samples))
-                            .collect();
-                        let mut output_ptrs: Vec<&mut [f32]> = channels
-                            .iter()
-                            .map(|&ptr| std::slice::from_raw_parts_mut(ptr, samples))
-                            .collect();
-
-                        self.dsp.compute(samples, &input_ptrs, &mut output_ptrs);
-                    }
+                // nih-plug `Block` is in-place: each channel slice is *both*
+                // input and output to the host.  Faust's compute() takes
+                // disjoint `&[&[f32]]` / `&mut [&mut [f32]]`, so we snapshot
+                // the host samples into the pre-allocated `input_scratch`
+                // (sized in `initialize()`) and feed Faust two disjoint
+                // borrows.
+                let mut output_slices: Vec<&mut [f32]> = block.into_iter().collect();
+                let n_channels = output_slices.len();
+                if n_channels == 0 {
+                    continue;
                 }
+                debug_assert!(
+                    n_channels <= self.input_scratch.len(),
+                    "process() saw more channels than initialize() reserved",
+                );
+                debug_assert!(
+                    self.input_scratch
+                        .first()
+                        .is_none_or(|b| samples <= b.len()),
+                    "process() saw a larger block than initialize() reserved",
+                );
+
+                // Snapshot host input into scratch[..n_channels][..samples].
+                for (ch_idx, out) in output_slices.iter().enumerate() {
+                    self.input_scratch[ch_idx][..samples].copy_from_slice(&out[..samples]);
+                }
+
+                // Build the disjoint views Faust expects.  `input_views`
+                // borrows from `self.input_scratch`; `output_views` borrows
+                // from the host buffer via `output_slices`.  No aliasing,
+                // no unsafe.
+                let input_views: Vec<&[f32]> = self
+                    .input_scratch
+                    .iter()
+                    .take(n_channels)
+                    .map(|buf| &buf[..samples])
+                    .collect();
+                let mut output_views: Vec<&mut [f32]> = output_slices
+                    .iter_mut()
+                    .map(|out| &mut out[..samples])
+                    .collect();
+
+                self.dsp.compute(samples, &input_views, &mut output_views);
             }
 
             ProcessStatus::Normal
