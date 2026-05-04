@@ -173,3 +173,67 @@ adnl_stage_test!(
     adnl_t4_6v6_small_signal, adnl_t4_6v6_large_signal,
     "t4_6v6"
 );
+
+// ---------------------------------------------------------------------------
+// Filters — flt_ii1_lp / flt_ii1_hp / flt_sv2_tst
+// ---------------------------------------------------------------------------
+//
+// Each harness DSP freezes one filter at the operating point nilamp.dsp
+// uses on the chain output (dsp/nilamp.dsp:37) and runs it on the shared
+// 1 kHz / amp 0.5 sine.  Oracle: keller_oracle.flt_*_block.
+macro_rules! filter_test {
+    ($mod_name:ident, $struct_name:ident, $test_fn:ident, $fixture:literal, $tag:literal) => {
+        mod $mod_name {
+            #![allow(
+                non_snake_case,
+                non_camel_case_types,
+                non_upper_case_globals,
+                dead_code,
+                unused_mut,
+                unused_variables,
+                unused_parens,
+                clippy::all
+            )]
+            use super::*;
+            include!(concat!(env!("OUT_DIR"), "/", stringify!($mod_name), ".rs"));
+        }
+
+        #[test]
+        fn $test_fn() {
+            use $mod_name::$struct_name as Dsp;
+
+            let input: Vec<f32> = read_f32_bin("tests/fixtures/sine_1k_amp05_48k_4800.f32");
+            let expected: Vec<f32> = read_f32_bin(concat!("tests/fixtures/", $fixture));
+
+            let mut dsp = Dsp::new();
+            dsp.init(48_000);
+            dsp.instance_clear();
+
+            let output = run_siso(&mut dsp, &input);
+            let report = compare(&output, &expected);
+            println!(
+                "[filter {}] max_abs={:.3e}  rms={:.3e}  n={}",
+                $tag, report.max_abs, report.rms, report.n
+            );
+            report.assert_within(1e-3, 1e-4, stringify!($test_fn));
+        }
+    };
+}
+
+filter_test!(
+    test_filter_lp, test_filter_lp,
+    filter_lp_matches_oracle,
+    "filter_lp_8800_sine05_48k.f32", "ii1_lp_8800"
+);
+
+filter_test!(
+    test_filter_hp, test_filter_hp,
+    filter_hp_matches_oracle,
+    "filter_hp_10_sine05_48k.f32", "ii1_hp_10"
+);
+
+filter_test!(
+    test_filter_svf_tst, test_filter_svf_tst,
+    filter_svf_tst_matches_oracle,
+    "filter_svf_tst_sine05_48k.f32", "sv2_tst"
+);

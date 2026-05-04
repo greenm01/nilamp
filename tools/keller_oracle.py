@@ -254,6 +254,71 @@ def pkd_k2(tau_release, sr):
 
 
 # ---------------------------------------------------------------------------
+# Filters — Keller's HK_LIB_FLT_II / HK_LIB_FLT_SV
+# ---------------------------------------------------------------------------
+#
+# Direct sample-by-sample ports of the JSFX implementations so we can pin
+# the Faust port (dsp/hk_filters.lib) against an oracle that doesn't depend
+# on scipy.signal.  All functions take a numpy float32 input buffer and
+# return a same-length float32 output buffer.
+
+def flt_ii1_lp_block(f, sr, x_buf):
+    """1st-order impulse-invariant LP.  See HK_LIB_FLT_II.jsfx-inc:32."""
+    k = 1.0 - np.exp(-2.0 * np.pi * f / sr)
+    s1 = 0.0
+    out = np.zeros_like(x_buf, dtype=np.float32)
+    for i, x in enumerate(x_buf):
+        s1 = (float(x) - s1) * k + s1
+        out[i] = s1
+    return out
+
+
+def flt_ii1_hp_block(f, sr, x_buf):
+    """1st-order impulse-invariant HP — input minus the matching LP."""
+    return (x_buf.astype(np.float32) - flt_ii1_lp_block(f, sr, x_buf)).astype(np.float32)
+
+
+def flt_sv2_tst_block(b, m, t, f, Q, pwf, pwQ, sr, x_buf):
+    """2nd-order TPT SVF used as a tonestack.
+
+    See HK_LIB_FLT_SV.jsfx-inc:127 (flt_sv2_set_tst) and :200 (process).
+    Output mix is t*hp + (kq*m)*bp + b*lp.
+
+    pwf, pwQ: 0 = no prewarp, 1 = tan-prewarp.  We ignore the JSFX
+    smoothing layer (sm=0 equivalent): coefficients are computed once.
+    """
+    pi_t = np.pi / sr
+    k = f * pi_t
+    if pwQ == 0:
+        kq = 1.0 / Q
+    else:
+        aux1 = np.sqrt(1.0 + 4.0 * Q * Q)
+        aux2 = (k / np.sin(2.0 * k)) * np.log((aux1 + 1.0) / (aux1 - 1.0))
+        kq = np.exp(aux2) - np.exp(-aux2)
+    if pwf == 1:
+        k = np.tan(f * pi_t)
+    kf = kq + k
+    kdiv = 1.0 / (1.0 + k * (k + kq))
+    b0 = t
+    kb1 = kq * m
+    b2 = b
+
+    s1 = 0.0
+    s2 = 0.0
+    out = np.zeros_like(x_buf, dtype=np.float32)
+    for i, x in enumerate(x_buf):
+        hp = (float(x) - kf * s1 - s2) * kdiv
+        aux = k * hp
+        bp = aux + s1
+        s1 = aux + bp
+        aux = k * bp
+        lp = aux + s2
+        s2 = aux + lp
+        out[i] = b0 * hp + kb1 * bp + b2 * lp
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Tube stage — common cathode (CK)
 # ---------------------------------------------------------------------------
 

@@ -94,6 +94,23 @@ def main() -> None:
             gen_adnl(cfg, big_sine),
         )
 
+    # Filters — same operating points the 5E3 top-level (dsp/nilamp.dsp:37)
+    # uses, against the 1 kHz/amp 0.5 sine.  Lets us pin the Faust port of
+    # hk_filters.lib (flt_ii1_lp / flt_ii1_hp / flt_sv2_tst) to the JSFX
+    # implementations without depending on scipy.signal at test time.
+    write(
+        FIXTURES_DIR / "filter_lp_8800_sine05_48k.f32",
+        ko.flt_ii1_lp_block(8800.0, SAMPLE_RATE, sine),
+    )
+    write(
+        FIXTURES_DIR / "filter_hp_10_sine05_48k.f32",
+        ko.flt_ii1_hp_block(10.0, SAMPLE_RATE, sine),
+    )
+    write(
+        FIXTURES_DIR / "filter_svf_tst_sine05_48k.f32",
+        ko.flt_sv2_tst_block(0.25, 0.25, 0.25, 500.0, 0.5, 1, 1, SAMPLE_RATE, sine),
+    )
+
 
 if __name__ == "__main__":
     main()
