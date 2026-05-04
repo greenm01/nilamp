@@ -13,12 +13,16 @@ Pipeline per test point:
      deltas, THD ratio (if input is pure sine), spectral centroid delta.
   6. Pass/fail vs configurable thresholds.
 
-Slider mapping (Rust plugin params <-> JSFX sliders), 1:1 native units:
-    gain    (-12..12 dB)  <->  gin     (-12..12 dB)
-    volume  (0..100 %)    <->  vol     (0..100 %)
-    bass    (0..100 %)    <->  bass    (0..100 %)
-    mid     (0..100 %)    <->  mid     (0..100 %)
-    treble  (0..100 %)    <->  treble  (0..100 %)
+Slider mapping (Rust plugin params <-> JSFX sliders), native units:
+    gain    (-12..12 dB)  ->   gin     (-12..12 dB)  with -12.79 dB offset
+                               (JSFX applies an internal +12 dB plus a
+                                sqrt(1.2) factor; the harness translates
+                                p.gin = gain_db - 12.79 to equalize.
+                                Rust gain_db must be in [+0.79, +24.79] dB.)
+    volume  (0..100 %)    <->  vol     (0..100 %)    identity
+    bass    (0..100 %)    <->  bass    (0..100 %)    identity
+    mid     (0..100 %)    <->  mid     (0..100 %)    identity
+    treble  (0..100 %)    <->  treble  (0..100 %)    identity
     sag     (0..100 %)    <->  (held at 100; JSFX has no counterpart slider,
                                 its 3-stage PSS is fixed-internal)
 
@@ -54,6 +58,21 @@ JSFX_RENDER = [sys.executable, "-m", "tools.jsfx_render.render_jsfx"]
 # JSFX warm-up window (see module docstring).
 JSFX_WARMUP_S = 0.100
 
+# JSFX input-gain offset, derived from twd_dlx_ii_harness.jsfx
+# parameter_update() line 229:
+#     gin_eff = 10^(0.05 * (p.gin + 12)) * sqrt(1.2)
+# Faust nilamp.dsp applies plain db2linear(p.gain). Equating effective
+# gains: p.gin = p.gain - 12 - 20*log10(sqrt(1.2)) = p.gain - 12.79.
+# We translate at the harness boundary so identical Rust gain_db produces
+# identical actual signal gain into T1.
+JSFX_GIN_OFFSET_DB = 12.0 + 20.0 * math.log10(math.sqrt(1.2))  # = 12.7918
+
+# JSFX gin slider range, from twd_dlx_ii_harness.jsfx slider1 declaration.
+JSFX_GIN_MIN_DB = -12.0
+JSFX_GIN_MAX_DB = 12.0
+EQUALIZABLE_GAIN_MIN_DB = JSFX_GIN_MIN_DB + JSFX_GIN_OFFSET_DB  #  +0.79 dB
+EQUALIZABLE_GAIN_MAX_DB = JSFX_GIN_MAX_DB + JSFX_GIN_OFFSET_DB  # +24.79 dB
+
 
 # --------------------------------------------------------------------------- #
 # Parameter set
@@ -79,11 +98,26 @@ class Params:
             "--sag", str(self.sag_pct),
         ]
 
+    def jsfx_gin(self) -> float:
+        """Translate Rust gain_db to the JSFX p.gin slider value that produces
+        the same effective audio gain into T1. See JSFX_GIN_OFFSET_DB."""
+        gin = self.gain_db - JSFX_GIN_OFFSET_DB
+        if gin < JSFX_GIN_MIN_DB or gin > JSFX_GIN_MAX_DB:
+            raise ValueError(
+                f"gain_db={self.gain_db} requires JSFX p.gin={gin:.4f} dB, "
+                f"which is outside the slider range "
+                f"[{JSFX_GIN_MIN_DB}, {JSFX_GIN_MAX_DB}]. "
+                f"Use gain_db in "
+                f"[{EQUALIZABLE_GAIN_MIN_DB:.4f}, {EQUALIZABLE_GAIN_MAX_DB:.4f}] dB."
+            )
+        return gin
+
     def to_jsfx_args(self) -> list[str]:
         # JSFX bass/mid/treble sliders have range 0..100 (verified from
         # twd_dlx_ii_harness.jsfx slider declarations), matching Rust 1:1.
+        # gin is offset-translated; see jsfx_gin().
         return [
-            "-s", f"gin={self.gain_db}",
+            "-s", f"gin={self.jsfx_gin()}",
             "-s", f"vol={self.volume_pct}",
             "-s", f"bass={self.bass_pct}",
             "-s", f"mid={self.mid_pct}",
@@ -142,6 +176,26 @@ def read_wav_f32(path: Path) -> tuple[list[float], int]:
     n = len(samples_bytes) // 4
     samples = list(struct.unpack(f"<{n}f", samples_bytes))
     return samples, sr
+
+
+def write_wav_f32(path: Path, samples: Sequence[float], sr: int) -> None:
+    """Write a 32-bit float mono WAV (plain WAVE_FORMAT_IEEE_FLOAT, no
+    EXTENSIBLE wrapper). Matches the format `tools.jsfx_render` produces and
+    that `nilamp_render` accepts."""
+    n = len(samples)
+    data = struct.pack(f"<{n}f", *samples)
+    fmt = struct.pack("<HHIIHH", 3, 1, sr, sr * 4, 4, 32)  # IEEE float, mono
+    chunks = b"fmt " + struct.pack("<I", len(fmt)) + fmt
+    chunks += b"data" + struct.pack("<I", len(data)) + data
+    riff = b"RIFF" + struct.pack("<I", 4 + len(chunks)) + b"WAVE" + chunks
+    path.write_bytes(riff)
+
+
+def scale_wav(in_path: Path, out_path: Path, scale: float) -> None:
+    """Read in_path, multiply every sample by scale, write to out_path."""
+    samples, sr = read_wav_f32(in_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    write_wav_f32(out_path, [s * scale for s in samples], sr)
 
 
 # --------------------------------------------------------------------------- #
@@ -294,15 +348,30 @@ def compute_metrics(a: list[float], b: list[float], sr: int) -> Metrics:
 # Driver
 # --------------------------------------------------------------------------- #
 
-def run_one(input_wav: Path, params: Params, out_dir: Path, label: str) -> Metrics:
+def run_one(input_wav: Path, params: Params, out_dir: Path, label: str,
+            input_scale: float = 1.0) -> Metrics:
     out_dir.mkdir(parents=True, exist_ok=True)
     nilamp_wav = out_dir / f"{label}_nilamp.wav"
     jsfx_wav = out_dir / f"{label}_jsfx.wav"
 
+    # If a non-unity input scale is requested, materialize a scaled copy of
+    # the input WAV and feed that to both renderers. Both need to see the
+    # same samples for the comparison to be meaningful.
+    if input_scale != 1.0:
+        scaled_wav = out_dir / f"{label}_input_scaled.wav"
+        scale_wav(input_wav, scaled_wav, input_scale)
+        rendered_input = scaled_wav
+    else:
+        rendered_input = input_wav
+
+    print(f"[{label}] JSFX p.gin = {params.jsfx_gin():+.4f} dB "
+          f"(Rust gain_db = {params.gain_db:+.4f})", flush=True)
+    if input_scale != 1.0:
+        print(f"[{label}] input pre-scale = {input_scale:g}", flush=True)
     print(f"[{label}] rendering nilamp...", flush=True)
-    render_nilamp(input_wav, nilamp_wav, params)
+    render_nilamp(rendered_input, nilamp_wav, params)
     print(f"[{label}] rendering jsfx...", flush=True)
-    render_jsfx(input_wav, jsfx_wav, params)
+    render_jsfx(rendered_input, jsfx_wav, params)
 
     a, sr_a = read_wav_f32(nilamp_wav)
     b, sr_b = read_wav_f32(jsfx_wav)
@@ -318,12 +387,21 @@ def main() -> int:
     ap.add_argument("input", type=Path, help="input WAV (mono float32)")
     ap.add_argument("--out-dir", type=Path, default=Path("/tmp/abx_compare"))
     ap.add_argument("--label", default="default")
-    ap.add_argument("--gain", type=float, default=0.0)
+    ap.add_argument("--gain", type=float, default=EQUALIZABLE_GAIN_MIN_DB,
+                    help=f"Rust gain_db (default: {EQUALIZABLE_GAIN_MIN_DB:.4f} = "
+                         "minimum equalizable). Must be in "
+                         f"[{EQUALIZABLE_GAIN_MIN_DB:.4f}, "
+                         f"{EQUALIZABLE_GAIN_MAX_DB:.4f}] dB.")
     ap.add_argument("--volume", type=float, default=50.0)
     ap.add_argument("--bass", type=float, default=50.0)
     ap.add_argument("--mid", type=float, default=50.0)
     ap.add_argument("--treble", type=float, default=50.0)
     ap.add_argument("--sag", type=float, default=100.0)
+    ap.add_argument("--input-scale", type=float, default=1.0,
+                    help="Pre-scale input WAV by this factor before rendering. "
+                         "Use small values (e.g. 1e-3) to keep all stages in "
+                         "their linear regime so the residual reflects only "
+                         "linear filter mismatch.")
     ap.add_argument("--rms-threshold-db", type=float, default=-60.0)
     args = ap.parse_args()
 
@@ -337,7 +415,8 @@ def main() -> int:
     print(f"params: {params}")
     print()
 
-    m = run_one(args.input, params, args.out_dir, args.label)
+    m = run_one(args.input, params, args.out_dir, args.label,
+                input_scale=args.input_scale)
     print(f"\nresults [{args.label}]:")
     print(m.report())
     ok = m.passed(args.rms_threshold_db)

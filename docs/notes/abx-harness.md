@@ -158,6 +158,10 @@ delay). Investigation deferred — see "Open work" below.
   - **Tone-stack center frequency.** `dsp/nilamp.dsp` line 99 hardcodes
     `flt_sv2_tst(... 500, 0.5, 1, 1)`. JSFX runs the SVF at `fm=56 dBHz` =
     631 Hz with `qm=−6 dB` = 0.5. Frequency mismatch.
+
+    (More precisely, `iso266(56)` quantizes `10^2.8 ≈ 630.957` to the
+    nearest multiple of 10 → 630 Hz.  Verified by tracing
+    `HK_LIB_TOOLS.jsfx-inc:26-49`.)
   - **Volume law.** `dsp/nilamp.dsp` applies `volume * volume`; JSFX applies
     `vol/100` linearly. At default `volume=50`, Rust attenuates ~6 dB more.
   - **Group delay.** 4.6 ms (≈220 samples) is consistent with one or two
@@ -169,3 +173,97 @@ delay). Investigation deferred — see "Open work" below.
   lump (`r_pss = sag * 22000`). For tight ABX agreement under sag-active
   conditions, port the full chain (`p1`, `p2`, `p3` per JSFX lines
   189–191). Tracked under "5E3 v2" in `dsp-project-notes.md`.
+
+## Investigation 2026-05-04: input-gain equalization, DC leak, HP5 fix
+
+This session addressed two of the discrepancies above with measurement.
+
+### Finding 1: JSFX has a +12.79 dB internal input-gain offset
+
+Reading `twd_dlx_ii_harness.jsfx:229`:
+
+```
+gin_eff = 10^(0.05 * (p.gin + 12)) * sqrt(1.2)
+```
+
+At `p.gin = 0` this is +12.78 dB linear gain into T1.  Faust uses
+`db2linear(p.gain)`: at `p.gain = 0` that is unity.  The JSFX runs ~12.79 dB
+hotter at the T1 input than the Faust port at any same nominal slider
+value.  Even at the JSFX slider minimum `p.gin = -12`, JSFX still applies
++0.79 dB (never reaches unity).
+
+**Fix (harness-side, no DSP change):** `tools/abx_compare.py:Params.jsfx_gin()`
+translates the requested Rust `gain_db` to JSFX `p.gin = gain_db − 12.79`,
+and raises `ValueError` if the requested gain is outside the equalizable
+range `[+0.79, +24.79] dB`.  See constants `JSFX_GIN_OFFSET_DB`,
+`EQUALIZABLE_GAIN_MIN_DB`, `EQUALIZABLE_GAIN_MAX_DB`.
+
+The DSP-side fix (rewriting `dsp/nilamp.dsp:gain1` to mirror the JSFX
+formula, or rewriting `twd_dlx_ii_harness.jsfx` to drop the offset) is
+deferred to Scope-1.
+
+### Finding 2: nilamp had a steady-state DC offset of −0.040 (−28 dBFS)
+
+A diagnostic scan of the rendered baseline output (`gain=+6, defaults`)
+revealed:
+
+| signal           | mean (700–800 ms window) | rms      |
+|------------------|-------------------------:|---------:|
+| nilamp pre-fix   |                  −0.0400 |   0.1918 |
+| jsfx             |                  +3.2e-7 |   0.2199 |
+
+The ~20 dB DC bias dominated the per-sample residual and made the
+comparator's linear-regime probe (`--input-scale 1e-3`) useless: the
+nilamp output peak in linear regime (0.40) was *higher* than at full
+input (0.30), proving the output was dominated by an input-independent
+bias path.  Linearity ratio (linear/baseline RMS) was 0.196 instead of
+the expected 0.001 — i.e. only ~5 dB of the 60 dB input attenuation made
+it through.
+
+Root cause: Faust chain has no output-side subsonic / DC blocker.  JSFX
+applies five HP filters (`hp1..hp5`); the Faust port had only `hp1` (10 Hz,
+between T1 and the tone stack at `nilamp.dsp:96`).
+
+**Scope-0 fix (commit `<scope-0-hp5>`):** added `flt_ii1_hp(40)` on `v_out`
+in `dsp/nilamp.dsp`, mirroring JSFX `hp5.flt_ii1_set_frequency(40)` at
+line 184 (applied at line 431, just before `spl0` is written).  17/17
+regression tests still pass — HP5 is downstream of every per-stage
+harness.
+
+Post-fix (same input):
+
+| signal            | mean (700–800 ms window) | rms      |
+|-------------------|-------------------------:|---------:|
+| nilamp post HP5   |                  −4.0e-8 |   0.1863 |
+| jsfx              |                  +3.2e-7 |   0.2199 |
+
+DC fell by ~5 orders of magnitude.  Per-sample residual: −12.5 → −13.4 dB
+(small improvement; the missing tone-shaping back-end remains the
+dominant error source, see below).  Peak agreement: 0.299 vs 0.273 →
+0.282 vs 0.273.
+
+### Finding 3: residual is dominated by missing back-end DSP, not input gain
+
+Even after equalizing the JSFX input-gain offset (Finding 1) the residual
+is essentially unchanged from the pre-equalization measurement
+(−12.5 dB → −13.4 dB after HP5).  The remaining error is therefore not
+input-side — it is the deferred chain documented in `nilamp.dsp:4-13`:
+
+- HP2 (post-T2), HP3 (post-T3), HP4 (T5 branch), full T5 push-pull stage,
+  `k1`/`k2` constants, PEQ1/PEQ2/PEQ3, HS1/HS2/HS3, LP2 (10 kHz output),
+  the `gout` divisor's `t5.rl*t5.isat` term, and the 3-stage PSS chain.
+- Plus a 130 Hz tone-stack center-frequency mismatch (nilamp 500 Hz vs
+  JSFX `iso266(56) = 630 Hz`) and a ~4.6 ms group-delay difference.
+
+The remaining startup transient in linear regime (~0.4 peak at 50–100 ms,
+settling by ~200 ms) is now AC, not DC; it reflects the missing
+intermediate HP2/HP3/HP4 stages' settling behaviour vs. nilamp's
+collapsed signal path.
+
+### New harness flags
+
+- `--input-scale FLOAT` (default 1.0): pre-scales the input WAV before
+  rendering through both engines.  Use `--input-scale 1e-3` once the
+  back-end DSP is ported to isolate linear filter-shape mismatch from
+  nonlinear stage mismatch.  Until then it surfaces residual transients
+  rather than steady-state filter error.
