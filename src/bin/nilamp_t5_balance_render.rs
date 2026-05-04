@@ -38,16 +38,12 @@ impl Variant {
     fn parse(s: &str) -> Result<Self, String> {
         match s {
             "v0_current" | "current" | "0" => Ok(Self::Current),
-            "v1_raw_t4_filtered_t5" | "raw_t4_filtered_t5" | "1" => {
-                Ok(Self::RawT4FilteredT5)
-            }
+            "v1_raw_t4_filtered_t5" | "raw_t4_filtered_t5" | "1" => Ok(Self::RawT4FilteredT5),
             "v2_filtered_t4_filtered_t5" | "filtered_t4_filtered_t5" | "2" => {
                 Ok(Self::FilteredT4FilteredT5)
             }
             "v3_sign_add" | "sign_add" | "3" => Ok(Self::SignAdd),
-            "v4_half_denom_control" | "half_denom_control" | "4" => {
-                Ok(Self::HalfDenomControl)
-            }
+            "v4_half_denom_control" | "half_denom_control" | "4" => Ok(Self::HalfDenomControl),
             _ => Err(format!("unknown variant: {s}")),
         }
     }
@@ -115,9 +111,7 @@ fn parse_args() -> Result<Args, String> {
             "--input" => args.input = PathBuf::from(need(&mut it)?),
             "--output" => args.output = PathBuf::from(need(&mut it)?),
             "--gain" => {
-                args.gain_db = need(&mut it)?
-                    .parse()
-                    .map_err(|e| format!("--gain: {e}"))?
+                args.gain_db = need(&mut it)?.parse().map_err(|e| format!("--gain: {e}"))?
             }
             "--volume" => {
                 args.volume_pct = need(&mut it)?
@@ -125,25 +119,15 @@ fn parse_args() -> Result<Args, String> {
                     .map_err(|e| format!("--volume: {e}"))?
             }
             "--bass" => {
-                args.bass_pct = need(&mut it)?
-                    .parse()
-                    .map_err(|e| format!("--bass: {e}"))?
+                args.bass_pct = need(&mut it)?.parse().map_err(|e| format!("--bass: {e}"))?
             }
-            "--mid" => {
-                args.mid_pct = need(&mut it)?
-                    .parse()
-                    .map_err(|e| format!("--mid: {e}"))?
-            }
+            "--mid" => args.mid_pct = need(&mut it)?.parse().map_err(|e| format!("--mid: {e}"))?,
             "--treble" => {
                 args.treble_pct = need(&mut it)?
                     .parse()
                     .map_err(|e| format!("--treble: {e}"))?
             }
-            "--sag" => {
-                args.sag_pct = need(&mut it)?
-                    .parse()
-                    .map_err(|e| format!("--sag: {e}"))?
-            }
+            "--sag" => args.sag_pct = need(&mut it)?.parse().map_err(|e| format!("--sag: {e}"))?,
             "--block" => {
                 args.block = need(&mut it)?
                     .parse()
