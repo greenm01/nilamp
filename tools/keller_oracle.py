@@ -399,7 +399,12 @@ class TubeCk:
         v2 = v1 * self.kpre
         v3 = v2 / (1.0 + self.kspre * dvs)
         v4 = v3 - self.kpk * self._pkd(v3)
-        v5 = self.adnl.process_block(np.array([v4]))[0]
+        # Use float32 so AdnlProcessor's intermediate w/dx0 cancellations
+        # match Faust's f32 arithmetic; default np.array would promote to
+        # f64 and shift small near-cancelled differences enough to break
+        # bit-comparable agreement (~3e-4 RMS skew on T3_CD with sub-pkre
+        # signals).  See ADNL_DTYPE note in TubeCd below.
+        v5 = self.adnl.process_block(np.array([v4], dtype=np.float32))[0]
         v6 = self._eq(v5)
         v7 = v6 * (1.0 + self.kspost * dvs)
         v8 = v7 * self.isat
@@ -485,7 +490,13 @@ class TubeCd:
         v2 = v * self.kpre
         v3 = v2 / (1.0 + self.kspre * dvs)
         v4 = v3 - self.kpk * self._pkd(v3)
-        v5 = self.adnl.process_block(np.array([v4]))[0]
+        # ADNL_DTYPE: see TubeCk.process_sample.  Pinning to float32 here
+        # is what makes T3_CD's tiny-signal output (kpre=0.0105, sine 0.5
+        # in -> 0.005 max into ADNL) match Faust; without it the oracle
+        # disagrees with Faust by O(1) of the signal because the
+        # antiderivative quotient (z1-z0)/dx0 cancels at f32 precision
+        # in Faust but survives at f64 in NumPy.
+        v5 = self.adnl.process_block(np.array([v4], dtype=np.float32))[0]
         v6 = self._eq(v5)
         v7 = v6 * (1.0 + self.kspost * dvs)
         v8 = v7 * self.isat

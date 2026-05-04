@@ -237,3 +237,123 @@ filter_test!(
     filter_svf_tst_matches_oracle,
     "filter_svf_tst_sine05_48k.f32", "sv2_tst"
 );
+
+// ---------------------------------------------------------------------------
+// Composite tube stages — full pipeline (ADNL + PKD + advk + state)
+// ---------------------------------------------------------------------------
+//
+// These pin the full per-stage Faust signal path (dsp/hk_tube.lib's
+// tube_ck_simple / tube_cd) against TubeCk / TubeCd in keller_oracle.py.
+// Each harness hard-codes dvs=0 and uses a single representative stage
+// (T2 for CK because kpk>0 + kfb>0; T3 for CD as the only cathodyne in
+// 5E3).  Closed-loop coverage is deferred to the nilamp.dsp end-to-end
+// test (gated behind NILAMP_BUILD_TOPLEVEL).
+//
+// Each macro emits the include-with-allow boilerplate and pins all
+// outputs the harness produces (2 for tube_ck, 3 for tube_cd).
+
+macro_rules! tube_test_module {
+    ($mod_name:ident) => {
+        mod $mod_name {
+            #![allow(
+                non_snake_case,
+                non_camel_case_types,
+                non_upper_case_globals,
+                dead_code,
+                unused_mut,
+                unused_variables,
+                unused_parens,
+                clippy::all
+            )]
+            use super::*;
+            include!(concat!(env!("OUT_DIR"), "/", stringify!($mod_name), ".rs"));
+        }
+    };
+}
+
+tube_test_module!(test_tube_ck);
+
+#[test]
+fn tube_ck_t2_matches_oracle() {
+    use test_tube_ck::test_tube_ck as Dsp;
+
+    let input: Vec<f32> = read_f32_bin("tests/fixtures/sine_1k_amp05_48k_4800.f32");
+    let exp_v: Vec<f32> = read_f32_bin("tests/fixtures/tube_ck_t2_v_sine05_48k.f32");
+    let exp_dia: Vec<f32> = read_f32_bin("tests/fixtures/tube_ck_t2_dia_sine05_48k.f32");
+
+    let mut dsp = Dsp::new();
+    dsp.init(48_000);
+    dsp.instance_clear();
+    assert_eq!(dsp.get_num_outputs(), 2, "tube_ck harness must emit (v_out, dia)");
+
+    let outputs = run_simo(&mut dsp, &input);
+    let r_v = compare(&outputs[0], &exp_v);
+    let r_dia = compare(&outputs[1], &exp_dia);
+    println!(
+        "[tube_ck T2] v: max_abs={:.3e} rms={:.3e}  dia: max_abs={:.3e} rms={:.3e}",
+        r_v.max_abs, r_v.rms, r_dia.max_abs, r_dia.rms
+    );
+    // v_out is plate voltage in volts (peak ~150V); dia in amps (~mA).
+    // Tolerances scaled accordingly.  RMS floor relative to signal RMS
+    // gives roughly -60 dB which matches the project's "close enough"
+    // policy.
+    r_v.assert_within(0.5, 5e-2, "tube_ck_t2_v");
+    r_dia.assert_within(5e-6, 5e-7, "tube_ck_t2_dia");
+}
+
+tube_test_module!(test_tube_cd);
+
+#[test]
+fn tube_cd_t3_matches_oracle() {
+    use test_tube_cd::test_tube_cd as Dsp;
+
+    let input: Vec<f32> = read_f32_bin("tests/fixtures/sine_1k_amp05_48k_4800.f32");
+    let exp_v: Vec<f32> = read_f32_bin("tests/fixtures/tube_cd_t3_v_sine05_48k.f32");
+    let exp_vk: Vec<f32> = read_f32_bin("tests/fixtures/tube_cd_t3_vk_sine05_48k.f32");
+    let exp_dia: Vec<f32> = read_f32_bin("tests/fixtures/tube_cd_t3_dia_sine05_48k.f32");
+
+    let mut dsp = Dsp::new();
+    dsp.init(48_000);
+    dsp.instance_clear();
+    assert_eq!(dsp.get_num_outputs(), 3, "tube_cd harness must emit (v, vk, dia)");
+
+    let outputs = run_simo(&mut dsp, &input);
+    let r_v = compare(&outputs[0], &exp_v);
+    let r_vk = compare(&outputs[1], &exp_vk);
+    let r_dia = compare(&outputs[2], &exp_dia);
+    println!(
+        "[tube_cd T3] v: max_abs={:.3e} rms={:.3e}  vk: max_abs={:.3e} rms={:.3e}  dia: max_abs={:.3e} rms={:.3e}",
+        r_v.max_abs, r_v.rms, r_vk.max_abs, r_vk.rms, r_dia.max_abs, r_dia.rms
+    );
+    r_v.assert_within(0.5, 5e-2, "tube_cd_t3_v");
+    r_vk.assert_within(0.5, 5e-2, "tube_cd_t3_vk");
+    r_dia.assert_within(5e-6, 5e-7, "tube_cd_t3_dia");
+}
+
+tube_test_module!(test_pss);
+
+#[test]
+fn pss_matches_oracle() {
+    use test_pss::test_pss as Dsp;
+
+    let input: Vec<f32> = read_f32_bin("tests/fixtures/sine_1k_amp05_48k_4800.f32");
+    let exp_dvs: Vec<f32> = read_f32_bin("tests/fixtures/pss_dvs_sine05_48k.f32");
+    let exp_s: Vec<f32> = read_f32_bin("tests/fixtures/pss_s_sine05_48k.f32");
+
+    let mut dsp = Dsp::new();
+    dsp.init(48_000);
+    dsp.instance_clear();
+    assert_eq!(dsp.get_num_outputs(), 2, "pss harness must emit (dvs_out, s)");
+
+    let outputs = run_simo(&mut dsp, &input);
+    let r_dvs = compare(&outputs[0], &exp_dvs);
+    let r_s = compare(&outputs[1], &exp_s);
+    println!(
+        "[pss] dvs: max_abs={:.3e} rms={:.3e}  s: max_abs={:.3e} rms={:.3e}",
+        r_dvs.max_abs, r_dvs.rms, r_s.max_abs, r_s.rms
+    );
+    // PSS is purely linear (two LP filters); behaviour matches the
+    // filter tests' float-precision band.
+    r_dvs.assert_within(1e-2, 1e-3, "pss_dvs");
+    r_s.assert_within(1e-3, 1e-4, "pss_s");
+}

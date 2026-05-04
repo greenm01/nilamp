@@ -224,3 +224,22 @@ pub fn run_siso<D: FaustDsp<T = f32>>(dsp: &mut D, input: &[f32]) -> Vec<f32> {
     }
     output
 }
+
+/// Run a single-input, N-output Faust DSP over `input` and return all N
+/// output buffers.  N is taken from the DSP at runtime via
+/// `get_num_outputs()`; the caller asserts the expected count if they want
+/// to.  Used by the composite tube tests where one harness emits multiple
+/// pinned signals (e.g. tube_ck -> v_out + dia).
+pub fn run_simo<D: FaustDsp<T = f32>>(dsp: &mut D, input: &[f32]) -> Vec<Vec<f32>> {
+    let n = input.len();
+    let n_out = dsp.get_num_outputs() as usize;
+    let mut outputs: Vec<Vec<f32>> = (0..n_out).map(|_| vec![0f32; n]).collect();
+    {
+        let inputs: [&[f32]; 1] = [input];
+        // Need a Vec<&mut [f32]> for the compute call.
+        let mut output_refs: Vec<&mut [f32]> =
+            outputs.iter_mut().map(|v| v.as_mut_slice()).collect();
+        dsp.compute(n as i32, &inputs, &mut output_refs);
+    }
+    outputs
+}
