@@ -19,6 +19,11 @@ name = "nilamp_t5_balance_render"
 path = "src/bin/nilamp_t5_balance_render.rs"
 required-features = []
 
+[[bin]]
+name = "nilamp_drive_probe_render"
+path = "src/bin/nilamp_drive_probe_render.rs"
+required-features = []
+
 [dependencies]
 nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", features = ["vst3"] }
 hound = "3.5"
