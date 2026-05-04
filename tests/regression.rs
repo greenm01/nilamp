@@ -69,62 +69,107 @@ fn pkd_matches_oracle() {
 }
 
 // ---------------------------------------------------------------------------
-// ADNL — waveshaper (ADAA) bound to t1_12ax7 GLF table
+// ADNL — waveshaper (ADAA) per-table regression
 // ---------------------------------------------------------------------------
+//
+// One macro invocation per 5E3 GLF table (T1_12AX7, T2_12AX7, T3_CD, T4_6V6).
+// Each invocation generates:
+//   * a private `mod` that includes the Faust-generated source with the
+//     suppression attrs Faust output requires;
+//   * a `<short>_small_signal` test (1 kHz / amp 0.5, fully inside
+//     [-xmax, xmax]);
+//   * a `<short>_large_signal` test (200 Hz / amp 20, exercises the
+//     ymin/ymax saturation arms in dsp/hk_adnl.lib).
+//
+// The expected fixtures are produced by `tools/gen_fixtures.py` from the
+// same `gen_adnl_table(kbias, b, type_b, kloop)` parameters that
+// `tools/gen_5e3_tables.py` writes into `dsp/5e3_tables.lib`, so a
+// successful run also covers the table generator.
+macro_rules! adnl_stage_test {
+    ($mod_name:ident, $struct_name:ident, $small:ident, $large:ident, $short:literal) => {
+        mod $mod_name {
+            #![allow(
+                non_snake_case,
+                non_camel_case_types,
+                non_upper_case_globals,
+                dead_code,
+                unused_mut,
+                unused_variables,
+                unused_parens,
+                clippy::all
+            )]
+            use super::*;
+            include!(concat!(env!("OUT_DIR"), "/", stringify!($mod_name), ".rs"));
+        }
 
-mod test_adnl_t1_12ax7 {
-    #![allow(
-        non_snake_case,
-        non_camel_case_types,
-        non_upper_case_globals,
-        dead_code,
-        unused_mut,
-        unused_variables,
-        unused_parens,
-        clippy::all
-    )]
-    use super::*;
-    include!(concat!(env!("OUT_DIR"), "/test_adnl_t1_12ax7.rs"));
+        #[test]
+        fn $small() {
+            use $mod_name::$struct_name as Dsp;
+
+            let input: Vec<f32> = read_f32_bin("tests/fixtures/sine_1k_amp05_48k_4800.f32");
+            let expected: Vec<f32> = read_f32_bin(&format!(
+                "tests/fixtures/adnl_{}_sine05_48k.f32",
+                $short
+            ));
+
+            let mut dsp = Dsp::new();
+            dsp.init(48_000);
+            dsp.instance_clear();
+
+            let output = run_siso(&mut dsp, &input);
+            let report = compare(&output, &expected);
+            println!(
+                "[adnl {} small] max_abs={:.3e}  rms={:.3e}  n={}",
+                $short, report.max_abs, report.rms, report.n
+            );
+            report.assert_within(1e-3, 1e-4, stringify!($small));
+        }
+
+        #[test]
+        fn $large() {
+            use $mod_name::$struct_name as Dsp;
+
+            let input: Vec<f32> = read_f32_bin("tests/fixtures/sine_200_amp20_48k_4800.f32");
+            let expected: Vec<f32> = read_f32_bin(&format!(
+                "tests/fixtures/adnl_{}_sine20_48k.f32",
+                $short
+            ));
+
+            let mut dsp = Dsp::new();
+            dsp.init(48_000);
+            dsp.instance_clear();
+
+            let output = run_siso(&mut dsp, &input);
+            let report = compare(&output, &expected);
+            println!(
+                "[adnl {} large] max_abs={:.3e}  rms={:.3e}  n={}",
+                $short, report.max_abs, report.rms, report.n
+            );
+            report.assert_within(1e-3, 1e-4, stringify!($large));
+        }
+    };
 }
 
-#[test]
-fn adnl_t1_12ax7_small_signal() {
-    use test_adnl_t1_12ax7::test_adnl_t1_12ax7 as Dsp;
+adnl_stage_test!(
+    test_adnl_t1_12ax7, test_adnl_t1_12ax7,
+    adnl_t1_12ax7_small_signal, adnl_t1_12ax7_large_signal,
+    "t1_12ax7"
+);
 
-    let input: Vec<f32> = read_f32_bin("tests/fixtures/sine_1k_amp05_48k_4800.f32");
-    let expected: Vec<f32> = read_f32_bin("tests/fixtures/adnl_t1_12ax7_sine05_48k.f32");
+adnl_stage_test!(
+    test_adnl_t2_12ax7, test_adnl_t2_12ax7,
+    adnl_t2_12ax7_small_signal, adnl_t2_12ax7_large_signal,
+    "t2_12ax7"
+);
 
-    let mut dsp = Dsp::new();
-    dsp.init(48_000);
-    dsp.instance_clear();
+adnl_stage_test!(
+    test_adnl_t3_cd, test_adnl_t3_cd,
+    adnl_t3_cd_small_signal, adnl_t3_cd_large_signal,
+    "t3_cd"
+);
 
-    let output = run_siso(&mut dsp, &input);
-    let report = compare(&output, &expected);
-    println!(
-        "[adnl t1 small] max_abs={:.3e}  rms={:.3e}  n={}",
-        report.max_abs, report.rms, report.n
-    );
-    report.assert_within(1e-3, 1e-4, "adnl_t1_12ax7_small_signal");
-}
-
-#[test]
-fn adnl_t1_12ax7_large_signal() {
-    // 200 Hz / amp 20 — exercises the ymin/ymax saturation arms outside
-    // [-xmax, xmax] = [-15, 15].
-    use test_adnl_t1_12ax7::test_adnl_t1_12ax7 as Dsp;
-
-    let input: Vec<f32> = read_f32_bin("tests/fixtures/sine_200_amp20_48k_4800.f32");
-    let expected: Vec<f32> = read_f32_bin("tests/fixtures/adnl_t1_12ax7_sine20_48k.f32");
-
-    let mut dsp = Dsp::new();
-    dsp.init(48_000);
-    dsp.instance_clear();
-
-    let output = run_siso(&mut dsp, &input);
-    let report = compare(&output, &expected);
-    println!(
-        "[adnl t1 large] max_abs={:.3e}  rms={:.3e}  n={}",
-        report.max_abs, report.rms, report.n
-    );
-    report.assert_within(1e-3, 1e-4, "adnl_t1_12ax7_large_signal");
-}
+adnl_stage_test!(
+    test_adnl_t4_6v6, test_adnl_t4_6v6,
+    adnl_t4_6v6_small_signal, adnl_t4_6v6_large_signal,
+    "t4_6v6"
+);

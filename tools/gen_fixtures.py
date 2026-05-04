@@ -47,16 +47,26 @@ def gen_pkd(input_buf: np.ndarray) -> np.ndarray:
     return ko.pkd_process_block(xth, xdiode, k1, k2, input_buf.copy())
 
 
-def gen_adnl_t1_12ax7(input_buf: np.ndarray) -> np.ndarray:
-    """Reference output for dsp/tests/test_adnl_t1_12ax7.dsp.
+def gen_adnl(cfg, input_buf: np.ndarray) -> np.ndarray:
+    """Reference output for an ADNL test harness bound to `cfg`'s GLF table.
 
-    Builds the same GLF table that gen_5e3_tables.py emits for T1, then runs
-    Keller's ADAA-corrected waveshaper on the input.
+    Builds the same table that gen_5e3_tables.py emits (gen_adnl_table with
+    kbias, b, type_b, kloop), then runs Keller's ADAA-corrected waveshaper
+    on the input.  Works for any CkConfig or CdConfig.
     """
-    cfg = t5e3.T1_12AX7
     table = gen_adnl_table(cfg.kbias, cfg.b, cfg.type_b, cfg.kloop)
     proc = ko.AdnlProcessor(table)
     return proc.process_block(input_buf.copy().astype(np.float32))
+
+
+# Stages we have per-stage test DSPs for.  Keep the short names in sync with
+# dsp/tests/test_adnl_<short>.dsp and the test names in tests/regression.rs.
+ADNL_STAGES = [
+    ("t1_12ax7", t5e3.T1_12AX7),
+    ("t2_12ax7", t5e3.T2_12AX7),
+    ("t3_cd",    t5e3.T3_CD),
+    ("t4_6v6",   t5e3.T4_6V6),
+]
 
 
 def main() -> None:
@@ -65,23 +75,24 @@ def main() -> None:
     sine = gen_input_sine()
     write(FIXTURES_DIR / "sine_1k_amp05_48k_4800.f32", sine)
 
+    big_sine = gen_input_sine(freq=200.0, amp=20.0)
+    write(FIXTURES_DIR / "sine_200_amp20_48k_4800.f32", big_sine)
+
     # PKD reference
     write(FIXTURES_DIR / "pkd_baseline_48k.f32", gen_pkd(sine))
 
-    # ADNL t1_12ax7 — small-signal (sine well inside [-xmax, xmax])
-    write(
-        FIXTURES_DIR / "adnl_t1_12ax7_sine05_48k.f32",
-        gen_adnl_t1_12ax7(sine),
-    )
-
-    # ADNL t1_12ax7 — large-signal sine (peak amplitude 20, exceeds xmax=15)
-    # to exercise the ymin/ymax saturation arms in hk_adnl.lib.
-    big_sine = gen_input_sine(freq=200.0, amp=20.0)
-    write(FIXTURES_DIR / "sine_200_amp20_48k_4800.f32", big_sine)
-    write(
-        FIXTURES_DIR / "adnl_t1_12ax7_sine20_48k.f32",
-        gen_adnl_t1_12ax7(big_sine),
-    )
+    # ADNL — small-signal (sine well inside [-xmax, xmax]) and large-signal
+    # (peak amplitude 20, exceeds xmax=15) for each table.  The large-signal
+    # case exercises the ymin/ymax saturation arms in hk_adnl.lib.
+    for short, cfg in ADNL_STAGES:
+        write(
+            FIXTURES_DIR / f"adnl_{short}_sine05_48k.f32",
+            gen_adnl(cfg, sine),
+        )
+        write(
+            FIXTURES_DIR / f"adnl_{short}_sine20_48k.f32",
+            gen_adnl(cfg, big_sine),
+        )
 
 
 if __name__ == "__main__":
