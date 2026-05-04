@@ -92,11 +92,25 @@ with {
                 res1_dia = res1 : ! , _;
 
                 // Stage 2: Tonestack + Volume.
+                //
+                // Tone-stack center frequency must match JSFX
+                // tst1.flt_sv2_set_tst(... fm ...) where
+                //   fm = iso266(p.fm) and p.fm defaults to 56 dBHz.
+                // iso266(56) quantizes 10^2.8 ≈ 630.957 to the nearest
+                // multiple of 10 → 630 Hz.  Q = iso266(p.qm) =
+                // iso266(-6) = 0.5.  Verified by tracing
+                // HK_LIB_TOOLS.jsfx-inc:26-49.
+                //
+                // pwf=1, pwQ=1: bilinear pre-warping enabled, matching
+                // JSFX line 240: tst1.flt_sv2_set_tst(... 1, 1, 1).
+                // (The third trailing 1 in JSFX is `sm` smoothing,
+                // not represented in Faust — smoothing happens upstream
+                // via si.smoo on the slider readouts.)
                 v2 = res1_v
                     : flt.flt_ii1_hp(10)
                     : *(volume * volume)
                     : flt.flt_sv2_tst(bass * bass, mid * mid, treble * treble,
-                                      500, 0.5, 1, 1)
+                                      630, 0.5, 1, 1)
                     : flt.flt_ii1_lp(8800);
 
                 // Stage 3: T2 (12AX7 v2) — overdrive preamp.
