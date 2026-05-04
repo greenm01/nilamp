@@ -257,6 +257,66 @@ filter_test!(
     "sv2_tst"
 );
 
+mod test_filter_backend {
+    #![allow(
+        non_snake_case,
+        non_camel_case_types,
+        non_upper_case_globals,
+        dead_code,
+        unused_mut,
+        unused_variables,
+        unused_parens,
+        clippy::all
+    )]
+    use super::*;
+    include!(concat!(env!("OUT_DIR"), "/test_filter_backend.rs"));
+}
+
+#[test]
+fn filter_backend_matches_oracle() {
+    use test_filter_backend::test_filter_backend as Dsp;
+
+    let input: Vec<f32> = read_f32_bin("tests/fixtures/sine_1k_amp05_48k_4800.f32");
+    let fixtures = [
+        ("hp3", "tests/fixtures/filter_backend_hp3_sine05_48k.f32"),
+        ("hp4", "tests/fixtures/filter_backend_hp4_sine05_48k.f32"),
+        ("peq1", "tests/fixtures/filter_backend_peq1_sine05_48k.f32"),
+        ("hs1", "tests/fixtures/filter_backend_hs1_sine05_48k.f32"),
+        (
+            "peq1_hs1",
+            "tests/fixtures/filter_backend_peq1_hs1_sine05_48k.f32",
+        ),
+        (
+            "t4_pre_chain",
+            "tests/fixtures/filter_backend_t4_pre_chain_sine05_48k.f32",
+        ),
+        (
+            "t5_pre_chain",
+            "tests/fixtures/filter_backend_t5_pre_chain_sine05_48k.f32",
+        ),
+    ];
+
+    let mut dsp = Dsp::new();
+    dsp.init(48_000);
+    dsp.instance_clear();
+    assert_eq!(
+        dsp.get_num_outputs(),
+        7,
+        "backend filter harness output count"
+    );
+
+    let outputs = run_simo(&mut dsp, &input);
+    for (i, (name, fixture)) in fixtures.iter().enumerate() {
+        let expected: Vec<f32> = read_f32_bin(fixture);
+        let report = compare(&outputs[i], &expected);
+        println!(
+            "[filter backend {name}] max_abs={:.3e} rms={:.3e} n={}",
+            report.max_abs, report.rms, report.n
+        );
+        report.assert_within(1e-3, 1e-4, &format!("filter_backend_{name}"));
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Composite tube stages — full pipeline (ADNL + PKD + advk + state)
 // ---------------------------------------------------------------------------

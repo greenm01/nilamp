@@ -6,6 +6,7 @@
 -- Config table fields:
 --   input    : absolute path to input wav
 --   output   : absolute path for rendered wav (32-bit float mono)
+--   effect   : REAPER-relative JSFX effect name
 --   sliders  : array of {index = N, value = X} (1-based slider numbers as in JSFX)
 --   sr       : sample rate (default 48000)
 --
@@ -39,6 +40,7 @@ log("=== render_jsfx.lua start ===")
 log("input=" .. tostring(cfg.input))
 log("output=" .. tostring(cfg.output))
 log("sr=" .. tostring(cfg.sr))
+log("effect=" .. tostring(cfg.effect))
 
 -- 1. Use the project REAPER opened for us; just ensure it's empty.
 -- (Skipping close-project to avoid leaving REAPER without an active project.)
@@ -53,10 +55,11 @@ local insret = reaper.InsertMedia(cfg.input, 0)
 log("InsertMedia ret=" .. tostring(insret))
 
 -- 3. Add JSFX. AddByName flag bits: 1 = add (not just query).
-local fx_idx = reaper.TrackFX_AddByName(track, "nilamp_abx/twd_dlx_ii_harness", false, -1)
+local effect_name = cfg.effect or "nilamp_abx/twd_dlx_ii_harness"
+local fx_idx = reaper.TrackFX_AddByName(track, effect_name, false, -1)
 log("TrackFX_AddByName ret=" .. tostring(fx_idx))
 if fx_idx < 0 then
-  log("FATAL: JSFX not found"); reaper.Main_OnCommand(40004, 0); return
+  log("FATAL: JSFX not found: " .. tostring(effect_name)); reaper.Main_OnCommand(40004, 0); return
 end
 
 local n_params = reaper.TrackFX_GetNumParams(track, fx_idx)

@@ -18,8 +18,9 @@ Mechanism:
 
 Notes:
     - Requires `reaper` on PATH. Headless via JACK + an active X display.
-    - JSFX must be staged at ~/.config/REAPER/Effects/nilamp_abx/twd_dlx_ii.jsfx.
+    - JSFX must be staged at ~/.config/REAPER/Effects/nilamp_abx/.
     - Renders 32-bit float mono WAV.
+    - Alternate staged JSFX effects can be selected with effect_name/jsfx_source.
 """
 from __future__ import annotations
 
@@ -38,10 +39,11 @@ DRIVER_LOG = Path("/tmp/render_jsfx.log")
 REAPER_LOG = Path("/tmp/render_jsfx.reaper.log")
 
 # Default location of staged JSFX bundle. Used only for slider parsing; the
-# renderer references the JSFX by its REAPER-relative path "nilamp_abx/twd_dlx_ii".
+# renderer references the JSFX by its REAPER-relative effect name.
 DEFAULT_JSFX_SOURCE = (
     Path.home() / ".config" / "REAPER" / "Effects" / "nilamp_abx" / "twd_dlx_ii_harness.jsfx"
 )
+DEFAULT_EFFECT_NAME = "nilamp_abx/twd_dlx_ii_harness"
 
 
 @dataclass(frozen=True)
@@ -86,14 +88,18 @@ def parse_sliders(jsfx_path: Path = DEFAULT_JSFX_SOURCE) -> dict[str, SliderInfo
     return out
 
 
-def slider_info() -> dict[str, SliderInfo]:
+def slider_info(jsfx_path: Path = DEFAULT_JSFX_SOURCE) -> dict[str, SliderInfo]:
     """Cached slider table."""
     global _SLIDER_CACHE
+    key = Path(jsfx_path).resolve()
     try:
-        return _SLIDER_CACHE  # type: ignore[name-defined]
+        return _SLIDER_CACHE[key]  # type: ignore[name-defined]
     except NameError:
-        _SLIDER_CACHE = parse_sliders()  # noqa: F841
-        return _SLIDER_CACHE  # type: ignore[name-defined]
+        _SLIDER_CACHE = {}  # noqa: F841
+    except KeyError:
+        pass
+    _SLIDER_CACHE[key] = parse_sliders(key)  # type: ignore[name-defined]
+    return _SLIDER_CACHE[key]  # type: ignore[name-defined]
 
 
 def _format_lua_value(v: float | int) -> str:
@@ -106,6 +112,7 @@ def _write_cfg(
     *,
     input_wav: Path,
     output_wav: Path,
+    effect_name: str,
     sliders: list[tuple[int, float]],
     sample_rate: int,
 ) -> None:
@@ -114,6 +121,7 @@ def _write_cfg(
         "return {",
         f"  input  = {_lua_str(str(input_wav))},",
         f"  output = {_lua_str(str(output_wav))},",
+        f"  effect = {_lua_str(effect_name)},",
         f"  sr     = {int(sample_rate)},",
         "  sliders = {",
     ]
@@ -138,6 +146,8 @@ def render(
     reaper_bin: str = "reaper",
     timeout_s: float = 60.0,
     poll_interval_s: float = 0.5,
+    effect_name: str = DEFAULT_EFFECT_NAME,
+    jsfx_source: str | os.PathLike[str] = DEFAULT_JSFX_SOURCE,
 ) -> Path:
     """Render `input_wav` through TWD DLX II JSFX, write to `output_wav`.
 
@@ -150,7 +160,7 @@ def render(
         raise FileNotFoundError(f"input wav not found: {input_path}")
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    info = slider_info()
+    info = slider_info(Path(jsfx_source))
     requested = dict(sliders or {})
     unknown = set(requested) - set(info)
     if unknown:
@@ -182,6 +192,7 @@ def render(
     _write_cfg(
         input_wav=input_path,
         output_wav=output_path,
+        effect_name=effect_name,
         sliders=pairs,
         sample_rate=sample_rate,
     )
@@ -249,11 +260,15 @@ def _cli() -> int:
     ap.add_argument("--sample-rate", type=int, default=48000)
     ap.add_argument("--timeout", type=float, default=60.0,
                     help="REAPER render timeout in seconds (default: 60)")
+    ap.add_argument("--effect-name", default=DEFAULT_EFFECT_NAME,
+                    help=f"REAPER JSFX effect name (default: {DEFAULT_EFFECT_NAME})")
+    ap.add_argument("--jsfx-source", type=Path, default=DEFAULT_JSFX_SOURCE,
+                    help="JSFX source path used for slider parsing.")
     ap.add_argument("--list-sliders", action="store_true")
     args = ap.parse_args()
 
     if args.list_sliders:
-        for name, si in sorted(slider_info().items(), key=lambda kv: kv[1].index):
+        for name, si in sorted(slider_info(args.jsfx_source).items(), key=lambda kv: kv[1].index):
             print(f"  {si.index:>2}  {name:<10} default={si.default:<6} "
                   f"range=[{si.minimum}, {si.maximum}]  {si.label}")
         return 0
@@ -274,6 +289,8 @@ def _cli() -> int:
         sliders=sliders,
         sample_rate=args.sample_rate,
         timeout_s=args.timeout,
+        effect_name=args.effect_name,
+        jsfx_source=args.jsfx_source,
     )
     print(f"wrote {out}")
     return 0

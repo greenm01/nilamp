@@ -38,6 +38,8 @@ DEFAULT_DEST = Path.home() / ".config" / "REAPER" / "Effects" / "nilamp_abx"
 VENDOR_AMP = "TWD DLX  II.jsfx"   # note: two spaces, as in upstream
 STAGED_AMP = "twd_dlx_ii.jsfx"
 HARNESS_AMP = "twd_dlx_ii_harness.jsfx"
+PROBE_SRC = REPO_ROOT / "tools" / "jsfx_render" / "filter_semantics_probe.jsfx"
+PROBE_AMP = "filter_semantics_probe.jsfx"
 
 
 def stage(dest: Path) -> None:
@@ -64,11 +66,14 @@ def stage(dest: Path) -> None:
     patched = _apply_harness_patches(text)
     (dest / HARNESS_AMP).write_text(patched)
 
+    shutil.copy2(PROBE_SRC, dest / PROBE_AMP)
+
     # Leave a marker so we (and the renderer wrapper) can detect a stale stage.
     (dest / ".staged-by-nilamp").write_text("\n".join([
         f"vendor: {VENDOR_DIR}",
         f"amp_orig: {STAGED_AMP}",
         f"amp_harness: {HARNESS_AMP}",
+        f"filter_probe: {PROBE_AMP}",
         "harness_patches: remove-wallclock-mute",
         "",
     ]))

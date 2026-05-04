@@ -1,0 +1,67 @@
+// SPDX-License-Identifier: MIT
+// Small black-box probe for Keller backend filter semantics.
+import HK_LIB_SMOOTH.jsfx-inc
+import HK_LIB_FLT_II.jsfx-inc
+import HK_LIB_FLT_SV.jsfx-inc
+
+desc: nilamp filter semantics probe
+
+in_pin:mono input
+out_pin:mono output
+
+options:no_meter
+
+slider1:p.mode=0<0,6,1>-Mode
+slider2:p.smoothing=0<0,1,1>-Smoothing
+
+@init
+
+hp3.flt_ii1_init();
+hp4.flt_ii1_init();
+peq1.flt_sv2_init();
+hs1.flt_sv1_init();
+
+@slider
+
+k1 = 0.797;
+k2 = 0.940;
+hp3_hz = 5.8;
+hp4_hz = 6.4;
+kp1 = 1.1220184543;
+fp_hz = 80.0;
+qp1 = 2.6685237666;
+ks1 = 1.4125375446;
+fs1_hz = 2098.1359672;
+sm = p.smoothing >= 0.5 ? 1 : 0;
+
+hp3.flt_ii1_set_frequency(hp3_hz);
+hp4.flt_ii1_set_frequency(hp4_hz);
+peq1.flt_sv2_set_peq(kp1, fp_hz, qp1, 1, 1, sm);
+hs1.flt_sv1_set_hs(ks1, fs1_hz, 1, sm);
+
+@sample
+
+x = spl0;
+
+p.mode == 0 ? (
+  spl0 = hp3.flt_ii1_process_hp(x);
+) : p.mode == 1 ? (
+  spl0 = hp4.flt_ii1_process_hp(x);
+) : p.mode == 2 ? (
+  spl0 = peq1.flt_sv2_process(x);
+) : p.mode == 3 ? (
+  spl0 = hs1.flt_sv1_process(x);
+) : p.mode == 4 ? (
+  spl0 = peq1.flt_sv2_process(x);
+  spl0 = hs1.flt_sv1_process(spl0);
+) : p.mode == 5 ? (
+  spl0 = hp3.flt_ii1_process_hp(k1 * x);
+  spl0 = peq1.flt_sv2_process(spl0);
+  spl0 = hs1.flt_sv1_process(spl0);
+) : (
+  spl0 = hp4.flt_ii1_process_hp(k2 * x);
+  spl0 = peq1.flt_sv2_process(spl0);
+  spl0 = hs1.flt_sv1_process(spl0);
+);
+
+spl1 = spl0;

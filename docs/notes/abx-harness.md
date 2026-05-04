@@ -469,3 +469,35 @@ The strongest signal is that HP2 before T3 helps the sine residual but still
 does not improve the sweep, while the T4-side pre-chain pieces (`k1`, `hp3`,
 `peq1`, `hs1`) all regress at least one gate.  Next work should inspect PEQ/HS
 coefficient math and ordering before trying another public backend port.
+
+## Investigation 2026-05-04 (cont.): backend filter semantics probes
+
+Added direct backend filter probes before looking at JSFX compiler internals.
+The Faust side now has `dsp/tests/test_filter_backend.dsp`, covering `hp3`,
+`hp4`, `peq1`, `hs1`, `peq1 -> hs1`, and the mode-0 T4/T5 pre-chain filter
+subgraphs.  These pass against `tools/keller_oracle.py` in `cargo test`.
+
+Added a small REAPER/JSFX probe effect, staged as
+`nilamp_abx/filter_semantics_probe`, plus `tools/compare_filter_semantics.py`.
+The render wrapper can now select an alternate JSFX effect/source for slider
+parsing.  Probe result against actual REAPER/JSFX:
+
+| Probe | smoothing=0 | smoothing=1 |
+|-------|-------------|-------------|
+| `hp3` | max 5.96e-8 | max 5.96e-8 |
+| `hp4` | max 5.96e-8 | max 5.96e-8 |
+| `peq1` | exact | exact |
+| `hs1` | exact | exact |
+| `peq1_hs1` | max 5.96e-8 | max 5.96e-8 |
+| `t4_pre_chain` | max 5.96e-8 | max 5.96e-8 |
+| `t5_pre_chain` | max 1.19e-7 | max 1.19e-7 |
+
+One harness detail fell out of the probe: a standalone JSFX must write
+`spl1 = spl0` before REAPER's mono render, otherwise the output is a 50/50
+dry/wet blend.  The probe does that now.
+
+Conclusion: the backend regression is not caused by broad JSFX compiler
+semantics or by standalone backend filter coefficient formulas/order.  The next
+diagnostic should compare branch drive signals inside the cascade after the
+same warm-up history used by ABX, then move downstream to tube/PSS state if the
+drives match.

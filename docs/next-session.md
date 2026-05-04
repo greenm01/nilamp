@@ -1,4 +1,4 @@
-# Next session - inspect backend pre-chain mismatch
+# Next session - inspect backend interaction mismatch
 
 ## State of the tree
 
@@ -41,25 +41,43 @@ variants `v7` through `v12`:
 No split variant clears both public gates, so no new public `dsp/nilamp.dsp`
 audio-path edit was made.
 
+Follow-up filter semantics probes now cover the backend pre-chain filters
+directly:
+
+- Faust `hp3`, `hp4`, `peq1`, `hs1`, `peq1 -> hs1`, and T4/T5 pre-chain
+  harnesses pass against the Python oracle in `cargo test --release`.
+- Actual REAPER/JSFX probe renders match the oracle with smoothing disabled:
+  max error <= `1.2e-7`.
+- Actual REAPER/JSFX probe renders also match the oracle with JSFX coefficient
+  smoothing enabled: max error <= `1.2e-7`.
+- The probe exposed one harness detail: standalone mono probes must write
+  `spl1 = spl0`, or REAPER's mono render sees a 50/50 dry/wet blend.
+
+Conclusion: the backend regression is not explained by JSFX compiler semantics
+or by the standalone backend filter formulas. The remaining issue is likely a
+higher-level interaction: startup state history, tube operating point, branch
+balance, PSS timing, or the way pre-chain changes alter T4/T5 nonlinear drive.
+
 ## Next steps
 
-1. Inspect the T4 pre-chain coefficient math and ordering against JSFX:
-   `k1`, `hp3`, `peq1`, and `hs1`.
-2. Add smaller diagnostics for the PEQ/HS block:
-   - PEQ1 only.
-   - HS1 only.
-   - PEQ1/HS1 with alternate ordering if JSFX state/order inspection suggests it.
-3. Add T5-side mirrors for the same block only if T4-side diagnostics implicate
-   branch imbalance rather than coefficient error.
-4. Keep using the current public gate: sine at least -16.0 dB and sweep at
+1. Stop looking at standalone backend filter formulas; they are now pinned.
+2. Add diagnostics that emit the T4/T5 branch drive signals before the tubes:
+   current `t4_raw_in`, current `t5_in`, and each backend candidate input.
+3. Compare those drive signals against a JSFX/Python cascade oracle after the
+   same 100 ms warm-up trim used by ABX.
+4. If drive signals match but ABX still regresses, focus on nonlinear tube
+   state and PSS timing under backend drive rather than filter coefficients.
+5. Keep using the current public gate: sine at least -16.0 dB and sweep at
    least -11.2 dB.
-5. Keep T5 dia/PSS feedback separate; do not add T5 dia to `total_dia` during
+6. Keep T5 dia/PSS feedback separate; do not add T5 dia to `total_dia` during
    backend EQ work.
 
 ## Files to read first
 
 - `dsp/diagnostics/nilamp_t5_balance.dsp` - split backend variants.
 - `src/bin/nilamp_t5_balance_render.rs` - diagnostic variant selection.
+- `dsp/tests/test_filter_backend.dsp` - standalone Faust backend filter checks.
+- `tools/compare_filter_semantics.py` - REAPER/JSFX black-box filter probe.
 - `tools/abx_compare.py` - JSFX cache and ABX driver.
 - `~/.config/REAPER/Effects/nilamp_abx/twd_dlx_ii_harness.jsfx` - backend
   chain around lines 395-434.

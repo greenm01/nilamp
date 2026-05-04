@@ -158,6 +158,43 @@ def gen_power_pair_inputs() -> tuple[np.ndarray, np.ndarray]:
     return t3_v, t3_vk
 
 
+def gen_backend_filter_diag(input_buf: np.ndarray) -> tuple[np.ndarray, ...]:
+    """Reference for dsp/tests/test_filter_backend.dsp."""
+    k1 = 0.797
+    k2 = 0.940
+    hp3_hz = 5.8
+    hp4_hz = 6.4
+    kp1 = 1.1220184543
+    fp_hz = 80.0
+    qp1 = 2.6685237666
+    ks1 = 1.4125375446
+    fs1_hz = 2098.1359672
+
+    hp3 = ko.flt_ii1_hp_block(hp3_hz, SAMPLE_RATE, input_buf)
+    hp4 = ko.flt_ii1_hp_block(hp4_hz, SAMPLE_RATE, input_buf)
+    peq1 = ko.flt_sv2_peq_block(kp1, fp_hz, qp1, 1, 1, SAMPLE_RATE, input_buf)
+    hs1 = ko.flt_sv1_hs_block(ks1, fs1_hz, 1, SAMPLE_RATE, input_buf)
+    peq1_hs1 = ko.flt_sv1_hs_block(
+        ks1, fs1_hz, 1, SAMPLE_RATE,
+        ko.flt_sv2_peq_block(kp1, fp_hz, qp1, 1, 1, SAMPLE_RATE, input_buf),
+    )
+    t4_pre = ko.flt_sv1_hs_block(
+        ks1, fs1_hz, 1, SAMPLE_RATE,
+        ko.flt_sv2_peq_block(
+            kp1, fp_hz, qp1, 1, 1, SAMPLE_RATE,
+            ko.flt_ii1_hp_block(hp3_hz, SAMPLE_RATE, (input_buf * k1).astype(np.float32)),
+        ),
+    )
+    t5_pre = ko.flt_sv1_hs_block(
+        ks1, fs1_hz, 1, SAMPLE_RATE,
+        ko.flt_sv2_peq_block(
+            kp1, fp_hz, qp1, 1, 1, SAMPLE_RATE,
+            ko.flt_ii1_hp_block(hp4_hz, SAMPLE_RATE, (input_buf * k2).astype(np.float32)),
+        ),
+    )
+    return hp3, hp4, peq1, hs1, peq1_hs1, t4_pre, t5_pre
+
+
 def gen_power_pair_diag(t3_v: np.ndarray, t3_vk: np.ndarray) -> tuple[np.ndarray, ...]:
     """Reference for dsp/tests/test_power_pair_t5.dsp.
 
@@ -322,6 +359,17 @@ def main() -> None:
         FIXTURES_DIR / "filter_svf_tst_sine05_48k.f32",
         ko.flt_sv2_tst_block(0.25, 0.25, 0.25, 500.0, 0.5, 1, 1, SAMPLE_RATE, sine),
     )
+    backend_names = [
+        "hp3",
+        "hp4",
+        "peq1",
+        "hs1",
+        "peq1_hs1",
+        "t4_pre_chain",
+        "t5_pre_chain",
+    ]
+    for name, data in zip(backend_names, gen_backend_filter_diag(sine), strict=True):
+        write(FIXTURES_DIR / f"filter_backend_{name}_sine05_48k.f32", data)
 
     # Composite tube stage — full pipeline (ADNL + PKD + advk feedback +
     # state) with dvs hard-coded to 0.  T2 (12AX7 v2) for the CK harness
