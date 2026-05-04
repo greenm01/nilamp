@@ -211,6 +211,15 @@ T4_6V6 = CkConfig(
     tattack=0.00575, trelease=0.0276, neq=0.0, tck=0.00675,
 )
 
+T5_6V6 = CkConfig(
+    # TWD-DLX-II line 296.  Second 6V6 for mode 0 push-pull aux branch.
+    name="t5_6v6_table",
+    mu=125, ra=40000, isat=0.12, ibias=0.042,
+    b=2.5, type_b=0.5, vs=346, rl=3000, rk=540, kcomp=1.0,
+    kpk=0.18, pk_xth=0.325, pk_xdrop=0.388,
+    tattack=0.00155, trelease=0.0234, neq=0.0, tck=0.00675,
+)
+
 
 def _print_constants(cfg):
     """Echo derived runtime constants for human inspection."""
@@ -305,6 +314,7 @@ def _emit_constants(stages, out_path):
         "t2_12ax7_table": ("t2", _ck_lines),
         "t3_cd_table":    ("t3", _cd_lines),
         "t4_6v6_table":   ("t4", _ck_lines),
+        "t5_6v6_table":   ("t5", _ck_lines),
     }
     blocks = []
     for cfg in stages:
@@ -318,10 +328,10 @@ def _emit_constants(stages, out_path):
 
 
 def main():
-    stages = [T1_12AX7, T2_12AX7, T3_CD, T4_6V6]
+    stages = [T1_12AX7, T2_12AX7, T3_CD, T4_6V6, T5_6V6]
 
     # ECC83/12AX7 stages eligible for DZ load-line replacement.  6V6 (T4)
-    # stays GLF: it's a pentode, not modeled by Dempwolf-Zölzer's ECC83
+    # stages stay GLF: they are pentodes, not modeled by Dempwolf-Zölzer's ECC83
     # equations.  T1 here is the default 12AY7 voicing; we still emit a
     # DZ variant for it because TWD-DLX-II also has a 12AX7-mod toggle
     # (line 281) that uses identical Keller params except mu/ra/rk —
@@ -342,7 +352,7 @@ def main():
         f.write("//   <name>      — Keller's behavioral GLF (b/type fitted by ear).\n")
         f.write("//   <name>_dz   — Dempwolf-Zölzer ECC83 + per-stage DC load-line.\n")
         f.write("// nilamp.dsp's USE_DZ_TUBES flag selects which one is wired in.\n")
-        f.write("// 6V6 (T4) is a pentode and only has the GLF table.\n\n")
+        f.write("// 6V6 stages (T4/T5) are pentodes and only have GLF tables.\n\n")
 
         # GLF tables (v1, behavioural — what the canonical Keller patch ships).
         for cfg in stages:
