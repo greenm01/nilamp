@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // Test harness: ADNL waveshaper bound to t2_12ax7_table.
 // See test_adnl_t1_12ax7.dsp for harness shape and convention notes.
 import("stdfaust.lib");

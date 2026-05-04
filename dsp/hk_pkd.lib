@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 import("stdfaust.lib");
 
 // HK Peak Detector Library

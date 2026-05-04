@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // Test harness: PKD (peak detector) — single-input, single-output
 // driven by Keller's xth/xdiode/k1/k2 parameters wired as Faust controls.
 import("stdfaust.lib");

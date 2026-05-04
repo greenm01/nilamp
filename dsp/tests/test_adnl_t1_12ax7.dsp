@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // Test harness: ADNL waveshaper bound to t1_12ax7_table.
 // Single input (audio sample x), single output (waveshaped + ADAA).
 //

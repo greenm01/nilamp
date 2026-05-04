@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // Test harness: 2nd-order TPT SVF wired as a tonestack.
 // Frozen at the same operating point nilamp.dsp uses for its mid-section
 // tonestack (dsp/nilamp.dsp:37): bass=mid=treble=0.5, so b = m = t = 0.25

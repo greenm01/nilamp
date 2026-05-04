@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // Test harness: ADNL waveshaper bound to t3_cd_table (cathodyne).
 // The ADNL block itself produces a single output regardless of the
 // downstream tube_cd 2-output structure; we test only the table+ADAA path

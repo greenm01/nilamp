@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // Test harness: power-supply sag stage (tube_pss).
 //
 // Pinned against tools.keller_oracle.TubePss.  Standalone harness

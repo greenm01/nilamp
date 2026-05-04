@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 import("stdfaust.lib");
 adnl = library("hk_adnl.lib");
 pkd = library("hk_pkd.lib");

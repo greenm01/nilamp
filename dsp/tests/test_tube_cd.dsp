@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // Test harness: full tube_cd pipeline with T3 (cathodyne) parameters.
 //
 // T3 is the only cathodyne stage in 5E3.  Has kpk=0.125 (active PKD)

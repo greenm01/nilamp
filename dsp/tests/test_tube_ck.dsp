@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // Test harness: full tube_ck pipeline with T2 (12AX7 v2) parameters.
 //
 // T2 is chosen because it has kpk=0.05 (active PKD bias modulation),

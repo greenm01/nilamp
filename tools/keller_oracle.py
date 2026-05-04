@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Keller oracle — mechanical NumPy translation of Keller's JSFX reference.
 
 This module reproduces Keller's block-diagram + ADAA tube-amp model in NumPy

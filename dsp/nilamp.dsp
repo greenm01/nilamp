@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // 5E3 Tweed Deluxe top-level Faust port.
 //
 // TODO(5e3-v2): the prototype defers four pieces of the canonical

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Generate float32 .bin fixtures for tests/regression.rs.
 
 All fixtures are raw little-endian float32 buffers (no header), produced by
