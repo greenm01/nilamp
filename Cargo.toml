@@ -9,8 +9,14 @@ license = "MIT"
 [lib]
 crate-type = ["cdylib", "lib"]
 
+[[bin]]
+name = "nilamp_render"
+path = "src/bin/nilamp_render.rs"
+required-features = []
+
 [dependencies]
 nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", features = ["vst3"] }
+hound = "3.5"
 # faust-decode = "0.1.0" # Not needed if we use -lang rust directly
 
 [workspace]
