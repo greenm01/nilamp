@@ -107,10 +107,8 @@ macro_rules! adnl_stage_test {
             use $mod_name::$struct_name as Dsp;
 
             let input: Vec<f32> = read_f32_bin("tests/fixtures/sine_1k_amp05_48k_4800.f32");
-            let expected: Vec<f32> = read_f32_bin(&format!(
-                "tests/fixtures/adnl_{}_sine05_48k.f32",
-                $short
-            ));
+            let expected: Vec<f32> =
+                read_f32_bin(&format!("tests/fixtures/adnl_{}_sine05_48k.f32", $short));
 
             let mut dsp = Dsp::new();
             dsp.init(48_000);
@@ -130,10 +128,8 @@ macro_rules! adnl_stage_test {
             use $mod_name::$struct_name as Dsp;
 
             let input: Vec<f32> = read_f32_bin("tests/fixtures/sine_200_amp20_48k_4800.f32");
-            let expected: Vec<f32> = read_f32_bin(&format!(
-                "tests/fixtures/adnl_{}_sine20_48k.f32",
-                $short
-            ));
+            let expected: Vec<f32> =
+                read_f32_bin(&format!("tests/fixtures/adnl_{}_sine20_48k.f32", $short));
 
             let mut dsp = Dsp::new();
             dsp.init(48_000);
@@ -151,26 +147,34 @@ macro_rules! adnl_stage_test {
 }
 
 adnl_stage_test!(
-    test_adnl_t1_12ax7, test_adnl_t1_12ax7,
-    adnl_t1_12ax7_small_signal, adnl_t1_12ax7_large_signal,
+    test_adnl_t1_12ax7,
+    test_adnl_t1_12ax7,
+    adnl_t1_12ax7_small_signal,
+    adnl_t1_12ax7_large_signal,
     "t1_12ax7"
 );
 
 adnl_stage_test!(
-    test_adnl_t2_12ax7, test_adnl_t2_12ax7,
-    adnl_t2_12ax7_small_signal, adnl_t2_12ax7_large_signal,
+    test_adnl_t2_12ax7,
+    test_adnl_t2_12ax7,
+    adnl_t2_12ax7_small_signal,
+    adnl_t2_12ax7_large_signal,
     "t2_12ax7"
 );
 
 adnl_stage_test!(
-    test_adnl_t3_cd, test_adnl_t3_cd,
-    adnl_t3_cd_small_signal, adnl_t3_cd_large_signal,
+    test_adnl_t3_cd,
+    test_adnl_t3_cd,
+    adnl_t3_cd_small_signal,
+    adnl_t3_cd_large_signal,
     "t3_cd"
 );
 
 adnl_stage_test!(
-    test_adnl_t4_6v6, test_adnl_t4_6v6,
-    adnl_t4_6v6_small_signal, adnl_t4_6v6_large_signal,
+    test_adnl_t4_6v6,
+    test_adnl_t4_6v6,
+    adnl_t4_6v6_small_signal,
+    adnl_t4_6v6_large_signal,
     "t4_6v6"
 );
 
@@ -221,21 +225,27 @@ macro_rules! filter_test {
 }
 
 filter_test!(
-    test_filter_lp, test_filter_lp,
+    test_filter_lp,
+    test_filter_lp,
     filter_lp_matches_oracle,
-    "filter_lp_8800_sine05_48k.f32", "ii1_lp_8800"
+    "filter_lp_8800_sine05_48k.f32",
+    "ii1_lp_8800"
 );
 
 filter_test!(
-    test_filter_hp, test_filter_hp,
+    test_filter_hp,
+    test_filter_hp,
     filter_hp_matches_oracle,
-    "filter_hp_10_sine05_48k.f32", "ii1_hp_10"
+    "filter_hp_10_sine05_48k.f32",
+    "ii1_hp_10"
 );
 
 filter_test!(
-    test_filter_svf_tst, test_filter_svf_tst,
+    test_filter_svf_tst,
+    test_filter_svf_tst,
     filter_svf_tst_matches_oracle,
-    "filter_svf_tst_sine05_48k.f32", "sv2_tst"
+    "filter_svf_tst_sine05_48k.f32",
+    "sv2_tst"
 );
 
 // ---------------------------------------------------------------------------
@@ -284,7 +294,11 @@ fn tube_ck_t2_matches_oracle() {
     let mut dsp = Dsp::new();
     dsp.init(48_000);
     dsp.instance_clear();
-    assert_eq!(dsp.get_num_outputs(), 2, "tube_ck harness must emit (v_out, dia)");
+    assert_eq!(
+        dsp.get_num_outputs(),
+        2,
+        "tube_ck harness must emit (v_out, dia)"
+    );
 
     let outputs = run_simo(&mut dsp, &input);
     let r_v = compare(&outputs[0], &exp_v);
@@ -315,7 +329,11 @@ fn tube_cd_t3_matches_oracle() {
     let mut dsp = Dsp::new();
     dsp.init(48_000);
     dsp.instance_clear();
-    assert_eq!(dsp.get_num_outputs(), 3, "tube_cd harness must emit (v, vk, dia)");
+    assert_eq!(
+        dsp.get_num_outputs(),
+        3,
+        "tube_cd harness must emit (v, vk, dia)"
+    );
 
     let outputs = run_simo(&mut dsp, &input);
     let r_v = compare(&outputs[0], &exp_v);
@@ -343,7 +361,11 @@ fn pss_matches_oracle() {
     let mut dsp = Dsp::new();
     dsp.init(48_000);
     dsp.instance_clear();
-    assert_eq!(dsp.get_num_outputs(), 2, "pss harness must emit (dvs_out, s)");
+    assert_eq!(
+        dsp.get_num_outputs(),
+        2,
+        "pss harness must emit (dvs_out, s)"
+    );
 
     let outputs = run_simo(&mut dsp, &input);
     let r_dvs = compare(&outputs[0], &exp_dvs);
