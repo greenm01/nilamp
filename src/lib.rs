@@ -20,6 +20,8 @@ struct NilampParams {
     pub mid: FloatParam,
     #[id = "treble"]
     pub treble: FloatParam,
+    #[id = "sag"]
+    pub sag: FloatParam,
 }
 
 impl Default for Nilamp {
@@ -72,6 +74,15 @@ impl Default for NilampParams {
             .with_unit(" %"),
             treble: FloatParam::new(
                 "Treble",
+                50.0,
+                FloatRange::Linear {
+                    min: 0.0,
+                    max: 100.0,
+                },
+            )
+            .with_unit(" %"),
+            sag: FloatParam::new(
+                "Sag",
                 50.0,
                 FloatRange::Linear {
                     min: 0.0,
@@ -135,11 +146,13 @@ impl Plugin for Nilamp {
     ) -> ProcessStatus {
         for (_offset, mut block) in buffer.iter_blocks(MAX_BLOCK_SIZE) {
             // Update DSP parameters from plugin parameters
+            // Alphabetical order: bass(0), gain(1), mid(2), sag(3), treble(4), volume(5)
             self.dsp.set_param(faust::ParamIndex(0), self.params.bass.value());
             self.dsp.set_param(faust::ParamIndex(1), self.params.gain.value());
             self.dsp.set_param(faust::ParamIndex(2), self.params.mid.value());
-            self.dsp.set_param(faust::ParamIndex(3), self.params.treble.value());
-            self.dsp.set_param(faust::ParamIndex(4), self.params.volume.value());
+            self.dsp.set_param(faust::ParamIndex(3), self.params.sag.value());
+            self.dsp.set_param(faust::ParamIndex(4), self.params.treble.value());
+            self.dsp.set_param(faust::ParamIndex(5), self.params.volume.value());
 
             let samples = block.samples();
             let mut channels: Vec<*mut f32> = block.into_iter().map(|c| c.as_mut_ptr()).collect();

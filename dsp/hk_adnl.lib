@@ -3,69 +3,54 @@ import("stdfaust.lib");
 // HK ADNL Library
 // Nonlinearities with Antiderivative Antialiasing
 
-// ADNL Runtime
-// table: the waveform block (size, id)
-// xmax: range is [-xmax, xmax]
-// dx: segment width
-adnl_process(table, xmax, dx, x) = adaa_formula(x, x_prev)
+// table is a waveform object: it provides (size, id)
+adnl_process(t_size, t_id, xmax, dx, x) = adaa_result
 with {
-    // State: previous input
     x_prev = f_prev ~ _;
     f_prev(old_x) = x;
 
-    // Lookup index and relative position w
     num_segments = int(2.0 * xmax / dx);
     raw_index = int((x + xmax) / dx);
     index = min(num_segments - 1, max(0, raw_index));
     w = x + xmax - float(index) * dx;
 
-    // Boundary values
     ymin = -0.5; // Placeholder
     ymax = 1.0;  // Placeholder
 
-    // Extract coefficients from table
     base = index * 9;
     
-    a3 = table, (base + 0) : rdtable;
-    a2 = table, (base + 1) : rdtable;
-    a1 = table, (base + 2) : rdtable;
-    a0 = table, (base + 3) : rdtable;
-    b4 = table, (base + 4) : rdtable;
-    b3 = table, (base + 5) : rdtable;
-    b2 = table, (base + 6) : rdtable;
-    b1 = table, (base + 7) : rdtable;
-    b0 = table, (base + 8) : rdtable;
+    get(off) = rdtable(t_size, t_id, base + off);
+    
+    a3 = get(0);
+    a2 = get(1);
+    a1 = get(2);
+    a0 = get(3);
+    b4 = get(4);
+    b3 = get(5);
+    b2 = get(6);
+    b1 = get(7);
+    b0 = get(8);
 
-    // Compute f(x) and F(x)
     y1 = (((a3 * w + a2) * w + a1) * w + a0);
     z1 = ((((b4 * w + b3) * w + b2) * w + b1) * w + b0);
 
-    // Handle out of bounds
     y1_final = select2(x > -xmax, ymin, select2(x < xmax, y1, ymax));
+    
+    last_base = (num_segments - 1) * 9;
+    z_at_xmax = ((((rdtable(t_size, t_id, last_base + 4) * dx + rdtable(t_size, t_id, last_base + 5)) * dx + rdtable(t_size, t_id, last_base + 6)) * dx + rdtable(t_size, t_id, last_base + 7)) * dx + rdtable(t_size, t_id, last_base + 8));
+
     z1_final = select2(x > -xmax, ymin * (x + xmax), 
                 select2(x < xmax, z1, 
                     z_at_xmax + ymax * (x - xmax)));
-    
-    // Last segment's F(dx)
-    last_base = (num_segments - 1) * 9;
-    lb4 = table, (last_base + 4) : rdtable;
-    lb3 = table, (last_base + 5) : rdtable;
-    lb2 = table, (last_base + 6) : rdtable;
-    lb1 = table, (last_base + 7) : rdtable;
-    lb0 = table, (last_base + 8) : rdtable;
-    z_at_xmax = ((((lb4 * dx + lb3) * dx + lb2) * dx + lb1) * dx + lb0);
 
-    // ADNL formula
     dx0 = x - x_prev;
     reldx0 = abs(dx0) / (abs(x + x_prev) + 1e-7);
 
-    // F(x) state
     z0 = f_z_prev ~ _;
     f_z_prev(old_z) = z1_final;
     y0 = f_y_prev ~ _;
     f_y_prev(old_y) = y1_final;
 
-    // Safe division to avoid static analysis errors
-    safe_dx0 = dx0 + (dx0 == 0) * 1e-20;
-    adaa_formula(x_curr, x_p) = select2(reldx0 < 0.0001, (z1_final - z0) / safe_dx0, 0.5 * (y1_final + y0));
+    safe_dx0 = select2(dx0 == 0, dx0, 1e-20);
+    adaa_result = select2(reldx0 < 0.0001, (z1_final - z0) / safe_dx0, 0.5 * (y1_final + y0));
 };
