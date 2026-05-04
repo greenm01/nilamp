@@ -23,32 +23,15 @@ def glf(x, k0, b, type_b):
 
     return (1 - type_b) * type_a + type_b * type_b_val
 
-def gen_adnl_table(k0, b, type_b, kloop, xmax=15.0, dx=0.02):
-    """Generate ADNL table coefficients (cubic for f, 4th order for F).
 
-    Returns a dict with keys:
-      - 'coeffs':       np.ndarray, shape (num_segments, 9), dtype float32
-      - 'num_segments': int
-      - 'xmax', 'dx':   float (the grid params used)
-      - 'ymin', 'ymax': float (saturation limits, ymin = -k0, ymax = 1 - k0)
-      - 'z_at_xmax':    float (antiderivative evaluated at the right edge of
-                        the last segment; precomputed so the runtime does not
-                        need to fetch and evaluate 5 trailing cells per sample)
+def _curve_to_adnl_table(f_closed, xmax, dx, ymin, ymax):
+    """Pack a curve sampled at dx/3 into Keller's cubic + antiderivative table.
+
+    ``f_closed`` must be sampled at the high-res grid
+    ``np.arange(-xmax, xmax + dx, dx/3)`` (3 sub-samples per output segment
+    plus a trailing endpoint).  Returns the same dict shape as
+    :func:`gen_adnl_table`, including the ``z_at_xmax`` precomputation.
     """
-    # 1. Generate high-resolution grid for resampling if kloop > 0.
-    # Keller uses dx1 = dx / 3 for the internal grid.
-    dx1 = dx / 3.0
-    x_internal = np.arange(-xmax, xmax + dx, dx1)
-    f_internal = glf(x_internal, k0, b, type_b)
-
-    if kloop > 0:
-        x_ext_norm = (x_internal + kloop * f_internal) / (kloop + 1.0)
-        x_target = np.arange(-xmax, xmax + dx, dx1)
-        f_closed = np.interp(x_target, x_ext_norm, f_internal,
-                             left=-k0, right=1.0 - k0)
-    else:
-        f_closed = f_internal
-
     num_segments = int(2 * xmax / dx)
     table = []
 
@@ -87,10 +70,6 @@ def gen_adnl_table(k0, b, type_b, kloop, xmax=15.0, dx=0.02):
 
     coeffs = np.array(table, dtype=np.float32)
 
-    # Saturation limits used by ADAA outside [-xmax, xmax].
-    ymin = -k0
-    ymax = 1.0 - k0
-
     # Precompute z_at_xmax: the antiderivative evaluated at w = dx in the last
     # segment (i.e. at x = xmax). Saves 5 rdtable + 4 mul/add per sample at
     # runtime in the right-saturation branch.
@@ -107,6 +86,110 @@ def gen_adnl_table(k0, b, type_b, kloop, xmax=15.0, dx=0.02):
         "ymax": float(ymax),
         "z_at_xmax": z_at_xmax,
     }
+
+
+def gen_adnl_table(k0, b, type_b, kloop, xmax=15.0, dx=0.02):
+    """Generate ADNL table coefficients (cubic for f, 4th order for F).
+
+    Returns a dict with keys:
+      - 'coeffs':       np.ndarray, shape (num_segments, 9), dtype float32
+      - 'num_segments': int
+      - 'xmax', 'dx':   float (the grid params used)
+      - 'ymin', 'ymax': float (saturation limits, ymin = -k0, ymax = 1 - k0)
+      - 'z_at_xmax':    float (antiderivative evaluated at the right edge of
+                        the last segment; precomputed so the runtime does not
+                        need to fetch and evaluate 5 trailing cells per sample)
+    """
+    # 1. Generate high-resolution grid for resampling if kloop > 0.
+    # Keller uses dx1 = dx / 3 for the internal grid.
+    dx1 = dx / 3.0
+    x_internal = np.arange(-xmax, xmax + dx, dx1)
+    f_internal = glf(x_internal, k0, b, type_b)
+
+    if kloop > 0:
+        x_ext_norm = (x_internal + kloop * f_internal) / (kloop + 1.0)
+        x_target = np.arange(-xmax, xmax + dx, dx1)
+        f_closed = np.interp(x_target, x_ext_norm, f_internal,
+                             left=-k0, right=1.0 - k0)
+    else:
+        f_closed = f_internal
+
+    return _curve_to_adnl_table(f_closed, xmax, dx, ymin=-k0, ymax=1.0 - k0)
+
+
+def _clip_curve(f_raw, ymin, ymax):
+    """Clip ``f_raw`` to [ymin, ymax].
+
+    The DZ-derived curves (especially cathodyne, which has a high
+    rk+rl load-line) can rise much faster than the GLF tanh-like ones
+    and saturate within a single segment.  We hard-clip here; an
+    earlier smoothing prototype (Gaussian over the high-resolution
+    grid) actually worsened the cubic fit because it shifted sample
+    values across segment boundaries, so we keep the clip simple and
+    rely on the test tolerances accommodating the cubic-fit precision
+    floor at the transition (see tests/regression.rs).
+    """
+    return np.clip(f_raw, ymin, ymax)
+
+
+def gen_adnl_table_dz_ck(vs, ra, rl, rk, isat, ibias, kpre,
+                         xmax=15.0, dx=0.02):
+    """Generate an ADNL table for a common-cathode DZ ECC83 stage.
+
+    Imports the load-line solver from keller_oracle (kept there as the
+    single source of truth for the DZ model + Newton iteration).  The
+    output curve is centered on the DZ-derived quiescent so that f(0)=0,
+    matching Keller's GLF convention exactly — i.e. downstream Faust
+    wiring (``v *= isat; v += ksib*dvs;``) drops in unchanged.
+
+    Saturation handling: at the negative end (cutoff) the load-line solve
+    naturally gives ``ip → 0``, so f → -ip_q/isat = -kbias_actual.  At the
+    positive end the bare DZ model has no plate-bottoming mechanism and
+    happily produces unphysical ip ≫ isat; we clip f at ``+1 - kbias_actual``
+    to mirror Keller's GLF saturation level (the real-world limit comes from
+    grid current clamping at the previous coupling cap, which is modelled by
+    Keller's PKD path, not the static curve).
+    """
+    from keller_oracle import loadline_curve_ck  # lazy: avoids circular import
+    dx1 = dx / 3.0
+    x_norm_grid = np.arange(-xmax, xmax + dx, dx1)
+    vin_grid = x_norm_grid / kpre
+    ip_arr, _vp, _vk = loadline_curve_ck(vs, ra, rl, rk, isat, ibias, vin_grid)
+    ip_pos = -ip_arr  # DZ returns negative; flip to positive (Keller convention)
+    zero_idx = int(np.argmin(np.abs(x_norm_grid)))
+    ip_q = ip_pos[zero_idx]
+    f_raw = (ip_pos - ip_q) / isat
+    kbias_actual = ip_q / isat
+    # Match GLF range [-kbias, 1-kbias].  Clip + smooth the corner so the
+    # cubic fit in _curve_to_adnl_table doesn't glitch at the transition.
+    ymin = -kbias_actual
+    ymax = 1.0 - kbias_actual
+    f_closed = _clip_curve(f_raw, ymin, ymax)
+    return _curve_to_adnl_table(f_closed, xmax, dx, ymin=float(ymin), ymax=float(ymax))
+
+
+def gen_adnl_table_dz_cd(vs, ra, rl, rk, isat, ibias, kpre,
+                         xmax=15.0, dx=0.02):
+    """Generate an ADNL table for a cathodyne DZ ECC83 stage.
+
+    Same saturation clipping as :func:`gen_adnl_table_dz_ck` — see that
+    function's docstring for rationale.
+    """
+    from keller_oracle import loadline_curve_cd
+    dx1 = dx / 3.0
+    x_norm_grid = np.arange(-xmax, xmax + dx, dx1)
+    vin_grid = x_norm_grid / kpre
+    ip_arr, _ig, _vp, _vk = loadline_curve_cd(vs, ra, rl, rk, vin_grid)
+    ip_pos = -ip_arr
+    zero_idx = int(np.argmin(np.abs(x_norm_grid)))
+    ip_q = ip_pos[zero_idx]
+    f_raw = (ip_pos - ip_q) / isat
+    kbias_actual = ip_q / isat
+    ymin = -kbias_actual
+    ymax = 1.0 - kbias_actual
+    f_closed = _clip_curve(f_raw, ymin, ymax)
+    return _curve_to_adnl_table(f_closed, xmax, dx, ymin=float(ymin), ymax=float(ymax))
+
 
 def export_faust_table(name, table):
     """Export a generated ADNL table to a Faust waveform definition.
