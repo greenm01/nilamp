@@ -4,10 +4,10 @@ pub mod faust;
 
 // The plugin entry-points depend on the generated `faust::mydsp` struct, which
 // is only emitted when `dsp/nilamp.dsp` compiles successfully.  build.rs sets
-// the `nilamp_toplevel` cfg flag in that case (driven by the
-// `NILAMP_BUILD_TOPLEVEL=1` env var).  When unset (the current default while
-// step 7 is pending), the regression tests in `tests/` still build because
-// they target only the per-stage DSPs in `dsp/tests/`.
+// the `nilamp_toplevel` cfg flag in that case (enabled by default; opt out
+// with `NILAMP_BUILD_TOPLEVEL=0` if Faust ever regresses on the file).  When
+// the cfg is unset, the regression tests in `tests/` still build because they
+// target only the per-stage DSPs in `dsp/tests/`.
 #[cfg(nilamp_toplevel)]
 mod plugin {
     use crate::faust;

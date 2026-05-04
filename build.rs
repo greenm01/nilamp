@@ -35,22 +35,26 @@ fn main() {
     // Tell rustc about the optional cfg flag.
     println!("cargo::rustc-check-cfg=cfg(nilamp_toplevel)");
 
-    // The top-level 5E3 amp (`dsp/nilamp.dsp`) currently exceeds Faust's
-    // internal compile timeout (SIGALRM) when all four 13503-cell tube
-    // waveforms are inlined together with the global feedback loop.
-    // We rely on the per-stage test DSPs in `dsp/tests/` for validation
-    // until step 7 (wire `CkConfig`-derived constants) is complete and
-    // we revisit the top-level compile.  Set `NILAMP_BUILD_TOPLEVEL=1`
-    // to attempt it anyway; the plugin entry-points in `src/lib.rs` are
-    // gated behind `#[cfg(nilamp_toplevel)]`.
+    // The top-level 5E3 amp (`dsp/nilamp.dsp`) compiles to ~500K of Rust in
+    // ~30 s on Faust 2.85.x.  Earlier in the project Faust would SIGALRM on
+    // this file (the 4×13503-cell waveforms + global feedback loop tripped
+    // its internal timeout) and it was opt-in via `NILAMP_BUILD_TOPLEVEL=1`.
+    // After the 5e3_constants.lib refactor Faust now finishes well within
+    // its limits, so the top-level build is enabled by default.  The env
+    // var is kept as an *opt-out* (`NILAMP_BUILD_TOPLEVEL=0`) so we can
+    // skip it again if a future change resurrects the timeout.
     println!("cargo:rerun-if-env-changed=NILAMP_BUILD_TOPLEVEL");
-    if env::var_os("NILAMP_BUILD_TOPLEVEL").is_some() {
+    let toplevel = match env::var("NILAMP_BUILD_TOPLEVEL").as_deref() {
+        Ok("0") | Ok("false") | Ok("off") | Ok("no") => false,
+        _ => true,
+    };
+    if toplevel {
         faust_compile(Path::new("dsp/nilamp.dsp"), &out_dir.join("dsp.rs"), None);
         println!("cargo:rustc-cfg=nilamp_toplevel");
     } else {
         // Emit a stub so any `include!(concat!(env!("OUT_DIR"), "/dsp.rs"))`
         // downstream still finds a file.  The stub exposes nothing.
-        let stub = "// dsp/nilamp.dsp skipped: set NILAMP_BUILD_TOPLEVEL=1 to enable.\n";
+        let stub = "// dsp/nilamp.dsp skipped: NILAMP_BUILD_TOPLEVEL=0.\n";
         fs::write(out_dir.join("dsp.rs"), stub).expect("write dsp.rs stub");
     }
 
