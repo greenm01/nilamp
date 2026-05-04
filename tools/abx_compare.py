@@ -208,8 +208,15 @@ def render_nilamp(input_wav: Path, output_wav: Path, params: Params) -> None:
     subprocess.run(cmd, check=True, capture_output=True)
 
 
-def render_jsfx(input_wav: Path, output_wav: Path, params: Params) -> None:
-    cmd = [*JSFX_RENDER, str(input_wav), str(output_wav), *params.to_jsfx_args()]
+def render_jsfx(input_wav: Path, output_wav: Path, params: Params, timeout_s: float) -> None:
+    cmd = [
+        *JSFX_RENDER,
+        str(input_wav),
+        str(output_wav),
+        "--timeout",
+        str(timeout_s),
+        *params.to_jsfx_args(),
+    ]
     subprocess.run(cmd, check=True, capture_output=True, cwd=REPO_ROOT)
 
 
@@ -349,7 +356,7 @@ def compute_metrics(a: list[float], b: list[float], sr: int) -> Metrics:
 # --------------------------------------------------------------------------- #
 
 def run_one(input_wav: Path, params: Params, out_dir: Path, label: str,
-            input_scale: float = 1.0) -> Metrics:
+            input_scale: float = 1.0, jsfx_timeout_s: float = 60.0) -> Metrics:
     out_dir.mkdir(parents=True, exist_ok=True)
     nilamp_wav = out_dir / f"{label}_nilamp.wav"
     jsfx_wav = out_dir / f"{label}_jsfx.wav"
@@ -371,7 +378,7 @@ def run_one(input_wav: Path, params: Params, out_dir: Path, label: str,
     print(f"[{label}] rendering nilamp...", flush=True)
     render_nilamp(rendered_input, nilamp_wav, params)
     print(f"[{label}] rendering jsfx...", flush=True)
-    render_jsfx(rendered_input, jsfx_wav, params)
+    render_jsfx(rendered_input, jsfx_wav, params, jsfx_timeout_s)
 
     a, sr_a = read_wav_f32(nilamp_wav)
     b, sr_b = read_wav_f32(jsfx_wav)
@@ -402,6 +409,8 @@ def main() -> int:
                          "Use small values (e.g. 1e-3) to keep all stages in "
                          "their linear regime so the residual reflects only "
                          "linear filter mismatch.")
+    ap.add_argument("--jsfx-timeout", type=float, default=60.0,
+                    help="REAPER/JSFX render timeout in seconds (default: 60).")
     ap.add_argument("--rms-threshold-db", type=float, default=-60.0)
     args = ap.parse_args()
 
@@ -416,7 +425,7 @@ def main() -> int:
     print()
 
     m = run_one(args.input, params, args.out_dir, args.label,
-                input_scale=args.input_scale)
+                input_scale=args.input_scale, jsfx_timeout_s=args.jsfx_timeout)
     print(f"\nresults [{args.label}]:")
     print(m.report())
     ok = m.passed(args.rms_threshold_db)

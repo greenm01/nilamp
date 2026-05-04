@@ -247,6 +247,8 @@ def _cli() -> int:
         help="NAME=VALUE; repeatable. e.g. -s gin=12 -s vol=80",
     )
     ap.add_argument("--sample-rate", type=int, default=48000)
+    ap.add_argument("--timeout", type=float, default=60.0,
+                    help="REAPER render timeout in seconds (default: 60)")
     ap.add_argument("--list-sliders", action="store_true")
     args = ap.parse_args()
 
@@ -271,6 +273,7 @@ def _cli() -> int:
         output_wav=args.output_wav,
         sliders=sliders,
         sample_rate=args.sample_rate,
+        timeout_s=args.timeout,
     )
     print(f"wrote {out}")
     return 0

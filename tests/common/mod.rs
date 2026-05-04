@@ -243,3 +243,21 @@ pub fn run_simo<D: FaustDsp<T = f32>>(dsp: &mut D, input: &[f32]) -> Vec<Vec<f32
     }
     outputs
 }
+
+/// Run an N-input, M-output Faust DSP over equally-sized input buffers.
+pub fn run_mimo<D: FaustDsp<T = f32>>(dsp: &mut D, inputs: &[&[f32]]) -> Vec<Vec<f32>> {
+    assert!(!inputs.is_empty(), "run_mimo requires at least one input");
+    let n = inputs[0].len();
+    assert!(
+        inputs.iter().all(|buf| buf.len() == n),
+        "all run_mimo inputs must have the same length"
+    );
+    let n_out = dsp.get_num_outputs() as usize;
+    let mut outputs: Vec<Vec<f32>> = (0..n_out).map(|_| vec![0f32; n]).collect();
+    {
+        let mut output_refs: Vec<&mut [f32]> =
+            outputs.iter_mut().map(|v| v.as_mut_slice()).collect();
+        dsp.compute(n as i32, inputs, &mut output_refs);
+    }
+    outputs
+}

@@ -677,6 +677,57 @@ def flt_sv2_tst_block(b, m, t, f, Q, pwf, pwQ, sr, x_buf):
     return out
 
 
+def flt_sv1_hs_block(kgain, fs, pwf, sr, x_buf):
+    """1st-order TPT high shelf. See HK_LIB_FLT_SV.jsfx-inc flt_sv1_set_hs."""
+    k_raw = fs * np.pi / sr
+    if pwf == 1:
+        k_raw = np.tan(fs * np.pi / sr)
+    k = np.sqrt(kgain) * k_raw
+    kdiv = 1.0 / (1.0 + k)
+
+    s1 = 0.0
+    out = np.zeros_like(x_buf, dtype=np.float32)
+    for i, x in enumerate(x_buf):
+        hp = (float(x) - s1) * kdiv
+        aux = k * hp
+        lp = aux + s1
+        s1 = aux + lp
+        out[i] = hp * kgain + lp
+    return out
+
+
+def flt_sv2_peq_block(kgain, f, Qc, pwf, pwQ, sr, x_buf):
+    """2nd-order TPT peak EQ. See HK_LIB_FLT_SV.jsfx-inc flt_sv2_set_peq."""
+    pi_t = np.pi / sr
+    k_for_q = f * pi_t
+    if pwQ == 0:
+        kq = 1.0 / (np.sqrt(kgain) * Qc)
+    else:
+        q_eff = Qc * np.sqrt(kgain)
+        aux1 = np.sqrt(1.0 + 4.0 * q_eff * q_eff)
+        aux2 = (k_for_q / np.sin(2.0 * k_for_q)) * np.log((aux1 + 1.0) / (aux1 - 1.0))
+        kq = np.exp(aux2) - np.exp(-aux2)
+    k = f * pi_t
+    if pwf == 1:
+        k = np.tan(f * pi_t)
+    kf = kq + k
+    kdiv = 1.0 / (1.0 + k * (k + kq))
+
+    s1 = 0.0
+    s2 = 0.0
+    out = np.zeros_like(x_buf, dtype=np.float32)
+    for i, x in enumerate(x_buf):
+        hp = (float(x) - kf * s1 - s2) * kdiv
+        aux = k * hp
+        bp = aux + s1
+        s1 = aux + bp
+        aux = k * bp
+        lp = aux + s2
+        s2 = aux + lp
+        out[i] = hp + (kq * kgain) * bp + lp
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Tube stage — common cathode (CK)
 # ---------------------------------------------------------------------------

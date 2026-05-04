@@ -347,3 +347,31 @@ the multi-stage PSS to 5e3-v2 as today.
 Treat any back-end commit that **regresses** the sweep residual on its
 own as a sign of a broken gain-staging assumption rather than as a
 trade-off to accept.
+
+## Investigation 2026-05-04 (cont.): T5 diagnostics before retrying top-level wiring
+
+After adding the generated T5 6V6 table/constants, two direct attempts
+to wire T5 into `dsp/nilamp.dsp` regressed the current T4-only
+baseline:
+
+| Attempt | Sine residual | Sweep residual |
+|---------|---------------|----------------|
+| T5 aux/subtractive branch only | -12.7 dB | not kept |
+| fuller back-end/T5 block | -10.2 dB | not kept |
+
+Both attempts were reverted from `dsp/nilamp.dsp`; only the generated
+T5 data stayed committed.  The follow-up diagnostic work adds
+isolated Faust fixtures for:
+
+* `tube_ck_simple` using T5 constants/table.
+* the mode-0 T4/T5 push-pull branch driven from synthetic T3 plate and
+  cathode taps.
+
+Those fixtures pass against the Python Keller oracle, so the regression
+is not explained by the generated T5 table, T5 constants, or the basic
+T4/T5 branch equations in isolation.  The next top-level attempt should
+start from actual `nilamp.dsp` internal taps and compare them against
+oracle taps before changing the public render path.  Suspect areas are
+shared sag/`dvs` timing, the missing multi-stage PSS block, phase/sign
+assumptions around the subtractive aux branch, and gain staging around
+the downstream back-end filters.

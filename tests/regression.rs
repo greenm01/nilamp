@@ -72,7 +72,8 @@ fn pkd_matches_oracle() {
 // ADNL — waveshaper (ADAA) per-table regression
 // ---------------------------------------------------------------------------
 //
-// One macro invocation per 5E3 GLF table (T1_12AX7, T2_12AX7, T3_CD, T4_6V6).
+// One macro invocation per 5E3 GLF table (T1_12AX7, T2_12AX7, T3_CD,
+// T4_6V6, T5_6V6).
 // Each invocation generates:
 //   * a private `mod` that includes the Faust-generated source with the
 //     suppression attrs Faust output requires;
@@ -176,6 +177,14 @@ adnl_stage_test!(
     adnl_t4_6v6_small_signal,
     adnl_t4_6v6_large_signal,
     "t4_6v6"
+);
+
+adnl_stage_test!(
+    test_adnl_t5_6v6,
+    test_adnl_t5_6v6,
+    adnl_t5_6v6_small_signal,
+    adnl_t5_6v6_large_signal,
+    "t5_6v6"
 );
 
 // ---------------------------------------------------------------------------
@@ -282,6 +291,7 @@ macro_rules! tube_test_module {
 }
 
 tube_test_module!(test_tube_ck);
+tube_test_module!(test_tube_ck_t5);
 
 #[test]
 fn tube_ck_t2_matches_oracle() {
@@ -313,6 +323,82 @@ fn tube_ck_t2_matches_oracle() {
     // policy.
     r_v.assert_within(0.5, 5e-2, "tube_ck_t2_v");
     r_dia.assert_within(5e-6, 5e-7, "tube_ck_t2_dia");
+}
+
+#[test]
+fn tube_ck_t5_matches_oracle() {
+    use test_tube_ck_t5::test_tube_ck_t5 as Dsp;
+
+    let input: Vec<f32> = read_f32_bin("tests/fixtures/sine_1k_amp05_48k_4800.f32");
+    let exp_v: Vec<f32> = read_f32_bin("tests/fixtures/tube_ck_t5_v_sine05_48k.f32");
+    let exp_dia: Vec<f32> = read_f32_bin("tests/fixtures/tube_ck_t5_dia_sine05_48k.f32");
+
+    let mut dsp = Dsp::new();
+    dsp.init(48_000);
+    dsp.instance_clear();
+    assert_eq!(
+        dsp.get_num_outputs(),
+        2,
+        "tube_ck T5 harness must emit (v_out, dia)"
+    );
+
+    let outputs = run_simo(&mut dsp, &input);
+    let r_v = compare(&outputs[0], &exp_v);
+    let r_dia = compare(&outputs[1], &exp_dia);
+    println!(
+        "[tube_ck T5] v: max_abs={:.3e} rms={:.3e}  dia: max_abs={:.3e} rms={:.3e}",
+        r_v.max_abs, r_v.rms, r_dia.max_abs, r_dia.rms
+    );
+    r_v.assert_within(0.5, 5e-2, "tube_ck_t5_v");
+    // T5's faster PKD and larger 6V6 current scale put dia at a slightly
+    // higher float32 oracle/Faust precision floor than the small-signal T2
+    // CK harness.  This is still ~-59 dB RMS relative to dia RMS.
+    r_dia.assert_within(7e-5, 2e-6, "tube_ck_t5_dia");
+}
+
+tube_test_module!(test_power_pair_t5);
+
+#[test]
+fn power_pair_t5_matches_oracle() {
+    use test_power_pair_t5::test_power_pair_t5 as Dsp;
+
+    let t3_v: Vec<f32> = read_f32_bin("tests/fixtures/power_pair_t3_v_48k.f32");
+    let t3_vk: Vec<f32> = read_f32_bin("tests/fixtures/power_pair_t3_vk_48k.f32");
+    let exp_t4_v: Vec<f32> = read_f32_bin("tests/fixtures/power_pair_t4_v_48k.f32");
+    let exp_t5_v: Vec<f32> = read_f32_bin("tests/fixtures/power_pair_t5_v_48k.f32");
+    let exp_post: Vec<f32> = read_f32_bin("tests/fixtures/power_pair_post_pp_48k.f32");
+    let exp_dia: Vec<f32> = read_f32_bin("tests/fixtures/power_pair_total_dia_48k.f32");
+
+    let mut dsp = Dsp::new();
+    dsp.init(48_000);
+    dsp.instance_clear();
+    assert_eq!(
+        dsp.get_num_inputs(),
+        2,
+        "power-pair harness must consume T3 plate/cathode taps"
+    );
+    assert_eq!(
+        dsp.get_num_outputs(),
+        4,
+        "power-pair harness must emit four diagnostic signals"
+    );
+
+    let outputs = run_mimo(&mut dsp, &[&t3_v, &t3_vk]);
+    let r_t4 = compare(&outputs[0], &exp_t4_v);
+    let r_t5 = compare(&outputs[1], &exp_t5_v);
+    let r_post = compare(&outputs[2], &exp_post);
+    let r_dia = compare(&outputs[3], &exp_dia);
+    println!(
+        "[power-pair] t4: max_abs={:.3e} rms={:.3e}  t5: max_abs={:.3e} rms={:.3e}  post: max_abs={:.3e} rms={:.3e}  dia: max_abs={:.3e} rms={:.3e}",
+        r_t4.max_abs, r_t4.rms, r_t5.max_abs, r_t5.rms,
+        r_post.max_abs, r_post.rms, r_dia.max_abs, r_dia.rms
+    );
+    r_t4.assert_within(0.5, 5e-2, "power_pair_t4_v");
+    r_t5.assert_within(0.5, 5e-2, "power_pair_t5_v");
+    r_post.assert_within(0.75, 7.5e-2, "power_pair_post_pp");
+    // total_dia sums two independent 6V6 current paths, so it inherits the
+    // per-power-tube precision floor from both branches.
+    r_dia.assert_within(2e-4, 2e-5, "power_pair_total_dia");
 }
 
 tube_test_module!(test_tube_cd);

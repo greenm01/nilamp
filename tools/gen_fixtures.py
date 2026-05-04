@@ -146,7 +146,58 @@ ADNL_STAGES = [
     ("t2_12ax7", t5e3.T2_12AX7),
     ("t3_cd",    t5e3.T3_CD),
     ("t4_6v6",   t5e3.T4_6V6),
+    ("t5_6v6",   t5e3.T5_6V6),
 ]
+
+
+def gen_power_pair_inputs() -> tuple[np.ndarray, np.ndarray]:
+    """Synthetic T3 plate/cathode taps for the T4/T5 branch diagnostic."""
+    t = np.arange(N) / SAMPLE_RATE
+    t3_v = (10.0 * np.sin(2 * np.pi * 1000.0 * t)).astype(np.float32)
+    t3_vk = (-9.0 * np.sin(2 * np.pi * 1000.0 * t)).astype(np.float32)
+    return t3_v, t3_vk
+
+
+def gen_power_pair_diag(t3_v: np.ndarray, t3_vk: np.ndarray) -> tuple[np.ndarray, ...]:
+    """Reference for dsp/tests/test_power_pair_t5.dsp.
+
+    Mirrors the mode-0 T4/T5 branch only: pre-power PEQ/HS on both T3 taps,
+    T4/T5 tube_ck stages with dvs=0, subtractive push-pull mix, and summed
+    dia.  It intentionally excludes post-push-pull PEQ/HS/HP/LP and PSS.
+    """
+    k1 = 0.797
+    k2 = 0.940
+    hp3_hz = 5.8
+    hp4_hz = 6.4
+    kp1 = 1.1220184543
+    fp_hz = 80.0
+    qp1 = 2.6685237666
+    ks1 = 1.4125375446
+    fs1_hz = 2098.1359672
+
+    t4_in = ko.flt_sv1_hs_block(
+        ks1, fs1_hz, 1, SAMPLE_RATE,
+        ko.flt_sv2_peq_block(
+            kp1, fp_hz, qp1, 1, 1, SAMPLE_RATE,
+            ko.flt_ii1_hp_block(hp3_hz, SAMPLE_RATE, (t3_v * k1).astype(np.float32)),
+        ),
+    )
+    t5_in = ko.flt_sv1_hs_block(
+        ks1, fs1_hz, 1, SAMPLE_RATE,
+        ko.flt_sv2_peq_block(
+            kp1, fp_hz, qp1, 1, 1, SAMPLE_RATE,
+            ko.flt_ii1_hp_block(hp4_hz, SAMPLE_RATE, (t3_vk * k2).astype(np.float32)),
+        ),
+    )
+
+    dvs_zero = np.zeros(N, dtype=np.float32)
+    t4 = _ck_oracle(t5e3.T4_6V6)
+    t5 = _ck_oracle(t5e3.T5_6V6)
+    t4_v, t4_dia = t4.process_block(t4_in, dvs_zero)
+    t5_v, t5_dia = t5.process_block(t5_in, dvs_zero)
+    post_pp = (t4_v - t5_v).astype(np.float32)
+    total_dia = (t4_dia + t5_dia).astype(np.float32)
+    return t4_v, t5_v, post_pp, total_dia
 
 
 def main() -> None:
@@ -202,6 +253,11 @@ def main() -> None:
     write(FIXTURES_DIR / "tube_ck_t2_v_sine05_48k.f32", ck_v)
     write(FIXTURES_DIR / "tube_ck_t2_dia_sine05_48k.f32", ck_dia)
 
+    ck_t5 = _ck_oracle(t5e3.T5_6V6)
+    ck_t5_v, ck_t5_dia = ck_t5.process_block(sine.copy(), dvs_zero)
+    write(FIXTURES_DIR / "tube_ck_t5_v_sine05_48k.f32", ck_t5_v)
+    write(FIXTURES_DIR / "tube_ck_t5_dia_sine05_48k.f32", ck_t5_dia)
+
     cd = _cd_oracle(t5e3.T3_CD)
     # Drive the cathodyne with the small-signal preamp output from the
     # CK oracle so we exercise it inside its actual operating range.
@@ -235,6 +291,16 @@ def main() -> None:
     pss_dvs, pss_s = pss.process_block(sine.copy(), dvs_zero, dvs_zero)
     write(FIXTURES_DIR / "pss_dvs_sine05_48k.f32", pss_dvs)
     write(FIXTURES_DIR / "pss_s_sine05_48k.f32",   pss_s)
+
+    # T4/T5 mode-0 branch diagnostic.
+    t3_v, t3_vk = gen_power_pair_inputs()
+    write(FIXTURES_DIR / "power_pair_t3_v_48k.f32", t3_v)
+    write(FIXTURES_DIR / "power_pair_t3_vk_48k.f32", t3_vk)
+    pp_t4_v, pp_t5_v, pp_post, pp_dia = gen_power_pair_diag(t3_v, t3_vk)
+    write(FIXTURES_DIR / "power_pair_t4_v_48k.f32", pp_t4_v)
+    write(FIXTURES_DIR / "power_pair_t5_v_48k.f32", pp_t5_v)
+    write(FIXTURES_DIR / "power_pair_post_pp_48k.f32", pp_post)
+    write(FIXTURES_DIR / "power_pair_total_dia_48k.f32", pp_dia)
 
 
 if __name__ == "__main__":

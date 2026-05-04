@@ -1,16 +1,30 @@
-# Next session — back-end chain blocked on T5 push-pull port
+# Next session — compare real top-level taps before retrying T5 wiring
 
 ## State of the tree
 
-Branch `main`, 4 commits ahead of `origin/main`, working tree clean.
+As of committed base `7dab2c3` plus the current uncommitted diagnostic
+work, branch `main` is 5 commits ahead of `origin/main`.  T5
+table/constants are generated and committed.  Isolated T5 and T4/T5
+power-pair diagnostics now pass, but T5 is still **not** wired into
+`dsp/nilamp.dsp`.
 
 Recent commits (newest last):
 - `d98f17a` — HP5 40 Hz output subsonic blocker
 - `1f42a49` — harness gin equalization, `--input-scale`, WAV helpers
 - `0d6f549` — tone-stack centre 500 → 630 Hz (`iso266(56)`)
 - `30c36cd` — investigation notes appended to `docs/notes/abx-harness.md`
+- `7dab2c3` — generated T5 6V6 table/constants and committed this handoff doc
 
-17/17 regression tests pass; `cargo build --release --bin nilamp_render` clean (~80 s).
+21/21 regression tests pass; `cargo build --release --bin nilamp_render` clean.
+
+Current baseline ABX at `gain=+6, defaults` is unchanged:
+
+| Test | Current baseline |
+|---|---|
+| 440 Hz sine RMS residual | −13.4 dB |
+| 5 s log-sweep RMS residual | −9.2 dB |
+| Sweep peak A / B | 0.366 / 0.370 |
+| Sweep align lag | 1 sample |
 
 ## What was attempted this session
 
@@ -93,52 +107,69 @@ also adding T5 *unbalances* the cancellation. The right move is to land
 T5 first (which restores the gain-staging baseline JSFX assumes), then
 re-attempt the back-end EQ chain on top.
 
+## Diagnostic work now added
+
+T5 table/constants are now done:
+
+- `tools/gen_5e3_tables.py` defines `T5_6V6`.
+- `dsp/5e3_tables.lib` exports `t5_6v6_table`.
+- `dsp/5e3_constants.lib` exports `c.t5_*`.
+
+The working tree also adds isolated diagnostics:
+
+- T5 ADNL coverage through `dsp/tests/test_adnl_t5_6v6.dsp`.
+- Full T5 `tube_ck_simple` coverage through `dsp/tests/test_tube_ck_t5.dsp`.
+- A focused T4/T5 branch harness through
+  `dsp/tests/test_power_pair_t5.dsp`, driven by synthetic T3 plate/cathode
+  taps and checking `t4_v`, `t5_v`, `post_pp`, and `total_dia`.
+
+These pass against the Python Keller oracle.  That narrows the failed
+top-level attempts away from the generated T5 table/constants and away
+from the basic T4/T5 branch equations in isolation.
+
+Two top-level wiring attempts were tried and reverted because they regressed
+ABX:
+
+| Attempt | 440 Hz sine residual | Result |
+|---|---:|---|
+| T5 aux branch + full T4/T5 `gout` only | −12.7 dB | regression |
+| T5 plus full backend EQ/HP/LP block | −10.2 dB | worse regression |
+
+Conclusion: do **not** blindly retry `nilamp.dsp` wiring.  The next
+investigation should compare actual `nilamp.dsp` internal taps against
+oracle taps before changing the public render path.  Suspect areas are
+shared sag/`dvs` timing, phase/sign assumptions around the subtractive aux
+branch, missing multi-stage PSS behavior, and gain staging around the
+downstream back-end filters.
+
 ## Next steps (in order)
 
-### 1. Survey existing tube infra to confirm T5 portability
+### 1. Keep T5 table/constants as done
 
-- `dsp/nilamp.dsp:150-158` — current T4 invocation via `tube.tube_ck_simple`.
-  T5 is the same primitive with different constants and a different drive
-  signal; structurally a clone of the T4 block.
-- `tools/gen_tables.py` — table generator. Need to confirm it accepts
-  (mu, ra, isat, ibias, b) and emits a `t5_table` data file usable from
-  `dsp/5e3_tables.lib`. The lookup table depends only on (mu, ra, isat,
-  ibias, b) — T4 = (125, 40000, 0.11, 0.042, 2.0), T5 = (125, 40000, 0.12,
-  0.042, 2.5), so T5 needs its own table.
-- `dsp/5e3_tables.lib` — find how `t4_6v6_table` is exported and clone the
-  pattern for `t5_6v6_table`.
+No further generator work is needed unless the JSFX T5 parameters are found
+to be wrong.
 
-### 2. Add T5 constants to `dsp/5e3_constants.lib`
+### 2. Commit the diagnostics
 
-Source: `twd_dlx_ii_harness.jsfx:296`:
+Commit the new test harnesses, Python oracle helpers, fixtures, ABX timeout
+knob, and documentation update as:
+
 ```
-t5.tube_ck_set(125, 40000, 0.1200, 0.04200, 2.5, 0.5, 346, 3000, 540,
-               1, 0.18, 0.325, 0.388, 0.00155, 0.0234, neq, 0.00675);
+test(dsp): add T5 and power-pair diagnostics
 ```
-Field map (from `HK_LIB_TUBE.jsfx-inc:33`):
-`(mu, ra, isat, ibias, b, type, vs, rl, rk, kcomp, kpk, xth, xdrop,
- tattack, trelease, neq, tck)`.
 
-T5 constants needed:
-- `t5_isat=0.12, t5_rl=3000` (already partially used inline as
-  `t5_*_mode0` in the reverted edit; promote to canonical constants).
-- `t5_kpre, t5_kpk, t5_kspre, t5_kspost, t5_ksva, t5_ksib, t5_kfb,
-   t5_pk_xth, t5_pk_xdiode, t5_pk_k1, t5_pk_k2, t5_avg_f` —
-   computed the same way as the T4 equivalents from the raw JSFX
-   set-call args. Cross-reference how `t4_*` are derived from the
-   T4 set-call (line 295) in current `5e3_constants.lib`.
+### 3. Compare real top-level taps
 
-### 3. Generate T5 wave-shaper table
+Before changing `nilamp.dsp` output behavior, add a temporary or gated
+diagnostic render path that emits the actual internal taps around T3, T4, T5,
+`dvs`, and the post-power-pair node.  Compare those taps against a Python
+oracle using the same full-input signal.  Keep this out of the final audio
+path unless it improves ABX.
 
-- Run `tools/gen_tables.py` with T5 parameters (mu=125, ra=40000,
-  isat=0.12, ibias=0.042, b=2.5).
-- Emit alongside `t4_6v6_table`. Confirm same `XMAX`, `DX`, `TBL_SIZE`
-  (13503 cells).
-- Wire into `dsp/5e3_tables.lib` as `t5_6v6_table`.
-- Add `t5_table = tables.t5_6v6_table;` near
-  `dsp/nilamp.dsp:65`.
+### 4. Only then retry `nilamp.dsp` wiring
 
-### 4. Implement T5 stage + aux subtractive branch in `process()`
+After tap comparisons explain the mismatch, re-attempt T5 wiring in the
+top-level. Start with:
 
 In `dsp/nilamp.dsp`, after the T4 invocation:
 
@@ -184,18 +215,18 @@ was a half-denom hack to compensate for missing T5.
 
 For each commit:
 1. `cargo build --release --bin nilamp_render` clean.
-2. `cargo test --release` — 17/17 still pass.
-3. `python3 tools/abx_compare.py /tmp/sine_440.wav --gain 6 --label sine440_<step>`
-4. `python3 tools/abx_compare.py /tmp/sweep_5s.wav --gain 6 --label sweep_<step>`
+2. `cargo test --release` — 21/21 still pass.
+3. `python3 tools/abx_compare.py /tmp/sine_440.wav --gain 6 --label sine440_<step> --jsfx-timeout 120`
+4. `python3 tools/abx_compare.py /tmp/sweep_5s.wav --gain 6 --label sweep_<step> --jsfx-timeout 120`
 5. RMS residual MUST be at least as good as the pre-edit baseline (sine
    −13.4 dB, sweep −9.2 dB) — any regression triggers immediate revert.
 
-Suggested commit slicing:
-1. `feat(dsp): add T5 6V6 wave-shaper table` (gen_tables.py + tables.lib)
-2. `feat(dsp): add T5 constants to 5e3_constants.lib`
+Suggested commit slicing from here:
+1. `test(dsp): add T5 and power-pair diagnostics`
+2. `test(dsp): add top-level power-stage tap comparison`
 3. `feat(dsp): port T5 push-pull aux branch and subtractive mix`
 4. `fix(dsp): use full t4+t5 gout denom now that T5 is present`
-5. `feat(dsp): port JSFX back-end EQ chain (peq1/hs1/peq3/hs3, k1, hp2/3)`
+5. `feat(dsp): port JSFX back-end EQ chain`
 
 ## Files to read first
 
@@ -204,7 +235,9 @@ Suggested commit slicing:
 - `dsp/5e3_constants.lib` — T4 constants pattern at lines 59–60 and
   surrounding; T5 will mirror.
 - `dsp/5e3_tables.lib` — locate `t4_6v6_table` export.
-- `tools/gen_tables.py` — table generator entry point.
+- `tools/gen_5e3_tables.py` — table generator entry point.
+- `dsp/tests/test_tube_ck_t5.dsp` — isolated T5 diagnostic.
+- `dsp/tests/test_power_pair_t5.dsp` — isolated T4/T5 branch diagnostic.
 - `~/.config/REAPER/Effects/nilamp_abx/twd_dlx_ii_harness.jsfx` — lines
   295–296 (t4/t5 set), 411–428 (chain).
 - `~/.config/REAPER/Effects/nilamp_abx/HK_LIB_TUBE.jsfx-inc` — line 33
@@ -214,16 +247,14 @@ Suggested commit slicing:
 
 ## Open uncertainties
 
-- Whether `tube.tube_ck_simple` correctly handles two independent invocations
-  in one `process()` cycle sharing `old_dvs`. Should — it's pure Faust — but
-  worth confirming on first build.
+- Whether `tube.tube_ck_simple` behaves the same when driven from actual
+  top-level T3 taps as it does in the synthetic branch diagnostic.
 - T5 NEQ coefficients in JSFX line 296 use `neq = 0` (same as T4 mode==0).
   Identity NEQ (1,0,0,0,0) → no extra biquad needed; matches current T4
   treatment. Confirmed by reading current T4 invocation.
-- `tube_ck_simple` averaging-filter constant `t5_avg_f` derivation — check
-  how `t4_avg_f` is computed from JSFX `tattack=0.00575, trelease=0.0276`
-  vs T5 `tattack=0.00155, trelease=0.0234`. Likely a one-pole-per-rate
-  formula already in `gen_tables.py` or `5e3_constants.lib`'s build helper.
+- `tube_ck_simple` averaging-filter constant `t5_avg_f` now matches the
+  generator/oracle path closely enough for isolated T5 diagnostics, but may
+  still be worth revisiting if real top-level taps expose a sag-timing issue.
 
 ## Decisions carried forward
 
