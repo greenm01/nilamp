@@ -22,12 +22,19 @@ from gen_tables import gen_adnl_table, export_faust_table
 
 @dataclass
 class CkConfig:
-    """Common-cathode (CK) tube stage parameters.
+    """Common-cathode (CK) tube stage parameters with global advk feedback.
 
-    Mirrors ``tube_ck_set`` in HK_LIB_TUBE.jsfx-inc.  See lines 33-156 there
-    for the full derivation; the ``with_feedback`` form (line 140+) is the
-    one used for the 12AX7 preamp + 6V6 power stages, so we use that
-    derivation here (kloop = rk * (1 + mu) / (ra + rl)).
+    Mirrors ``tube_ck_set`` in HK_LIB_TUBE.jsfx-inc lines 33-79 (the
+    *with-feedback* CK variant used by Keller's TWD-DLX 5E3 patch for
+    every 12AX7 / 6V6 stage; t1/t2/t4/t5 in 'TWD DLX  II.jsfx').
+    Distinct from ``tube_cc_set`` (line 115) which is the no-feedback
+    common-cathode topology and bakes the local feedback into the GLF
+    table itself (kloop > 0).
+
+    In ``tube_ck`` the local feedback is realised at runtime via the
+    ``advk = kfb * lp(v - dvs)`` averaging path (see hk_tube.lib's
+    tick) so the GLF table is generated with kloop = 0 and the ``kfb``
+    coefficient is exposed for the runtime.
     """
 
     name: str
@@ -48,16 +55,26 @@ class CkConfig:
 
     @property
     def kloop(self) -> float:
-        return self.rk * (1 + self.mu) / (self.ra + self.rl)
+        # tube_ck_set: kloop = 0 (feedback handled at runtime via kfb,
+        # not baked into the GLF table).
+        return 0.0
 
     @property
     def kpre(self) -> float:
-        return self.mu / self.isat / (self.ra + self.rl + (1 + self.mu) * self.rk)
+        return self.mu / self.isat / (self.ra + self.rl)
 
     @property
     def ksva(self) -> float:
-        return ((self.ra + (1 + self.mu) * self.rk)
-                / (self.ra + self.rl + (1 + self.mu) * self.rk))
+        return self.ra / (self.ra + self.rl)
+
+    @property
+    def kfb(self) -> float:
+        """Outer-loop feedback factor: advk = kfb * lp(v_out - dvs).
+
+        Only the CK variant has this; tube_cc_set bakes feedback into the
+        GLF table (kloop > 0) and has no kfb.
+        """
+        return (1 + self.mu) / self.mu * self.rk / self.rl
 
     @property
     def kspre(self) -> float:
@@ -164,6 +181,8 @@ def _print_constants(cfg):
     print(f"  ksva   = {cfg.ksva:.6f}")
     if hasattr(cfg, "ksvk"):
         print(f"  ksvk   = {cfg.ksvk:.6f}")
+    if hasattr(cfg, "kfb"):
+        print(f"  kfb    = {cfg.kfb:.6f}")
     print(f"  kspre  = {cfg.kspre:.6f}")
     print(f"  kspost = {cfg.kspost:.6f}")
     print(f"  ksib   = {cfg.ksib:.6f}")
