@@ -146,7 +146,11 @@ with {
                 total_dia = res1_dia + res3_dia + res4_dia + res5_dia;
 
                 // PSU Stage (single lump; see TODO above).
-                res_pss = total_dia : tube.tube_pss(r_pss, tau_pss, 0, 0);
+                // tube_pss signature: (r, tau, snext, dia, dvs_in) -> (dvs_out, s).
+                // snext=0 (no downstream PSS), dia=total_dia (sum of stage
+                // plate currents), dvs_in=old_dvs (1-cycle-delayed sag from
+                // the global feedback `~`).
+                res_pss = tube.tube_pss(r_pss, tau_pss, 0, total_dia, old_dvs);
                 next_dvs = res_pss : _ , !;
 
                 v_out = res5_v * 0.1;
