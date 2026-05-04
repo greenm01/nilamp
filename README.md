@@ -6,9 +6,7 @@ The name is "no amp" — `nil` + `amp`.
 
 ## Status
 
-Pre-implementation. The repo currently contains research notes and reference papers from a long exploration of the design space (Keller's block-diagram + ADAA approach, Mačák's DK-method work, Hegglun's PAK Project, current-drive theory). Implementation hasn't started yet.
-
-Read `docs/notes/dsp-project-notes.md` § 2 for the actionable direction.
+5E3 prototype builds and compiles to a CLAP/VST3 plugin. Per-stage DSP validation is in progress (see `tests/` and `tools/keller_oracle.py`). The DSP layer is a Faust port of Keller's block-diagram + ADAA tube-amp model with additional analytical tube models (Dempwolf-Zölzer triode for ECC83). Read `docs/notes/dsp-project-notes.md` § 2 for the full roadmap.
 
 ## Goals
 
@@ -24,19 +22,32 @@ Fills a real gap: most amp plugins are Mac/Windows-only or paid. A free, native 
 - **Faust** for DSP — block-diagram syntax matches Keller's architecture
 - `faust -lang rust` to compile DSP to Rust source
 - **nih-plug** (Rust) for plugin shell, CLAP + VST3 export
-- **Python** (NumPy/SciPy) for offline lookup-table generation
+- **Python** (NumPy/SciPy) for offline lookup-table generation and regression testing
 - Primary target: Linux x86_64; Mac/Windows fall out of nih-plug for free
 
 ## Repository layout
 
 ```
 docs/                 Research notes, reference papers, conversation log
-dsp/                  Faust source files (.dsp)
-src/                  Rust source for nih-plug shell
-tools/                Python scripts (lookup-table generation, etc.)
-tests/                Test fixtures, audio files for ABX/regression
+dsp/                  Faust source files (.dsp) and library imports
+dsp/tests/            Per-stage Faust test harnesses (for validation)
+src/                  Rust source for nih-plug shell + Faust-generated DSP
+tests/                Rust regression tests and float32 fixture binaries
+tools/                Python scripts (lookup-table generation, oracle, etc.)
+xtask/                nih-plug xtask scaffolding for bundling
 vendor/keller-jsfx/   Keller's reference JSFX source (non-commercial license)
 ```
+
+## Build
+
+```bash
+cargo build --release
+# Produces libnilamp.so in target/release/
+# Use xtask for CLAP/VST3 bundling:
+cargo xtask bundle nilamp --release
+```
+
+Requires [Faust](https://faust.grame.fr/) on the build machine; the DSP is compiled from `dsp/nilamp.dsp` at build time via `build.rs`.
 
 ## License
 

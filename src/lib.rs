@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 pub mod faust;
 
 use nih_plug::prelude::*;
@@ -144,24 +146,36 @@ impl Plugin for Nilamp {
         _aux: &mut AuxiliaryBuffers,
         _context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
-        for (_offset, mut block) in buffer.iter_blocks(MAX_BLOCK_SIZE) {
+        for (_offset, block) in buffer.iter_blocks(MAX_BLOCK_SIZE) {
             // Update DSP parameters from plugin parameters
             // Alphabetical order: bass(0), gain(1), mid(2), sag(3), treble(4), volume(5)
-            self.dsp.set_param(faust::ParamIndex(0), self.params.bass.value());
-            self.dsp.set_param(faust::ParamIndex(1), self.params.gain.value());
-            self.dsp.set_param(faust::ParamIndex(2), self.params.mid.value());
-            self.dsp.set_param(faust::ParamIndex(3), self.params.sag.value());
-            self.dsp.set_param(faust::ParamIndex(4), self.params.treble.value());
-            self.dsp.set_param(faust::ParamIndex(5), self.params.volume.value());
+            self.dsp
+                .set_param(faust::ParamIndex(0), self.params.bass.value());
+            self.dsp
+                .set_param(faust::ParamIndex(1), self.params.gain.value());
+            self.dsp
+                .set_param(faust::ParamIndex(2), self.params.mid.value());
+            self.dsp
+                .set_param(faust::ParamIndex(3), self.params.sag.value());
+            self.dsp
+                .set_param(faust::ParamIndex(4), self.params.treble.value());
+            self.dsp
+                .set_param(faust::ParamIndex(5), self.params.volume.value());
 
             let samples = block.samples();
-            let mut channels: Vec<*mut f32> = block.into_iter().map(|c| c.as_mut_ptr()).collect();
-            
+            let channels: Vec<*mut f32> = block.into_iter().map(|c| c.as_mut_ptr()).collect();
+
             if !channels.is_empty() {
                 unsafe {
-                    let input_ptrs: Vec<&[f32]> = channels.iter().map(|&ptr| std::slice::from_raw_parts(ptr, samples)).collect();
-                    let mut output_ptrs: Vec<&mut [f32]> = channels.iter().map(|&ptr| std::slice::from_raw_parts_mut(ptr, samples)).collect();
-                    
+                    let input_ptrs: Vec<&[f32]> = channels
+                        .iter()
+                        .map(|&ptr| std::slice::from_raw_parts(ptr, samples))
+                        .collect();
+                    let mut output_ptrs: Vec<&mut [f32]> = channels
+                        .iter()
+                        .map(|&ptr| std::slice::from_raw_parts_mut(ptr, samples))
+                        .collect();
+
                     self.dsp.compute(samples, &input_ptrs, &mut output_ptrs);
                 }
             }

@@ -1,6 +1,6 @@
-use std::process::Command;
 use std::env;
 use std::path::Path;
+use std::process::Command;
 
 fn main() {
     let out_dir = env::var_os("OUT_DIR").unwrap();
@@ -10,11 +10,13 @@ fn main() {
     println!("cargo:rerun-if-changed=dsp/nilamp.dsp");
 
     let status = Command::new("faust")
-        .args(&[
-            "-lang", "rust",
+        .args([
+            "-lang",
+            "rust",
             "-i", // inline library
             "dsp/nilamp.dsp",
-            "-o", dest_path.to_str().unwrap(),
+            "-o",
+            dest_path.to_str().unwrap(),
         ])
         .status()
         .expect("Failed to run faust");
