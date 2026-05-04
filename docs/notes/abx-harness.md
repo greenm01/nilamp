@@ -267,3 +267,83 @@ collapsed signal path.
   back-end DSP is ported to isolate linear filter-shape mismatch from
   nonlinear stage mismatch.  Until then it surfaces residual transients
   rather than steady-state filter error.
+
+## Investigation 2026-05-04 (cont.): tone-stack centre + back-end port attempt
+
+### Tone-stack centre 500 → 630 Hz (committed)
+
+The tone-stack-frequency mismatch identified above was patched: the
+literal `500` in `dsp/nilamp.dsp:flt_sv2_tst(...)` is now `630`.  The
+bass/mid/treble pot law (squaring) and pre-warping flags (`pwf=1,
+pwQ=1`) were already faithful to JSFX line 240; only the centre needed
+to change.
+
+Effect on the 1 s 440 Hz sine ABX baseline: residual unchanged at
+−13.4 dB.  At Q=0.5 the SVF response is broad enough that 500 vs
+630 Hz centres attenuate 440 Hz similarly.
+
+Effect on a 20 Hz–18 kHz log sweep: peaks now agree to within 0.5 dB
+across the sweep (0.366 vs 0.370) and the time-alignment lag drops
+from 218 to 1 sample once we excite a wide band — so the previous
+4.6 ms "lag" was actually a frequency-dependent phase shift at the
+fundamental, not a bulk delay.
+
+### Failed attempt: partial back-end port
+
+Tried to land HP2 (0.41 Hz, post-T2), HP3 (5.8 Hz, post-T3),
+`*k1=0.797` post-T3, and LP2 (10 kHz Butterworth, post-HP5) in one
+DSP commit.  The intent was Scope-1.5 from the prior session plan:
+piecemeal additions to chip away at the missing back-end chain.
+
+Result: residual got **worse**.  Sine: −13.4 → −8.9 dB.  Sweep:
+−9.2 → −6.8 dB.  Sweep peak fell from 0.366 to 0.267 (≈−2.7 dB).
+Reverted (kept only the tone-stack-centre fix from this session).
+
+**Lesson — the JSFX back-end is a tightly coupled gain-staging
+block, not a sequence of independent filters.**  The pieces I added
+were all **lossy** (k1 = −1.97 dB; LP2 = ~−1 dB at HF) while the
+gains they're meant to balance were **deferred**:
+
+| JSFX element                        | net effect                | status this session |
+|-------------------------------------|---------------------------|---------------------|
+| `*k1 = 0.797` (mode==0)             | −1.97 dB flat             | added → reverted    |
+| `hp2.flt_ii1_set_frequency(0.41)`   | DC blocker, ~0 dB audio   | added → reverted    |
+| `hp3.flt_ii1_set_frequency(5.8)`    | DC blocker, ~0 dB audio   | added → reverted    |
+| `peq1.flt_sv2_set_peq(kp1, 38, qp1)`| +1 dB peak at 38 Hz       | not ported          |
+| `hs1.flt_sv1_set_hs(ks1, fs1, …)`   | +3 dB shelf above ~1.3 kHz| not ported          |
+| `peq3.flt_sv2_set_peq(kp2, 38, qp2)`| +2 dB peak at 38 Hz       | not ported          |
+| `hs3.flt_sv1_set_hs(ks1, fs1, …)`   | +3 dB shelf above ~1.3 kHz| not ported          |
+| `lp2.flt_df2_set_lp(10000, …)`      | −1..−2 dB at HF           | added → reverted    |
+
+(`kp1=10^0.05=1.122`, `kp2=10^0.10=1.259`, `ks1=ks2=10^0.15=1.413`,
+all derived in JSFX lines 245–263 from the default slider values
+`gp_pre=1, gp_post=2, gs_pre=3, gs_post=3 dB`.)
+
+The HS1 + HS3 pair adds **+6 dB above ~1.3 kHz** that I omitted while
+adding −3 dB of fixed loss.  At the 440 Hz sine that net imbalance is
+mostly invisible (below the shelf knee); at the broadband sweep peak
+it shows up as a ~3 dB level shortfall, exactly what was measured.
+
+### Recommendation for next session
+
+Port the back-end chain **as a single block**, ideally as a
+self-contained Faust function
+
+    back_end_chain(spl0, dvs2) =
+        spl0 : flt_ii1_hp(0.41)            // hp2
+             : tube_cd(t3, ...)             // T3 cathodyne
+             : *(k1)                        // -1.97 dB
+             : flt_ii1_hp(5.8)              // hp3
+             : flt_sv2_peq(kp1, 38, qp1)    // peq1: +1 dB @ 38 Hz
+             : flt_sv1_hs(ks1, fs1, 1, 1)   // hs1: +3 dB shelf
+             : tube_ck(t4, ..., dvs2)       // T4 6V6
+             : ...                          // (peq3, hs3, hp5, lp2)
+
+— landing all coupled elements together so each commit is a
+self-consistent gain-staging block.  Verify per-commit with both the
+sine and the sweep input.  Defer T5 + the aux subtractive branch and
+the multi-stage PSS to 5e3-v2 as today.
+
+Treat any back-end commit that **regresses** the sweep residual on its
+own as a sign of a broken gain-staging assumption rather than as a
+trade-off to accept.
