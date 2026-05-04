@@ -158,7 +158,17 @@ with {
                 // We collapse T5 for now (5e3-v2 TODO above), so use
                 // T4 alone in the denominator.  This brings plate-volt-
                 // scale signals back to normalized audio scale.
-                v_out = res5_v * (0.5 / (c.t4_rl * c.t4_isat));
+                //
+                // HP5: 40 Hz subsonic / DC blocker mirroring TWD-DLX-II:184
+                // (final hp5.flt_ii1_set_frequency(40), applied at line 431
+                // just before spl0 is written).  Without this the prototype
+                // accumulates a steady ~-0.040 DC offset at the output from
+                // the missing intermediate HP2/HP3/HP4 stages (see
+                // 5e3-v2 TODO above).  Scope-0 fix: add HP5 alone; the
+                // remaining HP2/HP3/HP4 stay deferred to 5e3-v2.
+                v_out = res5_v
+                    : *(0.5 / (c.t4_rl * c.t4_isat))
+                    : flt.flt_ii1_hp(40);
             };
         };
     };
