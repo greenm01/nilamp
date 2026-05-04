@@ -48,6 +48,14 @@ class CkConfig:
     rl: float            # plate load resistor
     rk: float            # cathode resistor
     kcomp: float = 0.0   # gain change / relative vs change
+    # ----- runtime detector / EQ params (the trailing tube_ck_set args) -----
+    kpk: float = 0.0     # peak-detector sensitivity to grid current peaks
+    pk_xth: float = 0.0  # peak detector normalized threshold voltage
+    pk_xdrop: float = 0.0  # peak detector normalized voltage drop
+    tattack: float = 0.01  # input peak detector attack time const (s)
+    trelease: float = 0.05  # input peak detector release time const (s)
+    neq: float = 0.0     # antiderivative-EQ cutoff index (fc = neq*fs/12, 0 = bypass)
+    tck: float = 0.0     # cathode bias time constant (s) \u2014 drives flt_ii1_set_tau
 
     @property
     def kbias(self) -> float:
@@ -107,6 +115,15 @@ class CdConfig:
     rl: float
     rk: float
     kcomp: float = 0.0
+    # ----- runtime detector / EQ params (trailing tube_cd_set args) -----
+    # No tck for CD: cathodyne has no advk averaging path (no global
+    # outer feedback), so flt_ii1_set_tau isn't called in tube_cd_set.
+    kpk: float = 0.0
+    pk_xth: float = 0.0
+    pk_xdrop: float = 0.0
+    tattack: float = 0.01
+    trelease: float = 0.05
+    neq: float = 0.0
 
     @property
     def kbias(self) -> float:
@@ -143,32 +160,49 @@ class CdConfig:
         return self.ibias / self.vs
 
 
-# 5E3 stage definitions, matching the canonical 12AX7 / 6V6 values from
-# Keller's "TWD DLX  II.jsfx" (lines 180-181, 295).  The current Faust port
-# uses one 12AX7 stage + cathodyne + a single 6V6 (push-pull is deferred to
-# 5e3-v2), so we generate three tables here.
+# 5E3 stage definitions.  Each stage's set of *physical* tube parameters
+# (mu/ra/isat/ibias/b/type/vs/rl/rk/kcomp) and runtime detector params
+# (kpk/xth/xdrop/tattack/trelease/neq/tck) is taken verbatim from
+# Keller's 'TWD DLX  II.jsfx', so any change here should be cross-checked
+# against that file.  References below cite line numbers in that patch.
 T1_12AX7 = CkConfig(
+    # TWD-DLX-II line 278 (default 5E3 voicing).  kpk=0 disables peak-detector
+    # influence on the grid bias for this clean preamp stage.
     name="t1_12ax7_table",
     mu=100, ra=62500, isat=0.00165, ibias=0.00076,
     b=0, type_b=0.5, vs=238, rl=100000, rk=1500, kcomp=0.0,
+    kpk=0.0, pk_xth=0.25, pk_xdrop=0.250,
+    tattack=0.01, trelease=0.05, neq=0.0, tck=0.0375,
 )
 
 T2_12AX7 = CkConfig(
+    # TWD-DLX-II line 180.  kpk=0.05 lets the PKD nudge the bias here.
     name="t2_12ax7_table",
     mu=100, ra=62500, isat=0.00155, ibias=0.00076,
     b=0, type_b=0.5, vs=238, rl=100000, rk=1500, kcomp=0.0,
+    kpk=0.05, pk_xth=0.255, pk_xdrop=0.570,
+    tattack=0.015, trelease=0.05, neq=0.0, tck=0.0375,
 )
 
 T3_CD = CdConfig(
+    # TWD-DLX-II line 181.  Cathodyne; rk == rl/k for split-load symmetry.
     name="t3_cd_table",
     mu=100, ra=62500, isat=0.00160, ibias=0.00073,
     b=0, type_b=0.5, vs=238, rl=56000, rk=1500, kcomp=0.0,
+    kpk=0.125, pk_xth=0.272, pk_xdrop=0.394,
+    tattack=0.00085, trelease=0.3872, neq=0.0,
 )
 
 T4_6V6 = CkConfig(
+    # TWD-DLX-II line 295.  6V6 wired triode-mode (b=2, type=0.5).
+    # Note kcomp=1: the supply-voltage modulation term scales the input
+    # by (1 - kcomp) / vs = 0, i.e. the kspre coefficient evaluates to 0
+    # for the power tube (sag is handled via PSS, not pre-gain modulation).
     name="t4_6v6_table",
     mu=125, ra=40000, isat=0.11, ibias=0.042,
     b=2, type_b=0.5, vs=346, rl=3000, rk=540, kcomp=1.0,
+    kpk=0.125, pk_xth=0.309, pk_xdrop=0.437,
+    tattack=0.00575, trelease=0.0276, neq=0.0, tck=0.00675,
 )
 
 
@@ -188,6 +222,94 @@ def _print_constants(cfg):
     print(f"  ksib   = {cfg.ksib:.6f}")
 
 
+# ---------------------------------------------------------------------------
+# Runtime-constants emitter (5e3_constants.lib)
+# ---------------------------------------------------------------------------
+#
+# nilamp.dsp consumes per-stage scalars (kpre, kfb, ksva, \u2026) plus a few
+# sample-rate-dependent coefficients (PKD k1/k2 from tattack/trelease, the
+# advk lowpass cutoff from tck).  Emitting them all from one script keeps
+# them in lock-step with both the GLF-table generation and the JSFX
+# reference.
+
+# Faust prefix used for every stage's exported constants.  Keep short
+# names so call sites stay readable.
+def _ck_lines(prefix, cfg: "CkConfig") -> list:
+    lines = [
+        f"{prefix}_kpre   = {cfg.kpre:.10g};",
+        f"{prefix}_isat   = {cfg.isat:.10g};",
+        f"{prefix}_rl     = {cfg.rl:.10g};",
+        f"{prefix}_kspre  = {cfg.kspre:.10g};",
+        f"{prefix}_kspost = {cfg.kspost:.10g};",
+        f"{prefix}_ksva   = {cfg.ksva:.10g};",
+        f"{prefix}_ksib   = {cfg.ksib:.10g};",
+        f"{prefix}_kfb    = {cfg.kfb:.10g};",
+        f"{prefix}_kpk    = {cfg.kpk:.10g};",
+        f"{prefix}_pk_xth   = {cfg.pk_xth:.10g};",
+        f"{prefix}_pk_xdiode = {cfg.pk_xdrop:.10g};",
+        # PKD coefficients are sample-rate-dependent: k1 = 1 - exp(-1/(tau_a*SR)),
+        # k2 = exp(-1/(tau_r*SR)).  Defined as Faust functions so they pick
+        # up ma.SR at compile time.
+        f"{prefix}_pk_k1   = 1.0 - exp(-1.0 / ({cfg.tattack:.10g} * ma.SR));",
+        f"{prefix}_pk_k2   = exp(-1.0 / ({cfg.trelease:.10g} * ma.SR));",
+        # avg_f: cutoff frequency for flt_ii1_lp on the advk averaging path.
+        # JSFX uses flt_ii1_set_tau(tck) which sets k = 1 - exp(-1/(tck*SR));
+        # the Faust port takes a frequency, so f = 1 / (2*pi*tck).
+        f"{prefix}_avg_f   = 1.0 / (2.0 * ma.PI * {cfg.tck:.10g});",
+    ]
+    return lines
+
+
+def _cd_lines(prefix, cfg: "CdConfig") -> list:
+    return [
+        f"{prefix}_kpre   = {cfg.kpre:.10g};",
+        f"{prefix}_isat   = {cfg.isat:.10g};",
+        f"{prefix}_rl     = {cfg.rl:.10g};",
+        f"{prefix}_rkl    = {(cfg.rk + cfg.rl):.10g};",
+        f"{prefix}_kspre  = {cfg.kspre:.10g};",
+        f"{prefix}_kspost = {cfg.kspost:.10g};",
+        f"{prefix}_ksva   = {cfg.ksva:.10g};",
+        f"{prefix}_ksvk   = {cfg.ksvk:.10g};",
+        f"{prefix}_ksib   = {cfg.ksib:.10g};",
+        f"{prefix}_kpk    = {cfg.kpk:.10g};",
+        f"{prefix}_pk_xth   = {cfg.pk_xth:.10g};",
+        f"{prefix}_pk_xdiode = {cfg.pk_xdrop:.10g};",
+        f"{prefix}_pk_k1   = 1.0 - exp(-1.0 / ({cfg.tattack:.10g} * ma.SR));",
+        f"{prefix}_pk_k2   = exp(-1.0 / ({cfg.trelease:.10g} * ma.SR));",
+    ]
+
+
+def _emit_constants(stages, out_path):
+    """Write a Faust library exposing per-stage runtime scalars.
+
+    The format matches nilamp.dsp's needs: one Faust definition per
+    field, prefixed by the stage's short name (t1, t2, t3, t4) so the
+    top-level can reference e.g. `consts.t1_kpre`.
+    """
+    header = (
+        "// 5E3 runtime constants (auto-generated by tools/gen_5e3_tables.py).\n"
+        "// Each stage's scalars are derived from CkConfig / CdConfig (which\n"
+        "// in turn mirror Keller's tube_ck_set / tube_cd_set in HK_LIB_TUBE).\n"
+        "// Edit gen_5e3_tables.py rather than this file.\n\n"
+        "import(\"stdfaust.lib\");\n\n"
+    )
+    short_map = {
+        "t1_12ax7_table": ("t1", _ck_lines),
+        "t2_12ax7_table": ("t2", _ck_lines),
+        "t3_cd_table":    ("t3", _cd_lines),
+        "t4_6v6_table":   ("t4", _ck_lines),
+    }
+    blocks = []
+    for cfg in stages:
+        prefix, fmt = short_map[cfg.name]
+        blocks.append(f"// --- {prefix.upper()} ({cfg.name}) ---")
+        blocks.extend(fmt(prefix, cfg))
+        blocks.append("")
+    with open(out_path, "w") as f:
+        f.write(header + "\n".join(blocks))
+    print(f"  wrote {out_path}")
+
+
 def main():
     stages = [T1_12AX7, T2_12AX7, T3_CD, T4_6V6]
 
@@ -198,6 +320,8 @@ def main():
             f.write(export_faust_table(cfg.name, spec))
             _print_constants(cfg)
             print()
+
+    _emit_constants(stages, "dsp/5e3_constants.lib")
 
 
 if __name__ == "__main__":

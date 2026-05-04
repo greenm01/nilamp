@@ -4,6 +4,7 @@ adnl = library("hk_adnl.lib");
 pkd = library("hk_pkd.lib");
 flt = library("hk_filters.lib");
 tables = library("5e3_tables.lib");
+c = library("5e3_constants.lib");
 
 // --- 5E3 Parameters ---
 gain1 = hslider("Input Gain [unit:dB]", 0, -12, 12, 0.1) : ba.db2linear : si.smoo;
@@ -13,9 +14,18 @@ mid = hslider("Mid [%]", 50, 0, 100, 1) / 100.0 : si.smoo;
 treble = hslider("Treble [%]", 50, 0, 100, 1) / 100.0 : si.smoo;
 sag = hslider("Sag [%]", 50, 0, 100, 1) / 100.0 : si.smoo;
 
-// PSU parameters
-r_pss = sag * 1000.0; // PSU internal resistance
-tau_pss = 0.05; // 50ms time constant
+// PSU parameters.  The full TWD-DLX patch chains three PSS stages
+// (p1/p2/p3, lines 189-191); the current Faust port collapses them
+// into a single lump for the 5E3 prototype.  TODO(5e3-v2): split.
+r_pss = sag * 22000.0;          // matches p3 (final PSS) at sag=1.0
+tau_pss = 0.05;                 // 50 ms time constant
+
+// 5E3 stage table size — all four GLF tables share the same xmax/dx
+// grid, so they all have 13503 cells (= 2 * xmax / dx + 3, see
+// gen_tables.py).
+TBL_SIZE = 13503;
+XMAX = 15.0;
+DX = 0.02;
 
 // --- 5E3 Processing with Global dvs Loop ---
 process = _ : *(gain1) : global_loop
@@ -26,37 +36,77 @@ with {
         with {
             loop_core(v_in_ext, old_dvs) = next_dvs, v_out
             with {
-                // Stage 1: T1 (12AX7 v1)
-                // TODO(step-7): replace literal runtime constants (kpre/ksva/etc.)
-                // with values derived from CkConfig in tools/gen_5e3_tables.py.
-                res1 = tube.tube_ck_simple(13503, tables.t1_12ax7_table, 15.0, 0.02, 100000, 0, 0, 0, 0.2, 0, 1.0, 0, 0.25, 0.1, 0.1, 10, v_in_ext, old_dvs);
-                res1_v = res1 : _ , !;
+                // Stage 1: T1 (12AX7 v1) — clean preamp.  All scalars
+                // sourced from c.t1_* (see tools/gen_5e3_tables.py for
+                // their derivations).
+                res1 = tube.tube_ck_simple(
+                    TBL_SIZE, tables.t1_12ax7_table, XMAX, DX,
+                    c.t1_kpre, c.t1_isat, c.t1_rl, c.t1_kpk,
+                    c.t1_kspre, c.t1_kspost, c.t1_ksva, c.t1_ksib, c.t1_kfb,
+                    c.t1_pk_xth, c.t1_pk_xdiode, c.t1_pk_k1, c.t1_pk_k2,
+                    c.t1_avg_f,
+                    v_in_ext, old_dvs);
+                res1_v   = res1 : _ , !;
                 res1_dia = res1 : ! , _;
 
-                // Stage 2: Tonestack + Volume
-                v2 = res1_v : flt.flt_ii1_hp(10) : *(volume*volume) : flt.flt_sv2_tst(bass*bass, mid*mid, treble*treble, 500, 0.5, 1, 1) : flt.flt_ii1_lp(8800);
+                // Stage 2: Tonestack + Volume.
+                v2 = res1_v
+                    : flt.flt_ii1_hp(10)
+                    : *(volume * volume)
+                    : flt.flt_sv2_tst(bass * bass, mid * mid, treble * treble,
+                                      500, 0.5, 1, 1)
+                    : flt.flt_ii1_lp(8800);
 
-                // Stage 3: T2 (12AX7)
-                res3 = tube.tube_ck_simple(13503, tables.t2_12ax7_table, 15.0, 0.02, 100000, 0, 0, 0, 0.38, 0, 1.0, 0, 0.25, 0.1, 0.1, 10, v2, old_dvs);
-                res3_v = res3 : _ , !;
+                // Stage 3: T2 (12AX7 v2) — overdrive preamp.
+                res3 = tube.tube_ck_simple(
+                    TBL_SIZE, tables.t2_12ax7_table, XMAX, DX,
+                    c.t2_kpre, c.t2_isat, c.t2_rl, c.t2_kpk,
+                    c.t2_kspre, c.t2_kspost, c.t2_ksva, c.t2_ksib, c.t2_kfb,
+                    c.t2_pk_xth, c.t2_pk_xdiode, c.t2_pk_k1, c.t2_pk_k2,
+                    c.t2_avg_f,
+                    v2, old_dvs);
+                res3_v   = res3 : _ , !;
                 res3_dia = res3 : ! , _;
 
-                // Stage 4: T3 (Cathodyne)
-                res4 = tube.tube_cd(13503, tables.t3_cd_table, 15.0, 0.02, 56000, 57500, 0, 0, 0, 0.4, 0.4, 0, 0, 0, 0.1, 0.1, 1, 0, 0, 0, 0, res3_v, old_dvs);
-                res4_v = res4 : _ , ! , !;
+                // Stage 4: T3 (cathodyne / phase splitter).  No avg_f
+                // arg — tube_cd has no advk averaging path.  No NEQ
+                // here either; the trailing 0,0,0,0,0 are the
+                // bypassed neq_b0/b1/b2/a1/a2 transfer-function
+                // coefficients (TODO: derive from c.t3_neq once we
+                // port flt_df2_set_adnl_eq).
+                res4 = tube.tube_cd(
+                    TBL_SIZE, tables.t3_cd_table, XMAX, DX,
+                    c.t3_kpre, c.t3_isat, c.t3_rl, c.t3_rkl, c.t3_kpk,
+                    c.t3_kspre, c.t3_kspost, c.t3_ksva, c.t3_ksvk, c.t3_ksib,
+                    c.t3_pk_xth, c.t3_pk_xdiode, c.t3_pk_k1, c.t3_pk_k2,
+                    1, 0, 0, 0, 0,
+                    res3_v, old_dvs);
+                res4_v  = res4 : _ , ! , !;
+                res4_vk = res4 : ! , _ , !;
                 res4_dia = res4 : ! , ! , _;
 
-                // Stage 5: T4 (Power Tube 6V6)
-                res5 = tube.tube_ck_simple(13503, tables.t4_6v6_table, 15.0, 0.02, 3000, 0, 0, 0, 0.1, 0, 1.0, 0, 0.25, 0.1, 0.1, 10, res4_v, old_dvs);
-                res5_v = res5 : _ , !;
+                // Stage 5: T4 (6V6, single triode-mode power tube).
+                // The full 5E3 has a push-pull pair (T4 + T5); we
+                // collapse it to one for the prototype.
+                // TODO(5e3-v2): re-introduce T5 and the push-pull
+                // mixing (see TWD-DLX-II:376-379 for advk averaging
+                // and dia summation).
+                res5 = tube.tube_ck_simple(
+                    TBL_SIZE, tables.t4_6v6_table, XMAX, DX,
+                    c.t4_kpre, c.t4_isat, c.t4_rl, c.t4_kpk,
+                    c.t4_kspre, c.t4_kspost, c.t4_ksva, c.t4_ksib, c.t4_kfb,
+                    c.t4_pk_xth, c.t4_pk_xdiode, c.t4_pk_k1, c.t4_pk_k2,
+                    c.t4_avg_f,
+                    res4_v, old_dvs);
+                res5_v   = res5 : _ , !;
                 res5_dia = res5 : ! , _;
 
                 total_dia = res1_dia + res3_dia + res4_dia + res5_dia;
-                
-                // PSU Stage
+
+                // PSU Stage (single lump; see TODO above).
                 res_pss = total_dia : tube.tube_pss(r_pss, tau_pss, 0, 0);
                 next_dvs = res_pss : _ , !;
-                
+
                 v_out = res5_v * 0.1;
             };
         };
