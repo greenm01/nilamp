@@ -153,7 +153,12 @@ with {
                 res_pss = tube.tube_pss(r_pss, tau_pss, 0, total_dia, old_dvs);
                 next_dvs = res_pss : _ , !;
 
-                v_out = res5_v * 0.1;
+                // Output normalization.  Mirrors TWD-DLX-II:356:
+                //   gout = 0.5 / (t4.rl*t4.isat + t5.rl*t5.isat) at 0 dB.
+                // We collapse T5 for now (5e3-v2 TODO above), so use
+                // T4 alone in the denominator.  This brings plate-volt-
+                // scale signals back to normalized audio scale.
+                v_out = res5_v * (0.5 / (c.t4_rl * c.t4_isat));
             };
         };
     };
