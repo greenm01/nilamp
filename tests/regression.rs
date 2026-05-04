@@ -401,6 +401,80 @@ fn power_pair_t5_matches_oracle() {
     r_dia.assert_within(2e-4, 2e-5, "power_pair_total_dia");
 }
 
+tube_test_module!(test_nilamp_taps);
+
+#[test]
+fn nilamp_taps_match_oracle() {
+    use test_nilamp_taps::test_nilamp_taps as Dsp;
+
+    let input: Vec<f32> = read_f32_bin("tests/fixtures/sine_1k_amp05_48k_4800.f32");
+    let exp_old_dvs: Vec<f32> = read_f32_bin("tests/fixtures/nilamp_taps_old_dvs_48k.f32");
+    let exp_t3_v: Vec<f32> = read_f32_bin("tests/fixtures/nilamp_taps_t3_v_48k.f32");
+    let exp_t3_vk: Vec<f32> = read_f32_bin("tests/fixtures/nilamp_taps_t3_vk_48k.f32");
+    let exp_t4_v: Vec<f32> = read_f32_bin("tests/fixtures/nilamp_taps_t4_v_48k.f32");
+    let exp_t5_v: Vec<f32> = read_f32_bin("tests/fixtures/nilamp_taps_t5_v_48k.f32");
+    let exp_post_pp: Vec<f32> = read_f32_bin("tests/fixtures/nilamp_taps_post_pp_48k.f32");
+    let exp_total_dia_current: Vec<f32> =
+        read_f32_bin("tests/fixtures/nilamp_taps_total_dia_current_48k.f32");
+    let exp_total_dia_with_t5: Vec<f32> =
+        read_f32_bin("tests/fixtures/nilamp_taps_total_dia_with_t5_48k.f32");
+    let exp_next_dvs_current: Vec<f32> =
+        read_f32_bin("tests/fixtures/nilamp_taps_next_dvs_current_48k.f32");
+
+    let mut dsp = Dsp::new();
+    dsp.init(48_000);
+    dsp.instance_clear();
+    assert_eq!(
+        dsp.get_num_inputs(),
+        1,
+        "tap harness must consume mono input"
+    );
+    assert_eq!(
+        dsp.get_num_outputs(),
+        9,
+        "tap harness must emit nine diagnostic signals"
+    );
+
+    let outputs = run_simo(&mut dsp, &input);
+    // Voltage taps are plate-scale signals and inherit the same float32
+    // oracle/Faust precision floor as the composite tube diagnostics above.
+    // The sag taps stay tighter because they are low-frequency state values.
+    let reports = [
+        ("old_dvs", compare(&outputs[0], &exp_old_dvs), 1e-2, 1e-3),
+        ("t3_v", compare(&outputs[1], &exp_t3_v), 0.5, 5e-2),
+        ("t3_vk", compare(&outputs[2], &exp_t3_vk), 0.5, 5e-2),
+        ("t4_v", compare(&outputs[3], &exp_t4_v), 1.0, 7.5e-2),
+        ("t5_v", compare(&outputs[4], &exp_t5_v), 1.0, 7.5e-2),
+        ("post_pp", compare(&outputs[5], &exp_post_pp), 1.0, 1.0e-1),
+        (
+            "total_dia_current",
+            compare(&outputs[6], &exp_total_dia_current),
+            3e-4,
+            2e-5,
+        ),
+        (
+            "total_dia_with_t5",
+            compare(&outputs[7], &exp_total_dia_with_t5),
+            3e-4,
+            3e-5,
+        ),
+        (
+            "next_dvs_current",
+            compare(&outputs[8], &exp_next_dvs_current),
+            1e-2,
+            1e-3,
+        ),
+    ];
+
+    for (name, report, max_abs_tol, rms_tol) in reports {
+        println!(
+            "[nilamp taps {name}] max_abs={:.3e} rms={:.3e} n={}",
+            report.max_abs, report.rms, report.n
+        );
+        report.assert_within(max_abs_tol, rms_tol, &format!("nilamp_taps_{name}"));
+    }
+}
+
 tube_test_module!(test_tube_cd);
 
 #[test]

@@ -200,6 +200,87 @@ def gen_power_pair_diag(t3_v: np.ndarray, t3_vk: np.ndarray) -> tuple[np.ndarray
     return t4_v, t5_v, post_pp, total_dia
 
 
+def gen_nilamp_taps(input_buf: np.ndarray) -> tuple[np.ndarray, ...]:
+    """Reference for dsp/tests/test_nilamp_taps.dsp.
+
+    Mirrors the current top-level cascade at frozen ABX defaults:
+    gain=0 dB; volume/bass/mid/treble/sag=50%.  The feedback loop uses the
+    current T4-only ``next_dvs`` path, while also emitting a diagnostic T5
+    branch driven from the real T3 cathode tap.
+    """
+    hp10 = ko.FltIi1Hp(10.0, SAMPLE_RATE)
+    tone = ko.FltSv2Tst(0.25, 0.25, 0.25, 630.0, 0.5, 1, 1, SAMPLE_RATE)
+    lp8800 = ko.FltIi1Lp(8800.0, SAMPLE_RATE)
+    hp4 = ko.FltIi1Hp(6.4, SAMPLE_RATE)
+    peq2 = ko.FltSv2Peq(1.1220184543, 80.0, 2.6685237666, 1, 1, SAMPLE_RATE)
+    hs2 = ko.FltSv1Hs(1.4125375446, 2098.1359672, 1, SAMPLE_RATE)
+
+    t1 = _ck_oracle(t5e3.T1_12AX7)
+    t2 = _ck_oracle(t5e3.T2_12AX7)
+    t3 = _cd_oracle(t5e3.T3_CD)
+    t4 = _ck_oracle(t5e3.T4_6V6)
+    t5 = _ck_oracle(t5e3.T5_6V6)
+    pss = ko.TubePss(r=11000.0, tau=0.05, sr=SAMPLE_RATE)
+
+    n = len(input_buf)
+    old_dvs_buf = np.empty(n, dtype=np.float32)
+    t3_v_buf = np.empty(n, dtype=np.float32)
+    t3_vk_buf = np.empty(n, dtype=np.float32)
+    t4_v_buf = np.empty(n, dtype=np.float32)
+    t5_v_buf = np.empty(n, dtype=np.float32)
+    post_pp_buf = np.empty(n, dtype=np.float32)
+    total_dia_current_buf = np.empty(n, dtype=np.float32)
+    total_dia_with_t5_buf = np.empty(n, dtype=np.float32)
+    next_dvs_current_buf = np.empty(n, dtype=np.float32)
+
+    old_dvs = 0.0
+    for i, vin in enumerate(input_buf):
+        old_dvs_buf[i] = old_dvs
+
+        t1_v, t1_dia = t1.process_sample(vin, old_dvs)
+        v2 = hp10.process_sample(t1_v)
+        v2 *= 0.25
+        v2 = tone.process_sample(v2)
+        v2 = lp8800.process_sample(v2)
+
+        t2_v, t2_dia = t2.process_sample(v2, old_dvs)
+        t3_v, t3_vk, t3_dia = t3.process_sample(t2_v, old_dvs)
+        t4_v, t4_dia = t4.process_sample(t3_v, old_dvs)
+
+        t5_in = hp4.process_sample(t3_vk * 0.940)
+        t5_in = peq2.process_sample(t5_in)
+        t5_in = hs2.process_sample(t5_in)
+        t5_v, t5_dia = t5.process_sample(t5_in, old_dvs)
+
+        post_pp = t4_v - t5_v
+        total_dia_current = t1_dia + t2_dia + t3_dia + t4_dia
+        total_dia_with_t5 = total_dia_current + t5_dia
+        next_dvs_current, _ = pss.process_sample(total_dia_current, 0.0, old_dvs)
+
+        t3_v_buf[i] = t3_v
+        t3_vk_buf[i] = t3_vk
+        t4_v_buf[i] = t4_v
+        t5_v_buf[i] = t5_v
+        post_pp_buf[i] = post_pp
+        total_dia_current_buf[i] = total_dia_current
+        total_dia_with_t5_buf[i] = total_dia_with_t5
+        next_dvs_current_buf[i] = next_dvs_current
+
+        old_dvs = next_dvs_current
+
+    return (
+        old_dvs_buf,
+        t3_v_buf,
+        t3_vk_buf,
+        t4_v_buf,
+        t5_v_buf,
+        post_pp_buf,
+        total_dia_current_buf,
+        total_dia_with_t5_buf,
+        next_dvs_current_buf,
+    )
+
+
 def main() -> None:
     print("Generating fixtures…")
 
@@ -301,6 +382,28 @@ def main() -> None:
     write(FIXTURES_DIR / "power_pair_t5_v_48k.f32", pp_t5_v)
     write(FIXTURES_DIR / "power_pair_post_pp_48k.f32", pp_post)
     write(FIXTURES_DIR / "power_pair_total_dia_48k.f32", pp_dia)
+
+    # Frozen-default top-level tap diagnostic.
+    (
+        tap_old_dvs,
+        tap_t3_v,
+        tap_t3_vk,
+        tap_t4_v,
+        tap_t5_v,
+        tap_post_pp,
+        tap_total_dia_current,
+        tap_total_dia_with_t5,
+        tap_next_dvs_current,
+    ) = gen_nilamp_taps(sine.copy())
+    write(FIXTURES_DIR / "nilamp_taps_old_dvs_48k.f32", tap_old_dvs)
+    write(FIXTURES_DIR / "nilamp_taps_t3_v_48k.f32", tap_t3_v)
+    write(FIXTURES_DIR / "nilamp_taps_t3_vk_48k.f32", tap_t3_vk)
+    write(FIXTURES_DIR / "nilamp_taps_t4_v_48k.f32", tap_t4_v)
+    write(FIXTURES_DIR / "nilamp_taps_t5_v_48k.f32", tap_t5_v)
+    write(FIXTURES_DIR / "nilamp_taps_post_pp_48k.f32", tap_post_pp)
+    write(FIXTURES_DIR / "nilamp_taps_total_dia_current_48k.f32", tap_total_dia_current)
+    write(FIXTURES_DIR / "nilamp_taps_total_dia_with_t5_48k.f32", tap_total_dia_with_t5)
+    write(FIXTURES_DIR / "nilamp_taps_next_dvs_current_48k.f32", tap_next_dvs_current)
 
 
 if __name__ == "__main__":

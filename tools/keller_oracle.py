@@ -621,24 +621,49 @@ def pkd_k2(tau_release, sr):
 # on scipy.signal.  All functions take a numpy float32 input buffer and
 # return a same-length float32 output buffer.
 
+class FltIi1Lp:
+    """Stateful 1st-order impulse-invariant LP."""
+
+    def __init__(self, f, sr):
+        self.k = 1.0 - np.exp(-2.0 * np.pi * f / sr)
+        self.s1 = 0.0
+
+    def process_sample(self, x):
+        self.s1 = (float(x) - self.s1) * self.k + self.s1
+        return self.s1
+
+
+class FltIi1Hp:
+    """Stateful 1st-order HP: input minus matching impulse-invariant LP."""
+
+    def __init__(self, f, sr):
+        self.lp = FltIi1Lp(f, sr)
+
+    def process_sample(self, x):
+        lp_y = np.float32(self.lp.process_sample(x))
+        return np.float32(np.float32(x) - lp_y)
+
+
 def flt_ii1_lp_block(f, sr, x_buf):
     """1st-order impulse-invariant LP.  See HK_LIB_FLT_II.jsfx-inc:32."""
-    k = 1.0 - np.exp(-2.0 * np.pi * f / sr)
-    s1 = 0.0
+    flt = FltIi1Lp(f, sr)
     out = np.zeros_like(x_buf, dtype=np.float32)
     for i, x in enumerate(x_buf):
-        s1 = (float(x) - s1) * k + s1
-        out[i] = s1
+        out[i] = flt.process_sample(x)
     return out
 
 
 def flt_ii1_hp_block(f, sr, x_buf):
     """1st-order impulse-invariant HP — input minus the matching LP."""
-    return (x_buf.astype(np.float32) - flt_ii1_lp_block(f, sr, x_buf)).astype(np.float32)
+    flt = FltIi1Hp(f, sr)
+    out = np.zeros_like(x_buf, dtype=np.float32)
+    for i, x in enumerate(x_buf):
+        out[i] = flt.process_sample(x)
+    return out
 
 
-def flt_sv2_tst_block(b, m, t, f, Q, pwf, pwQ, sr, x_buf):
-    """2nd-order TPT SVF used as a tonestack.
+class FltSv2Tst:
+    """Stateful 2nd-order TPT SVF used as a tonestack.
 
     See HK_LIB_FLT_SV.jsfx-inc:127 (flt_sv2_set_tst) and :200 (process).
     Output mix is t*hp + (kq*m)*bp + b*lp.
@@ -646,85 +671,119 @@ def flt_sv2_tst_block(b, m, t, f, Q, pwf, pwQ, sr, x_buf):
     pwf, pwQ: 0 = no prewarp, 1 = tan-prewarp.  We ignore the JSFX
     smoothing layer (sm=0 equivalent): coefficients are computed once.
     """
-    pi_t = np.pi / sr
-    k = f * pi_t
-    if pwQ == 0:
-        kq = 1.0 / Q
-    else:
-        aux1 = np.sqrt(1.0 + 4.0 * Q * Q)
-        aux2 = (k / np.sin(2.0 * k)) * np.log((aux1 + 1.0) / (aux1 - 1.0))
-        kq = np.exp(aux2) - np.exp(-aux2)
-    if pwf == 1:
-        k = np.tan(f * pi_t)
-    kf = kq + k
-    kdiv = 1.0 / (1.0 + k * (k + kq))
-    b0 = t
-    kb1 = kq * m
-    b2 = b
 
-    s1 = 0.0
-    s2 = 0.0
+    def __init__(self, b, m, t, f, Q, pwf, pwQ, sr):
+        pi_t = np.pi / sr
+        k = f * pi_t
+        if pwQ == 0:
+            kq = 1.0 / Q
+        else:
+            aux1 = np.sqrt(1.0 + 4.0 * Q * Q)
+            aux2 = (k / np.sin(2.0 * k)) * np.log((aux1 + 1.0) / (aux1 - 1.0))
+            kq = np.exp(aux2) - np.exp(-aux2)
+        if pwf == 1:
+            k = np.tan(f * pi_t)
+        self.k = k
+        self.kf = kq + k
+        self.kdiv = 1.0 / (1.0 + k * (k + kq))
+        self.b0 = t
+        self.kb1 = kq * m
+        self.b2 = b
+        self.s1 = 0.0
+        self.s2 = 0.0
+
+    def process_sample(self, x):
+        hp = (float(x) - self.kf * self.s1 - self.s2) * self.kdiv
+        aux = self.k * hp
+        bp = aux + self.s1
+        self.s1 = aux + bp
+        aux = self.k * bp
+        lp = aux + self.s2
+        self.s2 = aux + lp
+        return self.b0 * hp + self.kb1 * bp + self.b2 * lp
+
+
+def flt_sv2_tst_block(b, m, t, f, Q, pwf, pwQ, sr, x_buf):
+    """Block wrapper for :class:`FltSv2Tst`."""
+    flt = FltSv2Tst(b, m, t, f, Q, pwf, pwQ, sr)
     out = np.zeros_like(x_buf, dtype=np.float32)
     for i, x in enumerate(x_buf):
-        hp = (float(x) - kf * s1 - s2) * kdiv
-        aux = k * hp
-        bp = aux + s1
-        s1 = aux + bp
-        aux = k * bp
-        lp = aux + s2
-        s2 = aux + lp
-        out[i] = b0 * hp + kb1 * bp + b2 * lp
+        out[i] = flt.process_sample(x)
     return out
+
+
+class FltSv1Hs:
+    """Stateful 1st-order TPT high shelf."""
+
+    def __init__(self, kgain, fs, pwf, sr):
+        k_raw = fs * np.pi / sr
+        if pwf == 1:
+            k_raw = np.tan(fs * np.pi / sr)
+        self.kgain = kgain
+        self.k = np.sqrt(kgain) * k_raw
+        self.kdiv = 1.0 / (1.0 + self.k)
+        self.s1 = 0.0
+
+    def process_sample(self, x):
+        hp = (float(x) - self.s1) * self.kdiv
+        aux = self.k * hp
+        lp = aux + self.s1
+        self.s1 = aux + lp
+        return hp * self.kgain + lp
 
 
 def flt_sv1_hs_block(kgain, fs, pwf, sr, x_buf):
     """1st-order TPT high shelf. See HK_LIB_FLT_SV.jsfx-inc flt_sv1_set_hs."""
-    k_raw = fs * np.pi / sr
-    if pwf == 1:
-        k_raw = np.tan(fs * np.pi / sr)
-    k = np.sqrt(kgain) * k_raw
-    kdiv = 1.0 / (1.0 + k)
-
-    s1 = 0.0
+    flt = FltSv1Hs(kgain, fs, pwf, sr)
     out = np.zeros_like(x_buf, dtype=np.float32)
     for i, x in enumerate(x_buf):
-        hp = (float(x) - s1) * kdiv
-        aux = k * hp
-        lp = aux + s1
-        s1 = aux + lp
-        out[i] = hp * kgain + lp
+        out[i] = flt.process_sample(x)
     return out
+
+
+class FltSv2Peq:
+    """Stateful 2nd-order TPT peak EQ."""
+
+    def __init__(self, kgain, f, Qc, pwf, pwQ, sr):
+        pi_t = np.pi / sr
+        k_for_q = f * pi_t
+        if pwQ == 0:
+            kq = 1.0 / (np.sqrt(kgain) * Qc)
+        else:
+            q_eff = Qc * np.sqrt(kgain)
+            aux1 = np.sqrt(1.0 + 4.0 * q_eff * q_eff)
+            aux2 = (k_for_q / np.sin(2.0 * k_for_q)) * np.log(
+                (aux1 + 1.0) / (aux1 - 1.0)
+            )
+            kq = np.exp(aux2) - np.exp(-aux2)
+        k = f * pi_t
+        if pwf == 1:
+            k = np.tan(f * pi_t)
+        self.k = k
+        self.kq = kq
+        self.kgain = kgain
+        self.kf = kq + k
+        self.kdiv = 1.0 / (1.0 + k * (k + kq))
+        self.s1 = 0.0
+        self.s2 = 0.0
+
+    def process_sample(self, x):
+        hp = (float(x) - self.kf * self.s1 - self.s2) * self.kdiv
+        aux = self.k * hp
+        bp = aux + self.s1
+        self.s1 = aux + bp
+        aux = self.k * bp
+        lp = aux + self.s2
+        self.s2 = aux + lp
+        return hp + (self.kq * self.kgain) * bp + lp
 
 
 def flt_sv2_peq_block(kgain, f, Qc, pwf, pwQ, sr, x_buf):
     """2nd-order TPT peak EQ. See HK_LIB_FLT_SV.jsfx-inc flt_sv2_set_peq."""
-    pi_t = np.pi / sr
-    k_for_q = f * pi_t
-    if pwQ == 0:
-        kq = 1.0 / (np.sqrt(kgain) * Qc)
-    else:
-        q_eff = Qc * np.sqrt(kgain)
-        aux1 = np.sqrt(1.0 + 4.0 * q_eff * q_eff)
-        aux2 = (k_for_q / np.sin(2.0 * k_for_q)) * np.log((aux1 + 1.0) / (aux1 - 1.0))
-        kq = np.exp(aux2) - np.exp(-aux2)
-    k = f * pi_t
-    if pwf == 1:
-        k = np.tan(f * pi_t)
-    kf = kq + k
-    kdiv = 1.0 / (1.0 + k * (k + kq))
-
-    s1 = 0.0
-    s2 = 0.0
+    flt = FltSv2Peq(kgain, f, Qc, pwf, pwQ, sr)
     out = np.zeros_like(x_buf, dtype=np.float32)
     for i, x in enumerate(x_buf):
-        hp = (float(x) - kf * s1 - s2) * kdiv
-        aux = k * hp
-        bp = aux + s1
-        s1 = aux + bp
-        aux = k * bp
-        lp = aux + s2
-        s2 = aux + lp
-        out[i] = hp + (kq * kgain) * bp + lp
+        out[i] = flt.process_sample(x)
     return out
 
 

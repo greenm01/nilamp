@@ -375,3 +375,12 @@ oracle taps before changing the public render path.  Suspect areas are
 shared sag/`dvs` timing, the missing multi-stage PSS block, phase/sign
 assumptions around the subtractive aux branch, and gain staging around
 the downstream back-end filters.
+
+Follow-up: added `dsp/tests/test_nilamp_taps.dsp`, a frozen-default
+top-level tap diagnostic that emits `old_dvs`, T3 plate/cathode taps,
+current T4 output, diagnostic T5 output, diagnostic push-pull subtract,
+current/with-T5 dia totals, and current `next_dvs`.  The matching Python
+oracle runs the cascade sample-by-sample with the current T4-only delayed
+`dvs` feedback path.  This passes, so the next public-path T5 attempt can
+start from known-good Faust/Python tap math; JSFX ABX remains the gate for
+phase/sign and gain-staging parity.
