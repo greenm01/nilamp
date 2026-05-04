@@ -1,0 +1,243 @@
+// FLT_DF: Classes of filters in  direct form 2 
+// by Helmut Keller
+
+@init
+
+// Second order
+
+function flt_df2_init()
+instance(z1, z2)                 // state variables
+(   
+    z1 = 0;
+    z2 = 0;   
+);
+
+function flt_df2_set_adnl_eq(n)
+// Set filter as an ADNL equalizer
+// n: index of fh (0 to 4)
+// fh:  highest frequency  of an ADNL-equalizer optimization.
+// fs:  sample rate 
+// fh = n * fs / 12
+instance(a1, a2)               //coefficients of denominator   
+instance(b0, b1, b2)          	// coefficients of nominator 
+(
+    n == 0 ?
+    (
+        b0 = 1;
+        b1 = 0;
+        b2 = 0;
+        a1 = 0;
+        a2 = 0;    
+    );
+    
+    n == 1 ? 
+    (
+        b0 = 1.056878;
+        b1 = -1.271531;
+        b2 = 0.418433;
+        a1 = -1.179530;
+        a2 = 0.383309;   
+    );
+    
+    n == 2 ?
+    (
+        b0 = 1.200445;
+        b1 = -0.732882;
+        b2 = 0.178744;
+        a1 = -0.468873;
+        a2 = 0.115181;   
+    
+    );
+    
+    n == 3 ?
+    (
+        b0 = 1.408580;
+        b1 = -0.221734;
+        b2 = 0.069520;
+        a1 = 0.203224;
+        a2 = 0.053142;  
+    
+    );
+    
+    n == 4 ?
+    (
+        b0 = 1.656505;
+        b1 = 0.357005;
+        b2 = 0.020442;
+        a1 = 0.851983;
+        a2 = 0.181969;  
+    );
+);
+
+function flt_df2_set_tst(b, m, t, f, Q, pwf, pwQ)
+// Set filter as a tonestack
+// b: linear gain of bass
+// m: linear gain of mid
+// t: linear gain of treble
+// f: pole frequncy 
+// Q: pole quality factor
+// pwf: prewarping of f: 0: off, 1 : on
+// pwQ: prewarping of Q: 0: off, 1 : on
+instance(a1, a2)               //coefficients of denominator   
+instance(b0, b1, b2)          	// coefficients of nominator 
+local(k, kq, ksqr, kdiv, piT, aux1, aux2)
+
+(
+	piT = $pi / srate;
+	k = f * piT;
+	
+	pwQ == 0 ?
+	(
+		kq = 1 / Q
+	):(
+		aux1 = sqrt(1+4*Q*Q);
+		aux2 = k /sin(2*k) * log((aux1 + 1) / (aux1 - 1));
+		kq = exp(aux2)-exp(-aux2);  
+	);
+	
+	pwf == 1 ?
+	(	
+		k = tan(f* piT);
+	);
+	
+	kq = k * kq;
+	ksqr = k^2;
+	kdiv = 1 / (1 + kq  + ksqr);	
+	
+	a1 = (-2 + 2 * ksqr) * kdiv;
+	a2 = (1 - kq + ksqr) * kdiv;
+	b0 = (t + m * kq  + b * ksqr) * kdiv;
+	b1 = (-2 * t + 2 * b * ksqr) * kdiv;
+	b2 = (t - m * kq  + b * ksqr) *kdiv;
+);
+
+function flt_df2_set_lp(f, Q, pwf, pwQ)
+// Set filter as lowpass
+// f: pole frequncy 
+// Q: pole quality factor
+// pwf: prewarping of f: 0: off, 1 : on
+// pwQ: prewarping of f: 0: off, 1 : on// fs: sample rate 
+instance(a1, a2)               //coefficients of denominator   
+instance(b0, b1, b2)          	// coefficients of nominator 
+local(k, kq, ksqr, kdiv, piT, aux1, aux2)
+(
+	piT = $pi / srate;
+	k = f * piT;
+	
+	pwQ == 0 ?
+	(
+		kq = 1 / Q
+	):(
+		aux1 = sqrt(1+4*Q*Q);
+		aux2 = k /sin(2*k) * log((aux1 + 1) / (aux1 - 1));
+		kq = exp(aux2)-exp(-aux2);  
+	);
+	
+	pwf == 1 ?
+	(	
+		k = tan(f* piT);
+	);
+	
+	kq = k * kq;
+	ksqr = k^2;
+	kdiv = 1 / (1 + kq  + ksqr);	
+	
+	a1 = (-2 + 2 * ksqr) * kdiv; 
+	a2 = (1 - kq + ksqr) * kdiv;
+	b0 = ksqr * kdiv;
+	b1 = 2 * ksqr * kdiv;
+	b2 = ksqr * kdiv;	
+);
+
+function flt_df2_set_bp(f, Q)
+// Set filter as a bandpass
+// f: pole frequncy 
+// Q: pole quality factor
+// pwf: prewarping of f: 0: off, 1 : on
+// pwQ: prewarping of f: 0: off, 1 : on// fs: sample rate 
+instance(a1, a2)               //coefficients of denominator   
+instance(b0, b1, b2)          	// coefficients of nominator 
+local(k, kq, ksqr, kdiv, piT, aux1, aux2)
+(
+	piT = $pi / srate;
+	k = f * piT;	
+	
+	pwQ == 0 ?
+	(
+		kq = 1 / Q
+	):(
+		aux1 = sqrt(1+4*Q*Q);
+		aux2 = k * f / sin(2 * k) * log((aux1 + 1) / (aux1 - 1));
+		kq = exp(aux2)-exp(-aux2);  
+	);
+	
+	pwf == 1 ?
+	(
+		k = tan(f* piT);
+	);
+	
+	kq = k * kq;
+	ksqr = k^2;
+	kdiv = 1 / (1 + kq  + ksqr);	
+	
+	a1 = (-2 + 2 * ksqr) * kdiv;
+	a2 = (1 - kq + ksqr) * kdiv;
+	b0 =  kq  * kdiv;
+	b1 = 0;
+	b2 =  -  kq *kdiv;
+);
+
+function flt_df2_set_hp(f, Q)
+// Set filter as a highpass
+// f: pole frequncy 
+// Q: pole quality factor
+// pwf: prewarping of f: 0: off, 1 : on
+// pwQ: prewarping of f: 0: off, 1 : on// fs: sample rate 
+instance(a1, a2)               //coefficients of denominator   
+instance(b0, b1, b2)          	// coefficients of nominator 
+local(k, kq, ksqr, kdiv, piT, aux1, aux2)
+(
+	piT = $pi / srate;
+	k = f * piT;
+	
+	pwQ == 0 ?
+	(
+		kq = 1 / Q
+	):(
+		aux1 = sqrt(1+4*Q*Q);
+		aux2 = k * f / sin(2 * k) * log((aux1 + 1) / (aux1 - 1));
+		kq = exp(aux2)-exp(-aux2);  
+	);
+	
+	pwf == 1 ?
+	(	
+		k = tan(f* piT);
+	);
+	
+	kq = k * kq;
+	ksqr = k^2;
+	kdiv = 1 / (1 + kq  + ksqr);	
+	
+	a1 = (-2 + 2 * ksqr) * kdiv;
+	a2 = (1 - kq + ksqr) * kdiv;
+	b0 = kdiv;
+	b1 = -2   * kdiv;
+	b2 = kdiv;	
+);
+
+function flt_df2_process(x)
+instance(a1, a2)                 // coefficients of denominator   
+instance(b0, b1, b2)             // coefficienst in nominator   
+instance(z1, z2)                 // state variables
+local(z0)                        // intermediate state
+(
+    z0 = x;
+    z0 -= z1 * a1;
+    z0 -= z2 * a2;
+    x = z0 * b0;
+    x += z1 * b1;
+    x += z2 * b2;
+    z2 = z1; 
+    z1 = z0;     
+    x;
+);

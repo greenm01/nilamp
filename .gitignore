@@ -1,0 +1,44 @@
+# Rust / Cargo
+/target/
+**/*.rs.bk
+Cargo.lock          # binary crates may want to commit this; remove this line when adding a Cargo.toml binary
+
+# Faust generated output
+/dsp/build/
+*.cpp
+*.dsp.bak
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.python-version
+*.egg-info/
+
+# Generated lookup tables (regenerable from tools/)
+/dsp/tables/*.dsp
+/dsp/tables/*.bin
+
+# Plugin artifacts
+*.clap
+*.vst3
+*.so
+*.dylib
+*.dll
+*.a
+*.rlib
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Audio test artifacts (if large)
+/tests/audio/*.wav
+/tests/audio/*.flac
+!/tests/audio/.gitkeep

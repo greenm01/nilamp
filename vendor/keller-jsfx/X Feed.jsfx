@@ -1,0 +1,173 @@
+// Cross Feed
+// by Helmut Keller
+
+import HK_LIB_TOOLS.jsfx-inc
+import HK_LIB_GUI.jsfx-inc
+import HK_LIB_SMOOTH.jsfx-inc
+import HK_LIB_GAIN.jsfx-inc
+import HK_LIB_DELAY.jsfx-inc
+import HK_LIB_FLT_DF.jsfx-inc
+
+
+
+desc: HK X Feed
+
+in_pin:left input
+in_pin:right input
+
+
+out_pin:left output
+out_pin:right output
+
+options:no_meter
+
+slider1:p.k= 		60   	< 0, 100 , 2.5 >-		Mono Compatibility / %
+
+
+
+
+@init
+
+str1 = string_array_start();
+string_array_add("Light");
+string_array_add("Medium");	
+string_array_add("Full");															 
+count1 = string_array_count();
+
+
+
+p.k.gui_dial_set(60, 0, 100, 2.5,"Mono Compatibility", "%.1f ", "%", 0);
+
+
+p.k.changed_init();	
+
+
+DelayL.delay_init(48000);
+DelayR.delay_init(48000);
+TstL.flt_df2_init();
+TstR.flt_df2_init();
+GainL.gain_init();
+GainR.gain_init();
+
+DelayL.delay_set(0.000235-1/srate, 0);
+DelayR.delay_set(0.000235-1/srate, 0);
+TstL.flt_df2_set_tst(0.8913, 0.3448, 0.1585, 1800, 0.25, 1, 1);
+TstR.flt_df2_set_tst(0.8913, 0.3448, 0.1585, 1800, 0.25, 1, 1);
+
+
+
+title = "X Feed";
+version ="Version 1.0.4";
+author = "by Helmut Keller";
+
+directLeft = 0;
+crossLeft = 0;
+directRight = 0;
+crossRight = 0;
+
+
+
+
+function parameter_update()
+local(k)
+
+(
+
+	p.k.changed();		
+	
+	p.k.hc ?
+	( 	
+		k = p.k / 100.0;
+		
+		GainL.gain_set(k,1);
+		GainR.gain_set(k, 1);
+		
+	);	
+		
+	
+);	
+
+
+@slider
+
+parameter_update();
+
+
+
+
+
+@sample
+
+
+	
+	directLeft =  spl0  - GainL.gain_process(crossLeft);
+	directRight =  spl1 - GainR.gain_process(crossRight);
+	
+	
+
+	spl0 = directLeft + crossRight;
+	spl1 = directRight + crossLeft;
+	
+	
+	crossLeft = DelayL.delay_process(directLeft);
+	crossLeft = TstL.flt_df2_process(crossLeft);
+	
+	crossRight = DelayR.delay_process(directRight);
+	crossRight = TstR.flt_df2_process(crossRight);
+	
+	
+
+
+
+@gfx 184 193
+
+control_start("main","tron");
+
+gui_scroll_scale_set(48);
+
+ui_color(0,0,0);
+ui_fill();
+
+ui_set_rect(0,0,184, 193);
+ui_color(34,48,64);
+ui_fill();
+
+ui_screen() == "main" ? 
+(
+	control_navbar(title,"About","about");
+	ui_pad(5,5);
+	ui_split_top(147);
+		ui_split_left(174);
+			control_group("Equalizer");  
+			//ui_split_left(72);	
+				
+				p.k.gui_dial(p.k, p.k);
+			
+			//ui_pop();	
+		ui_pop();	
+	ui_pop();
+):(
+ui_screen() == "about" ? 
+(	
+	control_navbar("About",-1, -1);
+	ui_pad(5,5);
+	ui_push_height(140);
+    ui_color(255,196,0);
+    ui_split_topratio(1/5);
+	ui_split_next();	
+		ui_fontsize(18);	
+		ui_fontbold(1);
+        ui_text(title);
+    ui_split_next();
+		ui_text(version);
+    ui_split_next();
+			ui_text(author);
+    ui_pop();
+):(
+	ui_system();
+););
+
+ui_interacted() == 1 ?
+(
+	parameter_update();
+);

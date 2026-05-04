@@ -1,0 +1,69 @@
+// PKD: Peak detector class 
+// by Helmut Keller
+
+@init
+
+
+
+function pkd_init()
+instance(s1, s2)  // state vaiable
+(
+    s1 = 0;  
+    s2 = 0;
+);
+
+function pkd_set(xth, xdiode,tau_attack, tau_release)
+// xbias:       threshold voltage 
+// xdiode:      voltage drop acroos the detector diode
+// tau_attack:  attack time constant of the peak detector
+// tau:_relase: relase time constant of the peak detector
+instance(xth)           // threshold voltage
+instance(xdiode)        // voltage drop across the detctor diodee 
+instance(k1)            // coefficient of the max release circuit
+instance(k2)            // coefficient of the attack low pass
+(
+    this.xth = xth;
+    this.xdiode = xdiode; 
+	tau_attack > 0 ?
+    (
+		k1 = 1 - exp(-1 / tau_attack / srate); 
+		
+	):(
+		k1 = 1;
+	);    
+    tau_release > 0 ?
+    (
+		k2 = exp(- 1 / tau_release / srate); 
+	):(
+		k2 = 0;
+	);
+);
+  
+function pkd_process(x)
+instance(xth)           // threshold voltage of the peakdetctor 
+instance(xdiode)        // voltage drop across the detctor diode 
+instance(k1)            // coefficient of attack low pass
+instance(k2)            // coefficient of the max relases circuit
+instance(s1, s2)        // state variables
+(    
+	x <= xth ? 
+	(
+		x = 0;
+	):( 
+	x >= xth + 2 * xdiode ? 
+	(     
+		x -= xth;
+		x -= xdiode;
+     ):(
+        x -= xth;
+        x = 0.25 * sqr(x) / xdiode;
+     );); 
+	 
+	x -= s1;
+	x *=  k1;  
+	x += s1;
+	s1 = x;  
+        
+	x = max(x, k2 * s2);
+	s2 = x;
+);

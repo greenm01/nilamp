@@ -1,0 +1,53 @@
+// SMOOTH: variables and functions for coefficient smoothing
+// by Helmut Keller
+
+@init
+
+smooth_time = 0.01;					// time duration of linear interpolation in seconds
+smooth_k = 1 / smooth_time / srate;	// factor for slope calculation
+
+
+
+function smooth_init()
+instance(act)
+(
+	act = 0;
+);
+
+function smooth_set(new, smoothing)
+// smoothing: 0: off 1: on
+instance(act, new, slope)
+(	
+	this.new = new;
+	smoothing == 1 ?
+	(
+		slope = smooth_k * abs(new - act);
+	):(
+		slope = 0;
+	);
+);
+
+function smooth_process()
+instance(act,new, slope)
+// linear interpoltion of coefficient act from act to new 
+(
+	slope === 0 ?
+	(
+		act = new;
+	):(			
+		act === new ?
+        (
+            act;
+        ):(
+        act < new ?
+		(
+		    act += slope;
+		    act = min(act, new);
+		 ):(
+		 act > new ?
+		 (
+			act -= slope;
+			act = max(act, new);
+		  );););
+    );
+);

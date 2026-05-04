@@ -1,0 +1,504 @@
+// TUBE: Classes of tube amplifier stages and a class of a tube amplifier power supply stage
+// by Helmut Keller
+
+
+@init
+
+// Tube Amplifier Stages:
+
+function tube_init(has_ck, is_ltp)
+// has_ck: set to one if there is a capacitor across the cathode resistor
+//is_ltpk: set to one if there is a capacitor across the cathode resistor
+
+(   
+	this.glf.adnl_init(15, 0.02);
+    this.eq.flt_df2_init();  
+    this.pkd.pkd_init(); 	
+	this.dia = 0; 
+	has_ck == 1 ?
+	(	
+		 this.avg.flt_ii1_init();
+		 this.advk = 0;
+	);
+	is_ltp == 1 ?
+	(	
+		this.glf2.adnl_init(15, 0.02);
+		this.eq2.flt_df2_init();  
+		this.pkd2.pkd_init(); 		 
+	);
+);
+
+// TUBE_CK: common cathode stage with capacitor across cathode resistor 
+
+function tube_ck_set(mu, ra, isat, ibias, b, type, vs, rl, rk, kcomp, kpk, xth, xdrop, tattack, trelease, neq, tck)
+// mu:          voltage gain of the tube
+// ra:          output resistance of the tube
+// isat		  	 staturation current
+// ibias:       bias current
+// b:           curve parameter of the GLF
+// type:        type of the  GLF (0 = A, 1 = B)
+// vs:          voltage of power supply (all stages at bias, no signal)
+// rl:          resistance between power supply and anode
+// rk:          resistance  between cathode and ground
+// kcomp		 gain change  / relative vs change	
+// kpk:			 sensitivity of bias to grid current peaks
+// xth:			 normalized threshold voltage of peak detector
+// xdrop:		 normalized voltage drop of peak detector
+// tattack   	 attack time constant of input peak detector
+// trelease  	 release time constant of input peak detector
+// neq:			 indev of cutoff frequency of the anitiderivative EQ: fc = neq * fs / 12; by pass with neq = 0
+// tck        	 time constant of cathode bias 
+instance(rl) 
+instance(isat)  
+instance(kpk)	
+instance(kpre)  	// gain before the GLF
+instance(ksva) 	// anode output / vs change
+instance(kspre) 	// input gain / relative vs change
+instance(kspost) 	// output gain / relative vs change
+instance(ksib) 	// supply curent / vs change
+instance(kfb)		// feedback factor
+local(kloop)	 	// loop gain
+local(kbias)		// ibias / isat
+
+(    
+    this.rl = rl;     
+	this.isat = isat;	
+	this.kpk = kpk;		
+	kpre = mu / isat / (ra + rl); 
+	kloop = 0;
+	ksva = ra / (ra + rl);	
+	kspre = (1 - kcomp) / vs;	
+    kspost = 1 / vs;	
+	ksib = ibias / vs;
+	kbias =  ibias / isat;
+	kfb = (1 + mu) / mu * rk / rl;
+    this.glf.adnl_set_glf(kbias, b, type, kloop);       
+    this.avg.flt_ii1_set_tau(tck);     
+	this.pk.pkd_set(xth, xdrop, tattack, trelease);
+    this.eq.flt_df2_set_adnl_eq(neq); 	
+);
+
+function tube_ck_process(v, dvs)
+// v:       input voltge
+// dvs:     actvual power supply voltage - vs
+instance(kpre)    
+instance(isat)
+instance(rl)
+instance(kpk)
+instance(kspre) 
+instance(kspost) 
+instance(ksva) 
+instance(ksib)
+instance(kfb)
+instance(dia)     // actual anode curent minus ibias
+instance(advk)    // ibias * rk - varage chatode voltage
+(
+	v += advk;  
+	v *= kpre;	
+	v /= 1 + kspre * dvs;		
+	kpk > 0 ? v -= kpk * this.pk.pkd_process(v);	
+	v = this.glf.adnl_process(v); 
+	v = this.eq.flt_df2_process(v);		
+	v *= 1 + kspost * dvs;	
+	v *= isat;
+    v += ksib * dvs;
+	dia = v;	
+	v *= -rl;	
+	v += ksva * dvs;
+	advk = kfb * this.avg.flt_ii1_process_lp(v-dvs);	
+	v = v;
+	
+);
+
+// TUBE_CC: common cathode stage, no ck acrros rk
+
+function tube_cc_set(mu, ra, isat, ibias, b, type, vs, rl, rk,  kcomp, kpk, xth, xdrop, tattack, trelease, neq)
+// mu:          voltage gain of the tube
+// ra:          output resistance of the tube
+// isat		  	 staturation current
+// ibias:       bias current
+// b:           curve parameter of the GLF
+// type:        type of the  GLF (0 = A, 1 = B)
+// vs:          voltage of power supply (all stages at bias, no signal)
+// rl:          resistance between power supply and anode
+// rk:          resistance  between cathode and ground
+// kcomp		 gain change  / relative vs change	
+// kpk:			 sensitivity of bias to grid current peaks
+// xth:			 normalized threshold voltage of peak detector
+// xdrop:		 normalized voltage drop of peak detector
+// tattack   	 attack time constant of input peak detector
+// trelease  	 release time constant of input peak detector
+// neq:			 indev of cutoff frequency of the anitiderivative EQ: fc = neq * fs / 12; by pass with neq = 0
+instance(rl)
+instance(isat)  
+instance(kpk)	
+instance(kpre)  	// gain before the GLF
+instance(ksva) 	// anode output / vs change
+instance(kspre) 	// input gain / relative vs change
+instance(kspost) 	// output gain / relative vs change
+instance(ksib) 	// supply curent / vs change
+local(kloop)	 	// loop gain
+local(kbias)		// ibias / isat
+(
+    this.rl = rl; 	
+	this.kpk = kpk;
+	this.isat = isat;	
+	kpre = mu / isat / (ra + rl + (1 + mu) * rk); 
+	kloop = rk * (1 + mu) / (ra + rl);
+	ksva = (ra + (1 + mu) * rk ) / (ra + rl + (1 + mu) * rk);
+	kspre = (1 - kcomp) / vs;
+    kspost = 1 / vs;	
+	ksib = ibias / vs;
+	kbias = ibias / isat;
+    this.glf.adnl_set_glf(kbias, b, type, kloop);  
+	this.pk.pkd_set(xth, xdrop, tattack, trelease);
+    this.eq.flt_df2_set_adnl_eq(neq); 
+);
+
+function tube_cc_process(v, dvs)
+// v:       input voltge
+// dvs:     actual power supply voltage - vs
+instance(kpre)    
+instance(isat)   
+instance(rl) 
+instance(kpk)
+instance(kspre) 	
+instance(kspost) 	
+instance(ksva)
+instance(ksib)
+instance(dia)     // actual anode curent minus ibias
+(
+	v *= kpre;	
+	v /= 1 + kspre * dvs;		
+	kpk > 0 ? v -= kpk * this.pk.pkd_process(v);
+	v = this.glf.adnl_process(v);
+	v = this.eq.flt_df2_process(v);	 	
+	v *= 1 + kspost * dvs;	
+	v *= isat;	
+	v += ksib * dvs;
+	dia = v;
+	v *= -rl;	
+	v += ksva * dvs;
+);
+
+// TUBE_CD: cathodyne stage 
+
+function tube_cd_set(mu, ra, isat, ibias, b, type, vs, rl, rk, kcomp, kpk, xth, xdrop, tattack, trelease, neq)
+// mu:          voltage gain of the tube
+// ra:          output resistance of the tube
+// isat		  	 staturation current
+// ibias:       bias current
+// b:           curve parameter of the GLF
+// type:        type of the  GLF (0 = A, 1 = B)
+// vs:          voltage of power supply (all stages at bias, no signal)
+// rl:          resistance between power supply and anode
+// rk:          resistance  between cathode and ground
+// kcomp		 gain change  / relative vs change	
+// kpk:			 sensitivity of bias to grid current peaks
+// xth:			 normalized threshold voltage of peak detector
+// xdrop:		 normalized voltage drop of peak detector
+// tattack   	 attack time constant of input peak detector
+// trelease  	 release time constant of input peak detector
+// neq:			 indev of cutoff frequency of the anitiderivative EQ: fc = neq * fs / 12; by pass with neq = 0
+instance(rl)  
+instance(isat)  
+instance(kpk)	
+instance(rkl)		// sum of rk and rl
+instance(kpre)  	// gain before the GLF
+instance(ksva) 	// anode output / vs change
+instance(ksvk) 	// cahtode output / vs change
+instance(kspre) 	// input gain / relative vs change
+instance(kspost) 	// output gain / relative vs change
+instance(ksib) 	// supply curent / vs change
+local(kloop)	 	// loop gain
+local(kbias)		// ibias / isat
+(
+    this.rl = rl;  
+	this.rkl = rk  +rl;      
+	this.kpk = kpk;	
+	this.isat = isat;
+	kpre = mu / isat / (ra + rl + (1 + mu) * (rk + rl)); 
+	kloop = (rk + rl) * (1 + mu) / (ra + rl); 
+	ksva = (ra + rl + (1 + mu) * rk ) / (ra + 2 * rl + (1 + mu) * rk);
+	ksvk = (rk + rl) / (ra + 2 * rl + (1 + mu) * rk);
+	kspre = (1 - kcomp) / vs;
+    kspost = 1 / vs;	
+	ksib = ibias / vs;
+	kbias = ibias / isat;
+    this.glf.adnl_set_glf(kbias , b, type, kloop);  
+	this.pk.pkd_set(xth, xdrop, tattack, trelease);
+    this.eq.flt_df2_set_adnl_eq(neq); 	
+);
+
+function tube_cd_process(v, dvs)
+// v:       input voltge
+// dvs:     actual power supply voltage - vs
+instance(kpre)    
+instance(isat)   
+instance(rl)     
+instance(rkl)     
+instance(kpk)
+instance(kspre) 
+instance(kspost) 
+instance(ksva) 
+instance(ksvk) 
+instance(ksib)
+instance(dia)     	// actual anode curent minus ibias
+instance(vk)		// cathode output
+(
+	v *= kpre;	
+	v /= 1 + kspre * dvs;		
+	kpk > 0 ? v -= kpk * this.pk.pkd_process(v);
+	v = this.glf.adnl_process(v); 
+	v = this.eq.flt_df2_process(v);		
+	v *=  1 + kspost * dvs;	
+	v *= isat;
+	v += ksib * dvs;
+	dia = v;	
+	vk = v;
+	vk *= rkl;
+	vk += ksvk * dvs;	
+	v *= -rl;	
+	v += ksva * dvs;
+);
+
+// TUBE_CF: cathode follower stage 
+
+function tube_cf_set(mu, ra, isat, ibias, b, type, vs, rl, rk, kcomp, kpk, xth, xdrop, tattack, trelease, neq)
+// mu:          voltage gain of the tube
+// ra:          output resistance of the tube
+// isat		  	 staturation current
+// ibias:       bias current
+// b:           curve parameter of the GLF
+// type:        type of the  GLF (0 = A, 1 = B)
+// vs:          voltage of power supply (all stages at bias, no signal)
+// rl:          resistance between power supply and anode
+// rk:          resistance  between cathode and ground
+// kcomp		 gain change  / relative vs change	
+// kpk:			 sensitivity of bias to grid current peaks
+// xth:			 normalized threshold voltage of peak detector
+// xdrop:		 normalized voltage drop of peak detector
+// tattack   	 attack time constant of input peak detector
+// trelease  	 release time constant of input peak detector
+// neq:			 indev of cutoff frequency of the anitiderivative EQ: fc = neq * fs / 12; by pass with neq = 0 
+instance(rk)  
+instance(isat)  
+instance(kpk)	
+instance(kpre)  	// gain before the GLF
+instance(ksvk) 	// anode output / vs change
+instance(kspre) 	// input gain / relative vs change
+instance(kspost) 	// output gain / relative vs change
+instance(ksib) 	// supply curent / vs change
+local(kloop)	 	// loop gain
+local(kbias)		// ibias / isat
+(
+	this.rk = rk;      
+	this.kpk = kpk;	
+	this.isat = isat;	
+	kpre = mu / isat / (ra + rl + (1 + mu) * rk); 
+	kloop = rk * (1 + mu) / (ra + rl); 
+	ksvk = rk / (ra + rl + (1 + mu) * rk);
+	kspre = (1 - kcomp) / vs;
+    kspost = 1 / vs;
+	ksib = ibias / vs;
+	kbias = ibias  / isat;
+    this.glf.adnl_set_glf(kbias, b, type, kloop);  
+	this.pk.pkd_set(xth, xdrop, tattack, trelease);
+    this.eq.flt_df2_set_adnl_eq(neq);
+);
+
+function tube_cf_process(v, dvs)
+// v:       input voltge
+// dvs:     actual power supply voltage - vs
+instance(kpre)    
+instance(isat)     
+instance(rk)     
+instance(kpk)
+instance(kspre)
+instance(kspost)   
+instance(ksvk)
+instance(ksib)
+instance(dia)     	// actual anode curent minus ibias
+(
+	v *= kpre;	
+	v /= 1 + kspre * dvs;		
+	kpk > 0 ? v -= kpk * this.pk.pkd_process(v);
+	v = this.glf.adnl_process(v); 
+	v = this.eq.flt_df2_process(v);		
+	v *= 1 + kspost * dvs;	
+	v *= isat;	
+	v += ksib * dvs;
+	dia = v;
+	v *= rk;	
+	v += ksvk * dvs;
+);
+
+// TUBE_LTP: long tail pair stage
+
+function tube_ltp_set(mu, ra, isat, ibias, b, type, vs, rl1, rk,  kcomp, kpk, xth, xdrop, tattack, trelease, neq, rl2 , rb)
+// mu:          voltage gain of the tube
+// ra:          output resistance of the tube
+// isat		  	 staturation current
+// ibias:       bias current
+// b:           curve parameter of the GLF
+// type:        type of the  GLF (0 = A, 1 = B)
+// vs:          voltage of power supply (all stages at bias, no signal)
+// rl1:         resistance between power supply and anode 1
+// rl2:         resistance between power supply and anode 2
+// rk:          resistance  between cathode and rb
+// rb:          resistance  between cathode and ground
+// kcomp		 gain change  / relative vs change	
+// kpk:			 sensitivity of bias to grid current peaks
+// xth:			 normalized threshold voltage of peak detector
+// xdrop:		 normalized voltage drop of peak detector
+// tattack   	 attack time constant of input peak detector
+// trelease  	 release time constant of input peak detector
+// neq:			 indev of cutoff frequency of the anitiderivative EQ: fc = neq * fs / 12; by pass with neq = 0
+instance(rl1)
+instance(rl2)
+instance(isat)  
+instance(kpk)	
+instance(kpre11)  	// gain from input 1 to GLF 1
+instance(kpre12)  	// gain from input 1 to GLF 2
+instance(kpre22)  	// gain from input 2 to GLF 2
+instance(kpre21)  	// gain from input 2 to GLF 1
+instance(kprek1)  	// gain from input k to GLF 1
+instance(kprek2)  	// gain from input k to GLF 2
+instance(ksv1) 	// anode 1 output / vs change
+instance(ksv2) 	// anode 2 output / vs change
+instance(kspre) 	// input gain / relative vs change
+instance(kspost) 	// output gain / relative vs change
+instance(ksib) 	// supply curent / vs change
+local(kloop1)	 	// loop gain of GLF 1
+local(kloop2)	 	// loop gain of GLF 2
+local(kbias)		// ibias / isat
+local(rk1)			// effective cathode resistor of  tube 1
+local(rk2)			// effective cathode resistor of  tube 2
+local(rp)			// effective DC resistor of  tube 1
+local(rt)			// effective DC resistor of  tube 2
+(
+    this.rl1 = rl1; 
+	this.rl2 = rl2; 	
+	this.kpk = kpk;
+	this.isat = isat;	
+	rk1 = (rk + rb) * (ra + rl2) / ((1+mu) * (rk + rb) + (ra + rl2));
+	rk2 = (rk + rb) * (ra + rl1) / ((1+mu) * (rk + rb) + (ra + rl1));	
+	kpre11 = mu / isat / (ra + rl1 + (1 + mu) * rk1); 
+	kpre12 = - mu / isat / (ra + rl1 + (1 + mu) * rk1) * (1 + mu ) * rk1 / (ra + rl2); 	
+	kpre22 = mu / isat / (ra + rl2 + (1 + mu) * rk2); 
+	kpre21 = - mu / isat / (ra + rl2 + (1 + mu) * rk2) * (1 + mu ) * rk2 / (ra + rl1);	
+	kprek1 = - mu / isat * ( ra + rl2) / ((1 + mu) * (rk + rb) * (2 * ra + rl1 + rl2) + (ra + rl1) *  (ra + rl2));
+	kprek2 = - mu / isat * ( ra + rl1) / ((1 + mu) * (rk + rb) * (2 * ra + rl1 + rl2) + (ra + rl1) *  (ra + rl2)); 
+	kloop1 = rk1 * (1 + mu) / (ra + rl1);
+	kloop2 = rk2 * (1 + mu) / (ra + rl2);
+	rp = (ra + rl1) * (ra + rl2) / (2 * ra + rl1 + rl2);
+	rt = rb + (1 + mu) * rk;
+	
+	ksv1 =( ra / (ra + rl1) * rp + rt) / ( rp + rt);
+	ksv2 =( ra / (ra + rl2) * rp + rt) / ( rp + rt);
+	kspre = (1 - kcomp) / vs;
+    kspost = 1 / vs;	
+	ksib = ibias / vs;
+	kbias = ibias / isat;
+    this.glf.adnl_set_glf(kbias, b, type, kloop1);  
+	this.pk.pkd_set(xth, xdrop, tattack, trelease);
+    this.eq.flt_df2_set_adnl_eq(neq); 
+	this.glf2.adnl_set_glf(kbias, b, type, kloop2);  
+	this.pk2.pkd_set(xth, xdrop, tattack, trelease);
+    this.eq2.flt_df2_set_adnl_eq(neq); 
+);
+
+function tube_ltp_process(vin1, vink, vin2, dvs)
+// vin1:       input voltge 1
+// vink:       input voltge k
+// vin2:       input voltge 2
+// dvs:     actual power supply voltage - vs
+instance(kpre11)  
+instance(kpre12)  	
+instance(kpre22)  	
+instance(kpre21)  	
+instance(kprek1)  	
+instance(kprek2)   
+instance(isat)   
+instance(rl1) 
+instance(rl2)
+instance(kpk)
+instance(kspre)
+instance(kspost) 	
+instance(ksv1)
+instance(ksv2)
+instance(ksib)
+instance(dia)     // sum of actual anode currents minus ibias
+instance(vout2)  // second output voltage
+local(v)
+(
+	v = vin1 * kpre12;		
+	v += vink * kprek2;
+	v += vin2 * kpre22;	
+	v /= 1 + kspre * dvs;	    	
+	kpk > 0 ? v -= kpk * this.pk2.pkd_process(v);
+	v = this.glf2.adnl_process(v);	
+	v = this.eq2.flt_df2_process(v);		
+	v *= 1 + kspost * dvs;		
+	v *= isat;		
+	v += ksib * dvs;	
+	dia = v;	
+	v *= -rl2;	
+	v += ksv2 * dvs;
+	vout2 = v;
+	
+	v = vin1 * kpre11;	
+	v += vink * kprek1;
+	v += vin2 * kpre21;	
+	v /= 1 + kspre * dvs;		
+	kpk > 0 ? v -= kpk * this.pk.pkd_process(v);
+	v = this.glf.adnl_process(v);
+	v = this.eq.flt_df2_process(v);	 	
+	v *= 1 + kspost * dvs;	
+	v *= isat;	
+	v += ksib * dvs;
+	dia += v;
+	v *= -rl1;	
+	v += ksv1 * dvs;	
+);
+
+
+// Tube ammplifier power supply stage
+
+// TUBE_PSS: tube ammplifier power supply stage
+
+function tube_pss_init()
+(
+	 this.lp1.flt_ii1_init();
+	 this.lp2.flt_ii1_init();
+);
+
+function tube_pss_set(r, tau)
+// r:  series resitance 
+// tau:	time constant 
+instance(r)  
+(
+	this.r = r;
+	this.lp1.flt_ii1_set_tau(tau);
+	this.lp2.flt_ii1_set_tau(tau);
+);
+
+function tube_pss_process(dvs, snext, dia)
+// dvs: 		voltage change at input
+// snext:	supply current change from next stage
+// dia:			supply current change from this stage
+instance(s) 	// low pass fitered sum of dia and snext in this stage 
+instance(r)
+(	
+	s = dia;
+	s += snext;
+	s = this.lp1.flt_ii1_process_lp(s);
+	dvs = this.lp2.flt_ii1_process_lp(dvs);
+	dvs -= r * s;
+);
+
+
+
+
+
+

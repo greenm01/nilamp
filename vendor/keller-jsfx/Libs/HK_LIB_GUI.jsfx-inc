@@ -1,0 +1,284 @@
+// GUI: Olasses for GUI Elements
+// Author: Helmut Keller
+
+import hk-ui-lib.jsfx-inc
+
+@init
+
+gfx_ext_retina = 1;
+array_next = ui_setup(array_next);
+
+
+// Set scroll scale
+
+gui_scroll_scale_done = 0;
+
+function gui_scroll_scale_set(n_steps)
+// n_steps: Number of scroll wheel steps per parameter range
+(
+	gui_scroll_scale_done == 0 ?
+	(
+		uix_scroll_y  != 0 ?
+		(
+			uix_scroll_y - 28.125 * floor(uix_scroll_y / 28.125) == 0 ?
+			(
+				uix_scroll_scale = 28.125 * n_steps; // YSFX
+			):(
+				uix_scroll_scale = 120 * n_steps; // ReaJS or Reaper
+			);
+			gui_scroll_scale_done = 1;
+		);
+	);
+);
+
+
+// GUI_DIAL: dials with a label above and a value display below
+
+function gui_dial_set(default, low, high, res, label, format, unit, unit_mode)
+instance(default, low, high, label, res, format, unit, unit_mode)
+(
+	this.default = default;		// default value (recalled by double click)
+    this.low = low;				// lowest value
+    this.high = high;				// highest value
+	this.res = res;				// resolution of values
+    this.label = label;			// label string
+    this.format = format;			// formaststring in C syntax for the display value
+    this.unit = unit;				// unit for the display value
+    this.unit_mode = unit_mode;	// 0: no prefix before unit, 1: dynamic prefix before unit
+);
+
+function gui_dial(value, display_value)
+// The angle range of the dial is about -150 t0 150 degree
+// value: 			the value of the dial, should be a pointer to a JSFX slider
+// display_value:	value dispalayed below the dial
+instance(default, low, high, res, label, format, unit, unit_mode)
+local(new,pre_unit)
+(
+	
+	ui_color(255, 192, 0);
+	ui_push_height(96);
+		ui_split_top(24);
+			ui_text(label);
+		ui_pop();
+		ui_split_top(48);
+			new =  control_dial(value, low, high, 0, default);  
+			new > (value + 0.5 * res) ? 
+			(
+				value = res*floor(new/res+0.5);
+			):(
+			new < (value - 0.5 *res) ? 
+			(
+				value = res*floor(new/res+0.5);
+			););
+				
+		ui_pop();
+		ui_split_top(24);        
+			unit_mode == 1 ? 
+			(
+				abs(display_value) > 999.999 ? 
+				(
+					display_value *= 0.001;
+					pre_unit = "k";  
+				):(
+				abs(display_value) > 0.999999 ?                        
+                (
+                    pre_unit = "";
+                ):(  
+                    display_value *= 1000;
+                    pre_unit = "m"; 
+				););
+			):(
+            pre_unit = "";
+			);
+			sprintf(#uix_textnumber, format, display_value);
+			strCat(#uix_textnumber, pre_unit);
+			strCat(#uix_textnumber, unit);
+			ui_text(#uix_textnumber);
+			ui_pop();
+	ui_pop();		
+	ui_automate(this,value);
+	this = value;	
+	
+);
+
+function gui_dial_angle(value, display_value)
+// the angle range of the dial is modulo of 360 degrees
+// value: 			the value of the dial, should be a JSFX slider value
+// display_value:	value dispalayed below the dial:
+instance(default, low, high, res, label, format, unit, unit_mode)
+local(new, range, norm_val, norm_default, pre_unit)
+(
+	range = high - low;  
+	norm_val = (value - low ) / range + 0.5;
+	norm_val >= 1.0 ? norm_val -= 1.0;
+	//norm_val < 0.0 ? norm_val += 1;
+	
+	norm_default = (default - low) / range + 0.5;
+	norm_default >= 1.0 ? norm_default -= 1;
+	ui_color(255, 192, 0);
+	ui_push_height(96);
+		ui_split_top(24);
+			ui_text(label);
+		ui_pop();
+		ui_split_top(48);
+			new =  range* (control_dial_angle_unit(norm_val, norm_default) -0.5) + low;			
+			new < low ? new += range;
+			new >= high ? new -= range;			
+			
+			new > (value + 0.5 * res) ? 
+			(				
+				value = res * floor(new / res + 0.5);
+			):(
+			new < (value - 0.5 *res ) ? 
+			(
+				value = res * floor(new  /res + 0.5);
+			):(
+			(new < low + 0.5 * range) && (new > low + 0.5 * range -0.001 * res) ?
+				value = new +  0.00002 * res;
+			););
+		ui_pop();
+		ui_split_top(24); 
+			unit_mode == 1 ? 
+			(
+				abs(display_value) > 999.999 ? 
+				(
+					display_value *= 0.001;
+					pre_unit = "k";  
+				):(
+					abs(display_value) > 0.999999 ?                        
+					(
+						pre_unit = "";
+					):(  
+						display_value *= 1000;
+						pre_unit = "m"; 
+				););
+			):(
+				pre_unit = "";
+			);
+			sprintf(#uix_textnumber, format, display_value);
+			strCat(#uix_textnumber, pre_unit);
+			strCat(#uix_textnumber, unit);
+			ui_text(#uix_textnumber); 
+		ui_pop();
+	ui_pop();
+	ui_automate(this,value);
+	this = value;
+);
+
+// GUI_SWITCH_TOGGLE: toggle switch with label above and switch state string below
+
+function gui_switch_toggle_set(str, label)
+instance(str, label)
+(
+    this.str = str;		// pointer to the switch state string array
+    this.label = label;	// label string
+);
+
+function gui_switch_toggle(value)
+// value:	the value of the dial, should be a pointer to a JSFX slider
+instance(str, label)
+(
+	ui_color(255, 192, 0);
+	ui_push_height(96);
+		ui_split_top(24);
+			ui_text(label);
+		ui_pop();
+		ui_split_top(24);
+			value = control_switch(value);
+		ui_pop();
+		ui_split_top(24);
+			value == 0 ? ui_text(str) :  ui_text(str+1);
+		ui_pop();
+	ui_pop();	
+	ui_automate(this,value);
+	this = value;
+);
+
+// GUI_SWITCH_RADIO: a radio button group with a label above and state strings left
+
+function gui_switch_radio_set(str, count, label)
+instance(str, count,label)
+(
+    this.str = str;		// pointer to the switch state string array
+    this.count = count;	// number of switch states
+    this.label = label;	// label string
+);
+
+function gui_switch_radio(value)
+// value:	the value of the dial, should be a pointer to a JSFX slider
+instance(str, count, label)
+local (index)
+(
+	ui_color(255, 192, 0);
+	ui_push_height(96);
+		ui_split_top(24);
+			ui_text(label);
+		ui_pop();
+		index = 0;
+		ui_split_topratio(1/count);
+			ui_split_right(30);
+				value = control_radio(value, index);
+			ui_pop();
+			ui_align(1.0, 0.5);
+			ui_fontsize(14);
+			ui_text(str+index);
+			loop(count-1,
+				index +=1;
+				ui_split_next();
+					ui_split_right(30);						
+						value = control_radio(value, index);
+					ui_pop();
+				ui_align(1.0, 0.5);
+				ui_fontsize(14);
+				ui_text(str+index);
+			);
+		ui_pop();
+	ui_pop();
+	ui_automate(this,value);
+	this = value;
+);
+
+// SWITCH_ROTARY
+
+function gui_switch_rotary_set(default, str, count, label)
+instance(default, str, count, label)
+(
+	this.default = default;	// default value (recalled by double click)
+    this.str = str;			// pointer to the switch state string array
+    this.count = count;		// number of switch states		
+    this.label = label;		// label string
+);
+
+function gui_switch_rotary(value)
+// value:	the value of the dial, should be a pointer to a JSFX slider
+instance(default, str, count, label)
+local(new)
+(
+	ui_color(255, 192, 0);
+	ui_push_height(96);
+		ui_split_top(24);
+			ui_text(label);
+		ui_pop();
+		ui_split_top(48);
+			new = control_dial(value, 0, count-1, 0, default) ;
+			new == default ?
+			(
+				value = default;
+				):(
+				new > value + 0.02 ?
+				(					
+					value < (count -1)? value += 1;
+				):(
+				new < value - 0.02 ?
+				(
+					value > 0 ? value -= 1;
+				););
+			);
+		ui_pop();
+		ui_split_top(24);
+			ui_text(str + floor(value + 0.5));
+		ui_pop();
+	ui_pop();
+	ui_automate(this,value);
+	this = value;
+);

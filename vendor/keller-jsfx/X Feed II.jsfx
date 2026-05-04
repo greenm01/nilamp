@@ -1,0 +1,273 @@
+// X Feed II
+// by Helmut Keller
+
+import HK_LIB_TOOLS.jsfx-inc
+import HK_LIB_GUI.jsfx-inc
+import HK_LIB_SMOOTH.jsfx-inc
+import HK_LIB_GAIN.jsfx-inc
+import HK_LIB_DELAY.jsfx-inc
+import HK_LIB_FLT_SV.jsfx-inc
+
+
+
+desc: HK X Feed II
+
+in_pin:left input
+in_pin:right input
+
+
+out_pin:left output
+out_pin:right output
+
+options:no_meter
+
+slider1:p.k= 		60   	< 0, 100 , 2.5 >-		Mono Compatibility / %
+slider2:p.mode= 	1   	< 0, 1 , {MC, HRTF}>-	EQ Mode
+slider3:p.hs= 		100   	< 65, 135 , 2.5 >-		Head Size / %
+
+
+
+
+@init
+
+												 
+
+str1 = string_array_start();
+string_array_add("Mono C.");	
+string_array_add("HRTF");
+
+
+
+p.k.gui_dial_set(60, 0, 100, 2.5,"Mono C.", "%.1f ", "%", 0);
+p.mode.gui_switch_toggle_set(str1, "Mode");
+p.hs.gui_dial_set(100, 65, 135, 2.5,"Rel. Size", "%.1f ", "%", 0);
+
+
+p.k.changed_init();
+p.mode.Changed_init();
+p.hs.changed_init();
+
+DelayL.delay_init(64);
+DelayR.delay_init(64);
+
+TstL1.flt_sv2_init();
+TstR1.flt_sv2_init();
+TstL2.flt_sv2_init();
+TstR2.flt_sv2_init();
+TstL3.flt_sv2_init();
+TstR3.flt_sv2_init();
+TstL4.flt_sv2_init();
+TstR4.flt_sv2_init();
+
+
+TstL5.flt_sv2_init();
+TstR5.flt_sv2_init();
+TstL6.flt_sv2_init();
+TstR6.flt_sv2_init();
+TstL7.flt_sv2_init();
+TstR7.flt_sv2_init();
+TstL8.flt_sv2_init();
+TstR8.flt_sv2_init();
+TstL9.flt_sv2_init();
+TstR9.flt_sv2_init();
+
+
+GainL.gain_init();
+GainR.gain_init();
+
+
+
+
+
+
+title = "X Feed II";
+version ="Version 1.0.4";
+author = "by Helmut Keller";
+
+directLeft = 0;
+crossLeft = 0;
+directRight = 0;
+crossRight = 0;
+
+t0 = 0.000235;
+
+f1 = 950;
+f2 = 1580;
+f3 = 3100;
+f4 = 11500;
+
+f5 = 600;
+f6 = 1370;
+f7 = 3350;
+f8 = 6000;
+f9 = 13500;
+
+
+
+function parameter_update()
+local(k,ta0, fa1, fa2, fa3, fa4 fa5, fa6, fa7, fa8 , fa9, hs, rhs)
+
+(
+
+	p.k.changed();	
+	p.hs.changed();
+	
+	p.k.hc  ?
+	( 
+		k = p.k * 0.01;		
+		GainL.gain_set(k,1);
+		GainR.gain_set(k,1);
+	);		
+	
+	
+	p.hs.hc ?
+	( 	
+		hs =  p.hs * 0.01;
+		rhs = 1 / hs;
+		
+		ta0 = t0 * hs - 1 / srate;
+		fa1 = f1 * rhs;
+		fa2 = f2 * rhs;
+		fa3 = f3 * rhs;
+		fa4 = f4 * rhs;
+		fa5 = f5 * rhs;
+		fa6 = f6 * rhs;
+		fa7 = f7 * rhs;
+		fa8 = f8 * rhs;
+		fa9 = f9 * rhs;
+		
+		DelayL.delay_set(ta0, 1);
+		DelayR.delay_set(ta0, 1);
+		
+		TstL1.flt_sv2_set_tst(0.90,	0.22,	0.45,	fa1,	0.48, 	1,	1,	1);
+		TstR1.flt_sv2_set_tst(0.90, 	0.22,	0.45, 	fa1, 	0.48, 	1, 	1, 	1);
+		TstL2.flt_sv2_set_tst(1.00,	2.10, 	0.52,  	fa2, 	2.50, 	1, 	1, 	1);
+		TstR2.flt_sv2_set_tst(1.00, 	2.10, 	0.52,  	fa2, 	2.50, 	1, 	1,  1);
+		TstL3.flt_sv2_set_tst(1.00, 	2.05, 	0.90, 	fa3, 	3.00, 	1, 	1, 	1);
+		TstR3.flt_sv2_set_tst(1.00, 	2.05, 	0.90,	fa3,  	3.00, 	1, 	1, 	1);
+		TstL4.flt_sv2_set_tst(1.00, 	1.80, 	1.00, 	fa4, 	5.00, 	1, 	1, 	1);
+		TstR4.flt_sv2_set_tst(1.00, 	1.80, 	1.00,	fa4,  	5.00, 	1, 	1, 	1);
+		
+		TstL5.flt_sv2_set_tst(0.646,	0.816,	1.496,	fa5,	0.50, 	1,	1,	1);
+		TstR5.flt_sv2_set_tst(0.646, 	0.816,	1.496, 	fa5, 	0.50, 	1, 	1, 	1);
+		TstL6.flt_sv2_set_tst(1.00,	0.51, 	1.05,  	fa6, 	1.30, 	1, 	1, 	1);
+		TstR6.flt_sv2_set_tst(1.00, 	0.51, 	1.05,  	fa6, 	1.30, 	1, 	1,  1);
+		TstL7.flt_sv2_set_tst(1.00, 	0.74, 	1.05, 	fa7, 	2.80, 	1, 	1, 	1);
+		TstR7.flt_sv2_set_tst(1.00, 	0.74, 	1.05,	fa7,  	2.80, 	1, 	1, 	1);
+		TstL8.flt_sv2_set_tst(1.00, 	0.38, 	0.70, 	fa8, 	1.40, 	1, 	1, 	1);
+		TstR8.flt_sv2_set_tst(1.00, 	0.38, 	0.70,	fa8,  	1.40, 	1, 	1, 	1);
+		TstL9.flt_sv2_set_tst(1.00, 	1.80, 	1.10, 	fa9, 	4.00, 	1, 	1, 	1);
+		TstR9.flt_sv2_set_tst(1.00, 	1.80, 	1.10,	fa9,  	4.00, 	1, 	1, 	1);
+		
+	);	
+		
+	
+);	
+
+
+@slider
+
+parameter_update();
+
+
+
+
+
+@sample
+
+	
+	
+	p.mode == 1 ?
+	(
+		directLeft = TstL5.flt_sv2_process(spl0);
+		directLeft = TstL6.flt_sv2_process(directleft);
+		directLeft = TstL7.flt_sv2_process(directLeft);
+		directLeft = TstL8.flt_sv2_process(directLeft);
+		directLeft = TstL9.flt_sv2_process(directLeft);
+		
+		directRight = TstR5.flt_sv2_process(spl1);
+		directRight = TstR6.flt_sv2_process(directRight);
+		directRight = TstR7.flt_sv2_process(directRight);
+		directRight = TstR8.flt_sv2_process(directRight);
+		directRight = TstR9.flt_sv2_process(directRight);	
+	):(
+		directLeft = spl0 - GainL.gain_process(crossLeft);
+		directRight = spl1 - GainR.gain_process(crossRight);
+	);
+
+	spl0 = directLeft + crossRight;
+	spl1 = directRight + crossLeft;
+	
+	crossLeft = DelayL.delay_process(directLeft);
+	crossLeft = TstL1.flt_sv2_process(crossLeft);
+	crossLeft = TstL2.flt_sv2_process(crossLeft);
+	crossLeft = TstL3.flt_sv2_process(crossLeft);
+	crossLeft = TstL4.flt_sv2_process(crossLeft);
+	
+	crossRight = DelayR.delay_process(directRight);
+	crossRight = TstR1.flt_sv2_process(crossRight);
+	crossRight = TstR2.flt_sv2_process(crossRight);
+	crossRight = TstR3.flt_sv2_process(crossRight);
+	crossRight = TstR4.flt_sv2_process(crossRight);
+
+
+@gfx 268 193
+
+control_start("main","tron");
+
+gui_scroll_scale_set(48);
+
+ui_color(0,0,0);
+ui_fill();
+
+ui_set_rect(0,0,268, 193);
+ui_color(34,48,64);
+ui_fill();
+
+ui_screen() == "main" ? 
+(
+	control_navbar(title,"About","about");
+	ui_pad(5,5);
+	ui_split_top(147);
+		ui_split_left(164);
+			control_group("Equalizer");  
+			ui_split_left(72);					
+				p.k.gui_dial(p.k, p.k);
+			ui_split_next();	
+				p.mode.gui_switch_toggle(p.mode);
+			ui_pop();	
+		ui_pop();	
+		ui_split_left(94);
+			control_group("Head");  
+			//ui_split_left(72);	
+				
+				p.hs.gui_dial(p.hs, p.hs);
+			
+			//ui_pop();	
+		ui_pop();	
+	ui_pop();
+):(
+ui_screen() == "about" ? 
+(	
+	control_navbar("About",-1, -1);
+	ui_pad(5,5);
+	ui_push_height(140);
+    ui_color(255,196,0);
+    ui_split_topratio(1/5);
+	ui_split_next();	
+		ui_fontsize(18);	
+		ui_fontbold(1);
+        ui_text(title);
+    ui_split_next();
+		ui_text(version);
+    ui_split_next();
+			ui_text(author);
+    ui_pop();
+):(
+	ui_system();
+););
+
+ui_interacted() == 1 ?
+(
+	parameter_update();
+);

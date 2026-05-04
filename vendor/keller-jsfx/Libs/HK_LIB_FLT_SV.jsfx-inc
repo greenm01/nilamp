@@ -1,0 +1,224 @@
+// FLT_SV: Classes of state variable filters with coefficient smoothing
+// Author: Helmut Keller
+
+@init
+
+// fist order
+
+function flt_sv1_init()
+instance(s1)                 // state variable
+(   
+    s1 = 0;    
+	this.k.smooth_init();		
+	this.kdiv.smooth_init();
+	this.b0.smooth_init();
+	this.b1.smooth_init();	
+);
+
+
+function flt_sv1_set_tst(b, t, f, pwf, sm)
+// Set filter as a tonestack
+// b: linear gain of bass
+// t: linear gain of treble
+// f: pole frequency
+// pwf: prewarping of f: 0: off, 1 : on
+// sm: smooth filter coefficients: 0: off, 1: on
+local(k, piT)
+(
+	piT = $pi / srate;
+
+	pwf == 0 ?
+	(
+		k = f * piT;
+	):(
+		k = tan(f * piT) 
+	);		
+	
+	this.k.smooth_set(k, sm);		
+	this.kdiv.smooth_set( 1 / ( 1 + k) , sm);
+	this.b0.smooth_set(t, sm);
+	this.b1.smooth_set(b, sm);	
+);
+
+function flt_sv1_set_ls(kgain, fs, pwf, sm)
+// Set filter as a low shelf
+// kgain: linear gain at low frequencies
+// fs: center frequency of slope
+// pwf: prewarping of f: 0: off, 1 : on
+// sm: smooth filter coefficients: 0: off, 1: on
+local(k, piT)
+(
+	piT = $pi / srate;
+
+	pwf == 0 ?
+	(
+		k = fs * piT;
+	):(
+		k = tan(fs * piT) 
+	);	
+	
+	k =  k / sqrt(kgain); 	
+	
+	this.k.smooth_set(k, sm);		
+	this.kdiv.smooth_set( 1 / ( 1 + k) , sm);
+	this.b0.smooth_set(1, sm);
+	this.b1.smooth_set(kgain, sm);	
+);
+
+function flt_sv1_set_hs(kgain, fs, pwf, sm)
+// Set filter as a high shelf
+// kgain linear gain at high frequencies
+// fs: center frequncy of slope 
+// pwf: prewarping of f: 0: off, 1 : on
+// sm: smooth filter coefficients: 0: off, 1: on
+local(k, piT)
+(
+	piT = $pi / srate;
+
+	pwf == 0 ?
+	(
+		k = fs * piT;
+	):(
+		k = tan(fs * piT) 
+	);	
+	k =  sqrt(kgain) * k; 	
+	
+	this.k.smooth_set(k, sm);		
+	this.kdiv.smooth_set( 1 / ( 1 + k) , sm);
+	this.b0.smooth_set(kgain, sm);
+	this.b1.smooth_set(1, sm);	
+);
+
+function flt_sv1_process(x)
+instance(s1)
+local (hp, lp, aux)
+(
+	this.k.smooth_process();	
+	this.kdiv.smooth_process();
+	this.b0.smooth_process();
+	this.b1.smooth_process();	
+	
+	hp = x;
+	hp -= s1;	
+	hp *= this.kdiv.act;
+	aux = this.k.act * hp;
+	lp = aux + s1;
+	s1 = aux + lp;
+	x = this.b0.act * hp; 
+	x += this.b1.act * lp;	
+);
+
+// second order
+
+function flt_sv2_init()
+instance(s1, s2)                 // state variables
+(   
+    s1 = 0;
+    s2 = 0;  
+	this.k.smooth_init();	
+	this.kf.smooth_init();
+	this.kdiv.smooth_init();
+	this.b0.smooth_init();
+	this.kb1.smooth_init();
+	this.b2.smooth_init();
+	
+);
+
+function flt_sv2_set_tst(b, m, t, f, Q, pwf, pwQ, sm)
+// Set filter as an tonestack
+// b: linear gain of bass
+// m: linear gain of mid
+// t: linear gain of treble
+// f: pole frequncy 
+// Q: pole quality factor
+// pwf: prewarping of f: 0: off, 1 : on
+// pwQ: prewarping of f: 0: off, 1 : on// fs: sample rate 
+// sm: smooth filter coefficients: 0: off, 1: on
+local(k, kq, piT, aux1, aux2)
+
+(
+	piT = $pi / srate;
+	k = f * piT;
+	
+	pwQ == 0 ?
+	(
+		kq = 1 / Q
+	):(
+		aux1 = sqrt(1+4*Q*Q);
+		aux2 = k /sin(2*k) * log((aux1 + 1) / (aux1 - 1));
+		kq = exp(aux2)-exp(-aux2);  
+	);
+	
+	pwf == 1 ?
+	(		
+		k = tan(f* piT);
+	);
+	
+	this.k.smooth_set(k, sm);	
+	this.kf.smooth_set(kq + k, sm);
+	this.kdiv.smooth_set( 1 / ( 1 + k * ( k + kq)) , sm);
+	this.b0.smooth_set(t, sm);
+	this.kb1.smooth_set(kq * m, sm);
+	this.b2.smooth_set(b, sm);    
+);
+
+function flt_sv2_set_peq(kgain, f, Qc, pwf, pwQ, sm)
+// Set filter as an peak equalizer
+// m: linear gain at f
+// f: pole frequncy 
+// Q: pole quality factor
+// pwf: prewarping of f: 0: off, 1 : on
+// pwQ: prewarping of f: 0: off, 1 : on// fs: sample rate 
+// sm: smooth filter coefficients: 0: off, 1: on
+local(k, kq, piT, aux1, aux2)
+(
+	piT = $pi / srate;
+	k = f * piT;
+	
+	pwQ == 0 ?
+	(
+		kq = 1 /  (sqrt(kgain) * Qc)
+	):(
+		aux1 = sqrt(1+4*kgain*Qc*Qc);
+		aux2 = k /sin(2*k) * log((aux1 + 1) / (aux1 - 1));
+		kq = exp(aux2)-exp(-aux2);  
+	);
+	
+	pwf == 1 ?
+	(	
+		k = tan(f * piT);
+	);
+	
+	this.k.smooth_set(k, sm);	
+	this.kf.smooth_set(kq + k, sm);
+	this.kdiv.smooth_set( 1 / ( 1 + k * ( k + kq)) , sm);
+	this.b0.smooth_set(1, sm);
+	this.kb1.smooth_set(kq * kgain, sm);  
+	this.b2.smooth_set(1, sm);    
+);
+
+function flt_sv2_process(x)
+instance(s1, s2)
+local (hp, bp, lp, aux)
+(
+	this.k.smooth_process();
+	this.kf.smooth_process();
+	this.kdiv.smooth_process();
+	this.b0.smooth_process();
+	this.kb1.smooth_process();
+	this.b2.smooth_process();
+	
+	hp = x;
+	hp -= this.kf.act * s1;
+    hp -= s2;
+	hp *= this.kdiv.act;
+	aux = this.k.act * hp;
+	bp = aux + s1;
+	s1 = aux + bp;  
+	aux = this.k.act * bp;
+	lp = aux + s2;
+	s2 = aux + lp;  
+	x = this.b0.act * hp;
+	x += this.kb1.act * bp ;
+	x += this.b2.act * lp;
+);

@@ -1,0 +1,166 @@
+// Blender
+// by Helmut Keller
+
+import HK_LIB_TOOLS.jsfx-inc
+import HK_LIB_GUI.jsfx-inc
+import HK_LIB_SMOOTH.jsfx-inc
+import HK_LIB_GAIN.jsfx-inc
+
+
+desc: HK Blender
+
+in_pin:A left input
+in_pin:A right input
+in_pin:B left input
+in_pin:B right input
+
+out_pin:left output
+out_pin:right output
+
+options:no_meter
+
+slider1:p.blend= 		50   	< 0, 100 , 2.5 >-		B Mix [%]
+slider2:p.switch= 		0   	< 0, 1, 1 {A, B}>-		A / B
+
+
+
+@init
+
+str1 = string_array_start();
+string_array_add("A");
+string_array_add("B");
+
+
+p.blend.gui_dial_set(50, 0, 100,2.5,"B Mix", "%.1f ", "%", 0);
+p.switch.gui_switch_toggle_set(str1, "A / B");
+
+
+
+p.blend.changed_init();	
+p.switch.changed_init();
+
+A_left.gain_init();
+A_right.gain_init();
+B_left.gain_init();
+B_right.gain_init();
+
+
+
+title = "Blender";
+version ="Version 1.0.4";
+author = "by Helmut Keller";
+
+
+
+function parameter_update()
+local (kA, kB)
+(
+
+	p.blend.changed();	
+	p.switch.changed();
+	
+	p.blend.hc ?
+	( 	
+		kA = 1 -  p.blend / 100;
+		kB =  p.blend / 100;
+		
+		A_left.gain_set(kA,1);
+		A_right.gain_set(kA, 1);
+		B_left.gain_set(kB,1);
+		B_right.gain_set(kB, 1);
+	):(	
+		p.switch.hc  ? 
+		(	
+			p.switch == 0 ?
+			(
+				p.blend = 0;
+			):(
+				p.blend = 100;
+			);
+		
+			kA = 1 -  p.blend / 100;
+			kB =  p.blend / 100;
+		
+		
+			A_left.gain_set(kA,1);
+			A_right.gain_set(kA, 1);
+			B_left.gain_set(kB,1);
+			B_right.gain_set(kB, 1);		
+		);			
+	);	
+	
+);	
+
+
+@slider
+
+parameter_update();
+
+
+
+
+
+@sample
+
+
+	spl0 = A_left.gain_process(spl0) +  B_left.gain_process(spl2);
+	spl1 = A_right.gain_process(spl1) +  B_right.gain_process(spl3);
+
+	
+	spl2 = spl0;
+	spl3 = spl1;
+
+
+
+@gfx 184 193
+
+control_start("main","tron");
+
+gui_scroll_scale_set(48);
+
+ui_color(0,0,0);
+ui_fill();
+
+ui_set_rect(0,0,184, 193);
+ui_color(34,48,64);
+ui_fill();
+
+ui_screen() == "main" ? 
+(
+	control_navbar(title,"About","about");
+	ui_pad(5,5);
+	ui_split_top(147);
+		ui_split_left(174);
+			control_group("A / B Mixer");  
+			ui_split_left(72);	
+				p.blend.gui_dial(p.blend, p.blend);
+			ui_split_next();				
+				p.switch.gui_switch_toggle(p.switch);
+			ui_pop();	
+		ui_pop();	
+	ui_pop();
+):(
+ui_screen() == "about" ? 
+(	
+	control_navbar("About",-1, -1);
+	ui_pad(5,5);
+	ui_push_height(140);
+    ui_color(255,196,0);
+    ui_split_topratio(1/5);
+	ui_split_next();	
+		ui_fontsize(18);	
+		ui_fontbold(1);
+        ui_text(title);
+    ui_split_next();
+		ui_text(version);
+    ui_split_next();
+			ui_text(author);
+    ui_pop();
+):(
+	ui_system();
+););
+
+ui_interacted() == 1 ?
+(
+	parameter_update();
+);

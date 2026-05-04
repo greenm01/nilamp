@@ -1,0 +1,257 @@
+@init
+
+
+//ADNL: Class for nonlinearities with antiderivative antialiasing
+
+
+function adnl_init(new_xmax, new_dx)
+// Initailizes an ADNL object
+
+instance(table)       // pointer to the table of coeeficients         
+instance(dx)          // resolution of the table
+instance(xmax)        // range of table is - xmax to xmax - dx
+instance(x0, y0, z0)  // previos input, direct and antiderivative value
+
+local(size)           // size of the table
+
+(
+    size = floor(18 * new_xmax / new_dx + 0.5); // 9 coefficients per table entry
+    xmax = new_xmax; 
+    dx = new_dx;
+    table = array_add(size);     
+    x0 = 0;
+    y0 = 0;
+    z0 = 0; 
+);
+
+function adnl_set_glf(k0, b, type, kloop)
+// Sets the lookup table of the ADNL object for a GLF
+// k0:    position of bias;
+// b:     curve parameter 
+// type:  type of the GLF(0 = A, 1 = B)
+// kloop: open loop gain
+
+instance(table, xmax, dx, x0, y0 z0)       // As definded by the function adnl_init
+instance(ymin, ymax)            // minimal and maximal  value of y
+local(kaa,kab va,vb)            // derived parameters of the GLF
+local(xth)                      // x-value of actual table row
+local(dx1)                      // one third of dx
+local(f0, f1, f2, f3)           // GLF values at xth  + 0, dx1, dx2 and dx
+local(a0 a1, a2, a3)            // actual taylor coefficients of the function
+local(b0, b1, b2, b3, b4)       // actual taylor coefficients of the antiderivative 
+local(b00, b10, b20, b30, b40)  // previous taylor coefficients of the antiderivative 
+local(aux)                      // temporary array for GLF values [0], warped input [1] and GLF values [2} in closed loop
+local(ab)                       // pointer to table or aux
+local(ak)                       // pointer to aux 
+local(xxmin, xxmax, dy)         // variables for  closed loop interpolation
+
+( 
+    aux = array_next;  
+    
+    ymin = - k0;
+    ymax = 1 - k0;    
+    
+    va = log(k0) / log(1 + exp(b));
+    kaa = -1 /va *  (1 + exp(b))^(1 - va) / exp(b);
+    
+    vb = log(1-k0) / log(1 + exp(-b));
+    kab = -1 / vb * (1 + exp(-b))^(1 - vb) / exp(-b);
+    
+    dx1 = dx / 3;
+ 
+    ak = aux;
+    xth = - xmax;  
+    
+    while(xth < xmax + 0.5 * dx1)    
+    (     
+        ak[0] = (1 - type) * (    (1 + exp(b - kaa * xth))^va - k0);
+        ak[0] += type 		* (1 - (1 + exp(-b + kab * xth))^vb - k0);        
+       
+        kloop > 0 ?
+        (
+            ak[1] = (xth  + kloop * ak[0]) / (kloop  + 1);           
+        );
+            
+        ak += 3;     
+        xth += dx1; 
+    ); 
+   
+    kloop > 0 ?
+    ( 
+        xth = -xmax; 
+        ak = aux;      
+        xxmin = ak[1];
+        ak = aux + floor(18 * xmax / dx +0.5);
+        xxmax = ak[1];
+        ak = aux;     
+        ab = aux;
+        
+        while(xth < xmax + 0.5 * dx1)    
+        (    
+            xxmin > xth ?
+            (
+                ab[2] = - k0
+            ):
+            (
+                xxmax < xth ?
+                (
+                    ab[2] = 1 - k0;
+                ):
+                (   
+                    while (ak[1] <= xth )
+                    (
+                       ak += 3; 
+                    );
+                                        
+                    ak -= 3;
+                    dy = ak[3] - ak[0];
+                    dy = dy * (xth - ak[1]);
+                    dy = dy / (ak[4] - ak[1]);
+                    ab[2] = ak[0] + dy;
+                );
+             );  
+             
+            ab  += 3;      
+            xth += dx1;  
+        );
+    );
+    
+    xth = -xmax;
+    b00 = 0;
+    b10 = 0;
+    b20 = 0;
+    b30 = 0;
+    b40 = 0;
+    f0 = - k0;    
+    ab = table;
+    ak = aux;
+    
+    while(xth < xmax - 0.5 * dx)
+    (
+        kloop == 0 ?
+        (
+            f1 = ak[3];
+            f2 = ak[6];
+            f3 = ak[9];
+        ):
+        (
+      
+            f1 = ak[5];
+            f2 = ak[8];
+            f3 = ak[11];
+        );
+        
+        a0 = f0; 
+        f0 = f3;
+        
+        f1 -= a0;
+        f2 -= a0;
+        f3 -= a0;
+        
+        a1 = (f3 -4.5*f2 +9*f1) / dx;
+        a2 = (-4.5*f3 + 18*f2 - 22.5*f1) /dx^2;
+        a3 = (4.5*f3 - 13.5*f2 +13.5*f1) / dx^3;
+        
+        b0 = b00 + dx * (b10 + dx  *(b20 + dx * (b30 + dx * b40)));    
+        b1 = a0; 
+        b2 = a1 / 2;    
+        b3 = a2 / 3;
+        b4 = a3 / 4;   
+        
+        ab[0] = a3;
+        ab[1] = a2;
+        ab[2] = a1;
+        ab[3] = a0;
+        ab[4] = b4;
+        ab[5] = b3;
+        ab[6] = b2;
+        ab[7] = b1;
+        ab[8] = b0;
+        
+        ab += 9;
+        ak += 9; 
+        xth += dx;            
+        
+        b00 = b0;
+        b10 = b1;
+        b20 = b2;
+        b30 = b3;
+        b40 = b4;      
+    ); 
+	x0 = 0;
+	ab = table + xmax /dx * 9; 
+	y0 = ab[3];
+	z0 = ab[8];	
+);
+
+function adnl_process(x)
+// Process an ADNL object
+
+instance(table, xmax, dx) // as definded by the function adnl_add_table
+instance(ymin, ymax)      // minimal and maximal  value of y
+instance (x0, y0, z0)     // previous input, direct value and antideriviative value
+
+local(y1, z1)             // actual direct value and antidreivariva value
+local(index, ab)          // index of and pointer to the actual table row
+local(w)                  // distance to the table rows x value
+local(dx0, reldx0)        // absolute and relative input difference  
+
+(   
+    x <= -xmax ? 
+    (
+        y1 = ymin;
+        w = x + xmax ;        
+        z1 = ymin * w;
+    
+    ):
+    (   x >= xmax ?
+        ( 
+            index = floor(2 * xmax / dx + 0.5 * dx) -1;
+            ab = table + index * 9;
+            w = x - xmax;
+            
+            y1 = ymax;
+            
+            z1 = ab[4];
+            z1 = z1 * dx + ab[5];
+            z1 = z1 * dx + ab[6];
+            z1 = z1 * dx + ab[7];
+            z1 = z1 * dx + ab[8];            
+            z1 = z1 + ymax * w;
+        ):
+        (
+            index = floor((x + xmax) / dx);
+            w = x + xmax - index * dx;
+            ab = table + index * 9;
+            
+            y1 =          ab[0];
+            y1 = y1 * w + ab[1];
+            y1 = y1 * w + ab[2];
+            y1 = y1 * w + ab[3];
+            
+            z1 =          ab[4];
+            z1 = z1 * w + ab[5];
+            z1 = z1 * w + ab[6];
+            z1 = z1 * w + ab[7];
+            z1 = z1 * w + ab[8];           
+        );
+    );  
+   
+    dx0 = x - x0;
+    reldx0 = abs(dx0) / (abs(x+x0) + 0.0000001);   
+    
+    x0 = x;
+    
+    reldx0 < 0.0001 ?
+    (
+        x = 0.5 * (y1 + y0);
+    ):
+    (
+        x = (z1 - z0) / dx0;
+    );  
+    
+    y0 = y1;
+    z0 = z1;
+   
+    x;
+); 

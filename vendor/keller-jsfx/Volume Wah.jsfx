@@ -1,0 +1,364 @@
+// Volume and Wah-Wah Effect
+// by Helmut Keller
+
+import HK_LIB_TOOLS.jsfx-inc
+import HK_LIB_GUI.jsfx-inc
+import HK_LIB_SMOOTH.jsfx-inc
+import HK_LIB_GAIN.jsfx-inc
+import HK_LIB_FLT_SV.jsfx-inc
+
+desc: HK Volume Wah
+
+in_pin:mono input
+//in_pin:ight input
+out_pin:mono output
+//out_pin:right output
+
+
+
+options:no_meter
+
+slider1:p.position=   0.5   	<0, 1, 0.001>-          	Position 
+slider2:p.mode=       0     	<0, 1, 1 {Volume, Wah-Wah}>-  	Mode
+
+slider3:p.Q=        	12     	<-12, 36, 1>-          	Q (dB)
+slider4:p.LB=         0     	<-24, 24, 1>-            	Bass (dB)
+slider5:p.LM=         20     	<-24, 24, 1>-           	Mid (dB)
+slider6:p.LT=         0     	<-24, 24, 1>-             	Treble (dB)
+
+slider7:p.SB=      	0     	<0, 	1, 	1 {Off, On}>- 	LP
+slider8:p.SM=      	1     	<0, 	1, 	1 {Off, On}>-	BP
+slider9:p.ST=      	0     	<0, 	1, 	1 {Off, On}>- 	HP
+
+slider10:p.eV=       	2.5   	<0.5, 	4.5, 0.1>-         	Volume Exponent
+slider11:p.kV=         0.2    	<0, 	1, 0.025>-     		Volume Linear
+
+slider12:p.eF=       	1.25   	<0.5, 	2.0, 0.05>-       	Frequency Exponent
+slider13:p.fmin=    	52     	<40, 	64, 0.5>-          	Fmin (dBHz)
+slider14:p.fmax=    	66     	<54, 	78, 0.5>-      		Fmax  (dBHz)
+
+slider15:p.eQ=       	-1.1   	<-2, 	2, 	0.1>-          	Q Exponent
+slider16:p.eB=       	0     	<-2, 	2, 0.1>-           	Bass Exponent
+slider17:p.eM=         -0.1   <-2, 	2, 0.1>-           Mid Exponent
+slider18:p.eT=         0     	<-2, 	2, 0.1>-           	Treble Exponent
+
+
+
+
+@init
+
+str1 = string_array_start();
+string_array_add("Volume");
+string_array_add("Wah-Wah");
+
+str2 =  string_array_start();
+string_array_add("Off");
+string_array_add("On");
+
+p.position.gui_dial_set(0.5, 0, 1, 0.001,"Position", "%.2f ", "", 0);
+p.mode.gui_switch_toggle_set(str1, "Mode");
+
+p.Q.gui_dial_set(12, -12, 36, 1,"Q", "%.3g", "", 0);
+p.LB.gui_dial_set(0, -24, 24, 1,"Bass", "%.0f ", "dB", 0);
+p.LM.gui_dial_set(20, -24, 24, 1,"Mid", "%.0f ", "dB", 0);
+p.LT.gui_dial_set(0, -24, 24, 1,"Treble", "%.0f ", "dB", 0);
+
+p.SB.gui_switch_toggle_set(str2, "LP ");
+p.SM.gui_switch_toggle_set(str2, "BP");
+p.ST.gui_switch_toggle_set(str2, "HP");
+
+p.eV.gui_dial_set(2.5, 0.5, 4.5, 0.1,"Vol. Exp.", "%.1f", "", 0);
+p.eF.gui_dial_set(1.25, 0.5, 2.0, 0.05,"Freq. Exp.", "%.2f", "", 0);
+
+p.fmin.gui_dial_set(52, 40, 64, 0.5,"Fmin", "%.3g ", "Hz", 1);
+p.fmax.gui_dial_set(66, 54, 78, 0.5,"Fmax", "%.3g ", "Hz", 1);
+
+p.eQ.gui_dial_set(-1.1, -2, 2, 0.1,"Q Exp.", "%.1f", "", 0);
+p.eB.gui_dial_set(0, -2, 2, 0.1,"B Exp.", "%.1f", "", 0);
+p.eM.gui_dial_set(-0.1, -2, 2, 0.1,"M Exp.", "%.1f", "", 0);
+p.eT.gui_dial_set(0, -2, 2, 0.1,"T Exp.", "%.1f", "", 0);
+
+p.kV.gui_dial_set(0.2, 0, 1, 0.025,"Linear", "%.3f ", "", 0);
+
+p.position.changed_init();
+p.mode.changed_init();
+
+p.Q.changed_init();
+p.LB.changed_init();;
+p.LM.changed_init();
+p.LT.changed_init();
+
+p.SB.changed_init();
+p.SM.changed_init();
+p.ST.changed_init();
+
+p.eV.changed_init();
+p.eF.changed_init();
+
+p.fmin.changed_init();
+p.fmax.changed_init();
+
+p.eQ.changed_init();
+p.eB.changed_init();
+p.eM.changed_init();
+p.eT.changed_init();
+
+p.kV.changed_init();
+
+
+
+volume_1.gain_init();
+num_ch > 1 ? volume_2.gain_init();
+wah_1.flt_sv2_init();
+num_ch > 1 ? wah_2.flt_sv2_init();
+
+title = "Volume Wah";
+version ="Version 1.0.4";
+author = "by Helmut Keller";
+
+fmin = 0;    // min. pole frequency
+fmax = 0;    // max. pole frequency: 
+f = 0;      // pole frequency in Hz
+f_kHz =0;    // pole frequncy in kHz
+Q_1k = 0;    // pole Q @ f = 1 kHz
+Q = 0;      // pole Q
+t = 0;      // treble gain
+m = 0;      // mid gain
+b = 0;      // bass gain
+
+function parameter_update()
+local (p_changed, v_changed, f_changed, Q_changed, t_changed, m_changed, b_changed)
+local (gain)
+(
+	p.position.changed();
+	p.mode.changed();
+
+	p.Q.changed();
+	p.LB.changed();;
+	p.LM.changed();
+	p.LT.changed();
+
+	p.SB.changed();
+	p.SM.changed();
+	p.ST.changed();
+
+	p.eV.changed();
+	p.eF.changed();
+
+	p.fmin.changed();
+	p.fmax.changed();
+
+	p.eQ.changed();
+	p.eB.changed();
+	p.eM.changed();
+	p.eT.changed();
+
+	p.kV.changed();  
+  
+  v_changed = p.position.hc || p.eV.hc || p.kV.hc;
+  f_changed = p.position.hc || p.fmin.hc || p.fmax.hc || p.eF.hc;  
+  
+  p.mode.hc ?
+  (
+    p.mode == 0 ?
+    (
+      v_changed = 1;
+    ):(
+      f_changed = 1;
+    );    
+  );
+  
+  v_changed ?
+  (    
+    p.mode == 0 ?
+    (  
+      gain = p.kV * p.position + (1-p.kV)* p.position^p.eV;
+      volume_1.gain_set(gain, 1);
+      num_ch > 1 ? volume_2.gain_set(gain, 1);
+    );    
+  );
+  
+  f_changed ?
+  (
+    fmin = iso266(p.fmin);
+    fmax = iso266(p.fmax);  
+    p.mode == 1 ?
+    (
+      f = fmin * exp(p.position^p.eF * log(fmax / fmin));
+      f_kHz = f / 1000;  
+    );    
+  );  
+
+  Q_changed = p.Q.hc || p.eQ.hc || f_changed;  
+  t_changed = p.ST.hc || p.LT.hc || p.eT.hc || f_changed;
+  m_changed = p.SM.hc || p.LM.hc || p.eM.hc || f_changed;
+  b_changed = p.SB.hc || p.LB.hc || p.eB.hc || f_changed;
+    
+  Q_changed ?
+  (
+    Q_1k = iso266(p.Q);
+    p.mode == 1 ? Q = Q_1k * f_khz ^p.eQ;  
+  );
+  
+  p.mode == 1 ?
+  (
+    t_changed ?
+    (
+      p.ST == 0 ? t = 0 : t = 10^(p.LT*0.05);
+      t = t * f_kHz ^ p.eT;
+    );  
+  
+    m_changed ?
+    (
+      p.SM == 0 ? m = 0 : m = 10^(p.LM*0.05);
+      m = m * f_kHz ^ p.eM;
+    );  
+  
+    b_changed ?
+    (
+      p.SB == 0 ? b = 0 : b = 10^(p.LB*0.05);
+      b = b * f_kHz ^ p.eB;    
+    );  
+  
+    (f_changed || Q_changed || t_changed || m_changed || b_changed) ?
+    (
+      wah_1.flt_sv2_set_tst(b, m, t, f, Q, 1, 1, 1);
+      num_ch > 1 ? wah_2.flt_sv2_set_tst(b, m, t, f, Q, 1, 1, 1); 
+    );
+  );
+);
+
+
+@slider
+
+parameter_update();
+
+
+@sample
+
+p.mode == 0 ? 
+(
+  spl0 = volume_1.gain_process(spl0);
+  //num_ch > 1 ? spl1 = volume_2.gain_process(spl1);
+):(
+  spl0 = wah_1.flt_sv2_process(spl0);
+  //num_ch > 1 ? spl1 = wah_2.flt_sv2_process(spl1);
+);
+
+@gfx 450 290
+
+control_start("main","tron");
+
+gui_scroll_scale_set(48);
+
+ui_color(0,0,0);
+ui_fill();
+ui_set_rect(0,0,442, 290);
+
+ui_color(34,48,64);
+ui_fill();
+
+ui_screen() == "main" ? 
+(
+  control_navbar(title,"Options","options");
+  ui_pad(5,5);
+  ui_split_top(245);
+    ui_split_left(102);
+    control_group("Main");        
+    ui_split_top(96);
+        p.position.gui_dial(p.position, p.position);
+    ui_pop();
+    ui_split_bottom(72);
+        p.mode.gui_switch_toggle(p.mode);
+    ui_pop();  
+  ui_pop();  
+  ui_split_left(328);
+      control_group("Wah-Wah");  
+      ui_split_top(96);  
+        ui_split_left(72);
+          p.Q.gui_dial(p.Q, Q_1k);        
+        ui_split_next(72);
+          p.LB.gui_dial(p.LB, p.LB);
+        ui_split_next(72);
+          p.LM.gui_dial(p.LM, p.LM);
+        ui_split_next(72);
+          p.LT.gui_dial(p.LT, p.LT);
+        ui_pop();        
+      ui_pop();
+      ui_split_bottom(72);
+        ui_split_left(72);                
+        ui_split_next(72);
+          p.SB.gui_switch_toggle(p.SB);
+        ui_split_next(72);
+          p.SM.gui_switch_toggle(p.SM);
+        ui_split_next(72);
+          p.ST.gui_switch_toggle(p.ST);
+        ui_pop();  
+      ui_pop();      
+  ui_pop();
+  ui_pop();
+):(
+ui_screen() == "options" ? 
+(  
+  control_navbar("Options","About", "about");
+  ui_pad(5,5);
+  ui_split_top(245);  
+    ui_split_left(102);
+      control_group("Volume");        
+      ui_split_top(96);
+        p.eV.gui_dial(p.eV, p.eV);
+      ui_pop();
+      ui_split_bottom(96);
+	    p.kV.gui_dial(p.kV, p.kV);
+      ui_pop();  
+    ui_pop();    
+    ui_split_left(328);
+      control_group("Wah-Wah");  
+      ui_split_top(96);  
+        ui_split_left(72);
+          p.eF.gui_dial(p.eF, p.eF);    
+        ui_split_next(72);
+        ui_split_next(72);
+          p.fmin.gui_dial(p.fmin, fmin);
+        ui_split_next(72);
+          p.fmax.gui_dial(p.fmax, fmax);
+        ui_pop();        
+      ui_pop();
+      ui_split_bottom(96);
+        ui_split_left(72);
+          p.eQ.gui_dial(p.eQ, p.eQ);
+        ui_split_next(72);  
+          p.eB.gui_dial(p.eB, p.eB);
+        ui_split_next(72);
+          p.eM.gui_dial(p.eM, p.eM);  
+        ui_split_next(72);
+          p.eT.gui_dial(p.eT, p.eT);  
+        ui_pop();      
+      ui_pop();      
+    ui_pop();
+  ui_pop()
+):(
+ui_screen() == "about" ? 
+(  
+  control_navbar("About",-1, -1);
+  ui_pad(4,4);
+  ui_push_height(140);
+    ui_color(255,196,0);
+    ui_split_topratio(1/5);
+  ui_split_next();  
+    ui_fontsize(18);  
+    ui_fontbold(1);
+        ui_text(title);
+    ui_split_next();
+    ui_text(version);
+    ui_split_next();
+      ui_text(author);
+    ui_pop();
+):(
+  ui_system();
+);););
+
+ui_interacted() == 1 ?
+(
+  parameter_update();
+);

@@ -1,0 +1,31 @@
+// GAIN: Class of a gain stage with coefficient smoothing
+// by Helmut Keller 
+
+@init
+
+function gain_init()
+(
+	this.gain.smooth_init();
+);
+
+function gain_set(gain, smoothing)
+// gain: 	linear gain factor
+// smoothing: 0: off 1: on
+(	
+	this.gain.smooth_set(gain, smoothing);	
+);
+
+function gain_set_dB(gain_dB, smoothing)
+// gain_dB: gain in dB
+// smoothing: 0: off 1: on
+
+(
+	gain = 10^(0.05 * gain_dB);
+	this.gain.smooth_set(gain, smoothing);	
+);
+
+function gain_process(x)
+(
+	this.gain.smooth_process(this.gain.act);
+	x *= this.gain.act
+);

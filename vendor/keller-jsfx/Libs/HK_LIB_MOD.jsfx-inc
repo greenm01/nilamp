@@ -1,0 +1,131 @@
+// MOD: clases for modulation effects
+// by Helmut Keller
+
+@init
+
+// MOD_DCO
+// Digital contolled oszilator
+
+function mod_dco_init()
+instance(phase, beat_position_old)
+(
+	phase = 0;							// phase in radians
+	beat_position_old = -1000000;		// old palybackposition in quarter beats
+	this.dphase.smooth_init();		// smoothed phase incremnet per sample in unsnyced mode
+	this.dphase_bpm.smooth_init();	// smoothed phase incremnet per sample in synced mode / tempo in bpm
+);
+
+function mod_dco_set(rate, beat_rate, dir, sync, phase_offset)
+// rate: modulation rate in Hz
+// beat_rate: modulation rate in quarter beats
+// dir:	 direction of phase increment: 0: negative, 1 : positive
+// sync: symc mode: 0: unsyced with rate in Hz, 1: synced with beat_rate in quarter beats
+instance(sync, dir, beat_rate, phase_offset)
+local(aux)
+(
+		this.sync = sync;
+		this.dir = dir;
+		this.beat_rate = beat_rate;
+		aux = 2 * $pi * rate / srate;
+		dir == 0 ? aux = - aux;
+		this.dphase.smooth_set(aux, 1);		
+		aux = $pi / 30 * beat_rate / srate;
+		dir == 0 ? aux = - aux;
+		this.dphase_bpm.smooth_set(aux, 1);	
+		dir == 0 ? phase_offset = - phase_offset;
+		this.phase_offset = phase_offset;
+); 
+
+function mod_dco_sync()
+// syncronize DCO with beatposition in @block
+instance(phase, sync, dir, beat_rate, beat_position_old, phase_offset)
+local(aux)
+(
+	sync == 1 ?
+	(	
+		beat_position > beat_position_old ?
+		(
+			aux = beat_position * beat_rate;
+			aux = aux - floor(aux);
+			dir == 0 ? aux = 1 - aux;		
+			aux = aux * 2 * $pi;	
+			phase = phase_offset + aux;		
+			phase >= $pi ? phase -= 2 * $pi;
+			phase < - $pi  ? phase += 2 * $pi;
+		);		
+	);
+	beat_position_old = beat_position;
+);
+
+function mod_dco_process()
+instance(phase, dphase, sync)
+(
+	this.dphase.smooth_process();
+	this.dphase_bpm.smooth_process();	
+	sync == 1 ?
+	(
+		dphase = this.dphase_bpm.act * tempo;
+	):(
+		dphase = this.dphase.act;
+	);
+
+	phase += dphase;
+	phase >= $pi ? phase -= 2 * $pi;
+	phase < - $pi  ? phase += 2 * $pi;
+);
+
+// MOD_PANNER
+// 360 degree panner with modulation input
+
+function mod_panner_init()
+(
+	this.c.smooth_init();				// smmothed cosine of static pan angle in radians
+	this.s.smooth_init();				// smmothed sine of static pan angle in radians
+	this.depth_dry.smooth_init();		// smoothed magnitude of static pan vector
+	this.depth_wet.smooth_init();		// smoothed magnitude of modulation pan vector
+);
+
+function mod_panner_set_angle(angle)
+//angle: staic pan angle in degerees
+local (aux)
+(
+	aux = $pi/180 * angle;
+	this.c.smooth_set(cos(aux), 1);
+	this.s.smooth_set(sin(aux), 1);
+);
+
+function mod_panner_set_depth(depth)
+//depth: modulation depth in %
+local (aux)
+(
+	aux = $pi / 200 * depth;
+	this.depth_dry.smooth_set(cos(aux),1); 
+	this.depth_wet.smooth_set(sin(aux),1);	
+);
+
+function mod_panner_process(left_in, right_in, phase)
+// left_in: left input
+// right_in: right input 
+// phase: phase of modulating DCO in radians
+instance (left, right) // outputs
+local (c, s)
+(
+	this.c.smooth_process();
+	this.s.smooth_process();
+	this.depth_dry.smooth_process();
+	this.depth_wet.smooth_process();
+	
+	this.depth_wet.act == 0 ?
+	(
+		left =   this.c.act * left_in - this.s.act * right_in;
+		right =  this.s.act * left_in + this.c.act * right_in;
+	):(
+		c = cos(phase);
+		s = sin(phase);
+		
+		left = 		(this.c.act * this.depth_dry.act + c * this.depth_wet.act) * left_in; 
+		left -=		(this.s.act * this.depth_dry.act + s * this.depth_wet.act) * right_in; 
+		right = 	(this.s.act * this.depth_dry.act + s * this.depth_wet.act) * left_in; 
+		right +=	(this.c.act * this.depth_dry.act + c * this.depth_wet.act) * right_in; 
+	);
+);

@@ -1,0 +1,574 @@
+// Fender Tweed Deluxe 5e3 + Variants
+// by Helmut Keller
+
+import HK_LIB_TOOLS.jsfx-inc
+import HK_LIB_GUI.jsfx-inc
+import HK_LIB_ADNL.jsfx-inc
+import HK_LIB_SMOOTH.jsfx-inc
+import HK_LIB_GAIN.jsfx-inc
+import HK_LIB_FLT_II.jsfx-inc
+import HK_LIB_FLT_DF.jsfx-inc
+import HK_LIB_FLT_SV.jsfx-inc
+import HK_LIB_FLT_II.jsfx-inc
+import HK_LIB_PKD.jsfx-inc
+import HK_LIB_TUBE.jsfx-inc
+
+desc: HK TWD DLX
+
+in_pin:left input
+in_pin:right input
+out_pin:left output
+out_pin:right output
+
+options:no_meter
+
+slider1:p.gin=			0		<-12, 12, 0.5>-			Input Gain (dB)
+
+slider2:p.tube1=		0		<0,	1,  1{12AY7, 12AX7}>-   Tube 1
+slider3:p.vol=			50		<0, 100, 2.5>-				Volume (%)
+slider4:p.bass=		50		<0, 100, 2.5>-				Bass (%)
+slider5:p.mid=			50		<0, 100, 2.5>-				Mid (%)
+slider6:p.treble=		50		<0, 100, 2.5>-				Treble (%)
+slider7:p.fm=			56		<44, 68, 0.5>-				Fmid (dBHz)
+slider8:p.qm=			-9		<-21 , 3, 0.5>-			Qmid (dB)
+
+slider9:p.mode=		0		<0, 	4,  1{CD 5E3, CD BAL, LTP 1, LTP 2, LTP 3}>-   Phase Splitter
+
+slider10:p.gp_pre=  	3		<0, 24, 0.5>-				Pre Res. Gain (dB)
+slider11:p.gp_post=  	1		<0, 24, 0.5>-				Post Res. Gain (dB)
+slider12:p.fp=			38		<26, 50, 0.5>-				Fres (dBHz)
+slider13:p.qp=			6		<-6, 18, 0.5>-				Qts (dBHz)	
+
+slider14:p.gs_pre=  	20		<0, 24, 0.5>-				Pre inductor Gain (dB)
+slider15:p.gs_post=  	3		<0, 24, 0.5>-				Post inductor Gain (dB)
+slider16:p.fs=			62		<50, 74, 0.5>-				Finductor (dBHz)
+
+slider17:p.gout=		0		<-12, 12, 0.5>-			Output Gain (dB)
+
+
+slider18:p.gcomp=		1		<0, 	1,  1{Off, On}>-   Gain Compensation
+
+
+
+@init
+
+
+str1 = string_array_start();
+string_array_add("12AY7");
+string_array_add("12AX7");
+
+str2 = string_array_start();
+string_array_add("CD 5E3");
+string_array_add("CD BAL");
+string_array_add("LTP 1");
+string_array_add("LTP 2");
+string_array_add("LTP 3");
+count2 = string_array_count();
+
+str3 = string_array_start();
+string_array_add("Off");
+string_array_add("On");
+
+p.gin.gui_dial_set(0, -12, 12, 0.5,"Gain", "%.3g ", "dB", 0);
+
+p.tube1.gui_switch_toggle_set(str1, "Tube 1");
+p.vol.gui_dial_set(50, 0, 100, 2.5,"Volume", "%.3g ", "%", 0);
+p.bass.gui_dial_set(50, 0, 100, 2.5,"Bass", "%.3g ", "%", 0);
+p.mid.gui_dial_set(50, 0, 100, 2.5,"Mid", "%.3g ", "%", 0);
+p.treble.gui_dial_set(50, 0, 100, 2.5,"Treble", "%.3g ", "%", 0);
+p.fm.gui_dial_set(56, 44, 68, 0.5,"Fmid", "%.3g ", "Hz", 1);
+p.qm.gui_dial_set(-9, -21, 3, 0.5,"Qmid", "%.3g ", "", 0);
+
+p.mode.gui_switch_rotary_set(0, str2, count2, "Circuit");
+
+p.gp_pre.gui_dial_set(3, 0, 24, 0.5,"Gain 1", "%.3g ", "dB", 0);
+p.gp_post.gui_dial_set(1, 0, 24, 0.5,"Gain 2", "%.3g ", "dB", 0);
+p.fp.gui_dial_set(38, 26, 50, 0.5,"Fres", "%.3g ", "Hz", 1);
+p.qp.gui_dial_set(6, -6, 18, 0.5,"Qts", "%.3g ", "", 0);
+
+p.gs_pre.gui_dial_set(20, 0, 24, 0.5,"Gain 1", "%.3g ", "dB", 0);
+p.gs_post.gui_dial_set(3, 0, 24, 0.5,"Gain 2", "%.3g ", "dB", 0);
+p.fs.gui_dial_set(62, 50, 74, 0.5,"Find", "%.3g ", "Hz", 1);
+
+p.gout.gui_dial_set(0, -12, 12, 0.5,"Gain", "%.3g ", "dB", 0);
+
+p.gcomp.gui_switch_toggle_set(str3, "Compens.");
+
+
+p.gin.changed_init();	
+
+p.tube1.changed_init();
+p.vol.changed_init();	
+p.bass.changed_init();	
+p.mid.changed_init();	
+p.treble.changed_init();	
+p.fm.changed_init();	
+p.qm.changed_init();
+
+p.mode.changed_init();
+
+p.gp_pre.changed_init();
+p.gp_post.changed_init();
+p.fp.changed_init();
+p.qp.changed_init();
+
+p.gs_pre.changed_init();
+p.gs_post.changed_init();
+p.fs.changed_init();
+
+p.gout.changed_init();
+
+p.gcomp.changed_init();
+
+
+g1.gain_init();
+g2.gain_init();
+g3.gain_init();
+
+t1.tube_init(1, 0);
+t2.tube_init(1, 0);
+t3.tube_init(0, 0);
+t4.tube_init(1, 0);
+t5.tube_init(1, 0);
+t6.tube_init(0, 1);
+
+hp1.flt_ii1_init();
+hp2.flt_ii1_init();
+hp3.flt_ii1_init();
+hp4.flt_ii1_init();
+hp5.flt_ii1_init();
+
+lp1.flt_ii1_init();
+lp2.flt_df2_init();
+
+tst1.flt_sv2_init();
+peq1.flt_sv2_init();
+peq2.flt_sv2_init();
+peq3.flt_sv2_init();
+
+hs1.flt_sv1_init();
+hs2.flt_sv1_init();
+hs3.flt_sv1_init();
+
+p1.tube_pss_init();
+p2.tube_pss_init();
+p3.tube_pss_init();
+
+is_muted = 0;
+t_unmute = 0;
+
+ltp = 0;
+ax7 = 0;
+
+kmst = 0;
+
+kax7 = 0.572;
+kltp = 0.0345;
+k4 = kltp;
+
+kgrid = 0.10;
+
+neq = 2;
+srate >= 88200 ? neq = 1;
+srate >= 176400 ? neq = 0;
+
+t2.tube_ck_set(100,	62500,	0.00155, 	0.00076, 	0, 		0.5,	238, 100000,	1500,   0,  0.2,	0.255,		0.570,	0.01500,	0.0500, 	neq, 	0.0375);
+t3.tube_cd_set(100,	62500,	0.00160, 	0.00073, 	0, 		0.5,	238, 56000,	1500,	0,	 0.5, 	0.272, 		0.394,	0.00085,	0.3872,		neq);
+t6.tube_ltp_set(100,	62500,	0.00160, 	0.00074, 	0, 		0.5,	238,  82000,	820,	0, 0.2, 	0.269,		0.602,	0.01500,	0.0500, 	neq, 	100000, 68000);
+hp1.flt_ii1_set_frequency(10);
+hp5.flt_ii1_set_frequency(40);
+
+lp1.flt_ii1_set_frequency(8800);
+lp2.flt_df2_set_lp(10000, sqrt(0.5), 1, 0);
+
+p1.tube_pss_set(500, 		0.008);
+p2.tube_pss_set(5100, 	0.0816);
+p3.tube_pss_set(22000, 	0.352);
+
+title = "TWD DLX";
+version ="Version 1.0.4";
+author = "by Helmut Keller";
+company ="HK Audio";
+
+function parameter_update()
+local(gin, vol, bass, mid, treble, kp1, kp2, qp1, qp2, ks1, ks2, fs1, fs2, gout)
+(		
+			
+	p.gin.changed();
+	
+	p.tube1.changed();
+	p.vol.changed();
+	
+	p.bass.changed();
+	p.mid.changed();
+	p.treble.changed();
+	p.fm.changed();
+	p.qm.changed();
+	
+	p.mode.changed();
+	
+	p.gp_pre.changed();
+	p.gp_post.changed();
+	p.fp.changed();
+	p.qp.changed();
+
+	p.gs_pre.changed();
+	p.gs_post.changed();
+	p.fs.changed();
+ 
+	p.gout.changed();
+
+	p.gcomp.changed();
+	
+	p.gin.hc ?
+	(
+		gin = 10^(0.05 * (p.gin+12)) * sqrt(1.2);
+		g1.gain_set(gin, 1);
+	);	 
+	
+	
+	p.bass.hc || p.mid.hc || p.treble.hc || p.fm.hc || p.qm.hc ?	
+	(
+		bass = (p.bass / 100)^2;
+		mid = (p.mid / 100)^2;
+		treble = (p.treble/ 100)^2;
+		fm = iso266(p.fm);
+		qm = iso266(p.qm);		
+		tst1.flt_sv2_set_tst(bass, mid, treble, fm, qm, 1, 1, 1);	
+	);
+	
+	p.gp_pre.hc || p.gp_post.hc ||  p.fp.hc || p.qp.hc ?
+	( 
+		kp1 = 10^(0.05 * p.gp_pre);
+		kp2 = 10^(0.05 * p.gp_post);
+		fp = iso266(p.fp);
+		qp = iso266(p.qp);		
+		qp2 = qp * sqrt(kp2);
+		qp1 = qp2 * sqrt(kp2 * kp1);		
+		peq1.flt_sv2_set_peq(kp1, fp, qp1, 1, 1, 1); 
+		peq2.flt_sv2_set_peq(kp1, fp, qp1, 1, 1, 1); 
+		peq3.flt_sv2_set_peq(kp2, fp, qp2, 1, 1, 1); 
+	);
+	
+	p.gs_pre.hc || p.gs_post.hc ||  p.fs.hc ?
+	(
+		ks1 = 10^(0.05 * p.gs_pre);
+		ks2 = 10^(0.05 * p.gs_post);
+		fs = iso266(p.fs);
+		fs2 = fs * sqrt(ks2);
+		fs2 >= 0.4 * srate ? fs2 = 0.4 * srate;
+		fs1 = fs2 * sqrt(ks2 *ks1);	
+		fs1 >= 0.4 * srate ? fs1 = 0.4 * srate;		
+		hs1.flt_sv1_set_hs(ks1, fs1, 1, 1); 
+		hs2.flt_sv1_set_hs(ks1, fs1, 1, 1); 
+		hs3.flt_sv1_set_hs(ks2, fs2, 1, 1); 		
+	);	
+	
+	p.tube1.hc ?
+	(	
+		is_muted = 1;
+		t_unmute = time_precise() + 0.1;
+		
+		p.tube1 == 1 ? 		
+		(
+			ax7 = 1;
+			t1.tube_ck_set(100,	62500,	0.00165,	0.00076,	0,  	0.5,	238, 100000,	1500, 	0, 		0,	0.25,		0.250,	0.01000,	0.0500,		neq, 	0.0375);
+		):(
+			ax7 = 0;
+			t1.tube_ck_set(44,		25000,	0.00220,	0.00120,	0,  	0.5,	238, 100000,	820, 	0, 		0,	0.25,		0.250,	0.01000,	0.0500,		neq, 	0.0205);
+		);
+		
+	);
+	
+	p.mode.hc ?
+	(		
+		is_muted = 1;
+		t_unmute = time_precise() + 0.1;
+		
+		p.mode == 0 ?
+		(
+			ltp = 0;
+			k1 = 0.797;
+			k2 = 0.940;
+			t4.tube_ck_set(125,	40000,	0.1100,		0.04200, 	2,		0.5,	346, 3000,		540,	1, 	0.5	,	0.309,		0.437,	0.00575, 	0.0276,  	neq, 	0.00675);
+			t5.tube_ck_set(125,	40000,	0.1200,		0.04200, 	2.5, 	0.5,	346, 3000,		540,	1, 	0.7, 	0.325,		0.388, 	0.00155, 	0.0234, 	neq,  	0.00675);
+			hp2.flt_ii1_set_frequency(0.41);
+			hp3.flt_ii1_set_frequency(5.8);
+			hp4.flt_ii1_set_frequency(6.4);
+		):(
+		p.mode == 1 ?
+		(
+			ltp = 0;
+			k1 = 0.797;
+			k2 = 0.797;
+			t4.tube_ck_set(125,	40000,	0.1100,		0.04200, 	2,		0.5,	346, 3000,		540,	1, 	0.5	,	0.309,		0.437,	0.00575, 	0.0276,  	neq, 	0.00675);
+			t5.tube_ck_set(125,	40000,	0.1100,		0.04200, 	2,		0.5,	346, 3000,		540,	1, 	0.5, 	0.309,		0.437, 	0.00575, 	0.0276, 	neq,  	0.00675);
+			hp2.flt_ii1_set_frequency(0.41);
+			hp3.flt_ii1_set_frequency(5.8);
+			hp4.flt_ii1_set_frequency(5.8);
+		):(
+			ltp = 1;
+			k1 = 0.792;
+			k2 = 0.772;
+			t4.tube_ck_set(125,	40000,	0.1100,		0.04200, 	2,		0.5,	346, 3000,		540,	1, 	0.495,	0.309,		0.439,	0.00594, 	0.0278,  	neq, 	0.00675);
+			t5.tube_ck_set(125,	40000,	0.1100,		0.04200, 	2.0, 	0.5,	346, 3000,		540,	1, 	0.49, 	0.317,		0.4442, 0.00663, 	0.0285, 	neq,  	0.00675);
+			hp2.flt_ii1_set_frequency(10);
+			hp3.flt_ii1_set_frequency(5.7);
+			hp4.flt_ii1_set_frequency(5.6);
+			p.mode == 2 ?
+			(
+				kmst = 0;
+			):(
+			p.mode == 3 ?
+			(
+				kmst = 0.5;
+			):(
+				kmst = 1.0;
+			););
+		););
+		
+		k4 = kltp^(1-kmst);			
+	);
+	
+	p.vol.hc || p.gcomp.hc || p.tube1.hc || p.mode.hc ?	
+	(
+		vol = (p.vol / 100)^2;
+		p.gcomp == 1 ?
+		(			
+			ax7 == 1 ? vol*= kax7;
+			ltp == 1 ?	vol*= kltp^kmst;	
+		);	
+		g2.gain_set(vol, 1);		
+	);	
+		
+	p.gout.hc || p.mode.hc ? 
+	(
+		gout = 10^(0.05 * p.gout) * 0.5 / (t4.rl * t4.isat + t5.rl * t5.isat);
+		g3.gain_set(gout, 1);
+	);	
+);
+
+
+@slider
+
+parameter_update();
+
+
+@block
+
+time_precise() > t_unmute ? is_muted = 0; 
+
+
+@sample
+
+// num_ch > 1 ? spl0 = 0.5 * ( spl0 + spl1);
+
+t4.advk = 0.5 * (t4.advk + t5.advk);
+t5.advk = t4.advk;
+
+dia1 = t4.dia + t5.dia;
+dig = kgrid * dia1;
+ltp == 0 ?
+(	
+	dia3 = t1.dia + t2.dia + t3.dia;
+):(
+	dia3 = t1.dia + t2.dia + t6.dia;
+);
+
+dvs1 = p1.tube_pss_process(0,	 p2.s,	dia1);
+dvs2 = p2.tube_pss_process(dvs1, p3.s, dig);
+dvs3 = p3.tube_pss_process(dvs2, 0, 	dia3);
+
+spl0 = g1.gain_process(spl0);
+spl0 = t1.tube_ck_process(spl0, dvs3);
+
+spl0 = hp1.flt_ii1_process_hp(spl0);
+spl0 = g2.gain_process(spl0);
+spl0 = tst1.flt_sv2_process(spl0);
+spl0 = lp1.flt_ii1_process_lp(spl0);
+spl0 = t2.tube_ck_process(spl0, dvs3);
+spl0 = hp2.flt_ii1_process_hp(spl0);
+
+ltp == 0 ?
+(
+	spl0 = t3.tube_cd_process(spl0, dvs3);
+):(
+		
+	spl0 *= k4;
+	spl0 = t6.tube_ltp_process(spl0, 0, 0, dvs3);
+);
+		
+spl0 *= k1;
+spl0 = hp3.flt_ii1_process_hp(spl0);
+spl0 = peq1.flt_sv2_process(spl0);
+spl0 = hs1.flt_sv1_process(spl0);
+spl0 = t4.tube_ck_process(spl0, dvs2);
+
+ltp == 0 ?
+(
+	aux = k2 * t3.vk;
+):(
+	aux = k2 * t6.vout2;
+);
+
+aux = hp4.flt_ii1_process_hp(aux);
+aux = peq2.flt_sv2_process(aux);
+aux = hs2.flt_sv1_process(aux);
+aux = t5.tube_ck_process(aux, dvs2);
+spl0 -= aux;
+spl0 = peq3.flt_sv2_process(spl0);
+spl0 = hs3.flt_sv1_process(spl0);
+spl0 = hp5.flt_ii1_process_hp(spl0);
+spl0 = lp2.flt_df2_process(spl0);
+
+spl0 = g3.gain_process(spl0);
+
+spl1 = spl0;
+
+is_muted ==1 ?
+(
+	spl0 = 0;
+	spl1 = 0
+);
+
+@gfx 502 340
+
+control_start("main","tron");
+
+gui_scroll_scale_set(48);
+
+ui_color(0,0,0);
+ui_fill();
+
+ui_set_rect(0,0,502, 340);
+ui_color(34,48,64);
+ui_fill();
+
+ui_screen() == "main" ? 
+(
+	control_navbar(title,"Options","options");
+	ui_pad(5,5);
+	ui_split_top(147);
+		ui_split_left(102);
+			control_group("Input");				
+			ui_split_left(72);								
+				p.gin.gui_dial(p.gin,p.gin);
+			ui_pop();	
+		ui_pop();	
+		ui_split_left(288)	;
+			
+			ui_color(255,196,0);
+			ui_split_topratio(1/4);
+			ui_split_next();
+				ui_fontsize(40);	
+				ui_fontbold(0);
+				ui_text(company);
+			ui_split_next();						
+					ui_fontsize(20);	
+					ui_fontbold(0);
+					ui_text(title);			
+			ui_pop();			
+		ui_pop();
+		ui_split_left(102)	;		
+			control_group("Output");	
+			ui_split_left(72);			
+				p.gout.gui_dial(p.gout, p.gout);								
+			ui_pop();
+		ui_pop();			
+		
+	ui_split_next();
+		ui_split_left(390);
+			control_group("Pre Amp");				
+			ui_split_left(72);
+				p.tube1.gui_switch_toggle(p.tube1);
+			ui_split_next();
+				p.vol.gui_dial(p.vol, p.vol);				
+			ui_split_next();
+				p.bass.gui_dial(p.bass, p.bass);	
+			ui_split_next();
+				p.mid.gui_dial(p.mid, p.mid);	
+			ui_split_next();
+				p.treble.gui_dial(p.treble, p.treble);	
+			ui_pop();				
+		ui_pop();		
+		ui_split_left(102);
+			control_group("Splitter");			
+			ui_split_left(72);								
+				p.mode.gui_switch_rotary(p.mode);
+			ui_pop();				
+		ui_pop();					
+	ui_pop();
+):(
+ui_screen() == "options" ? 
+(
+	control_navbar("Options","About", "about");
+	ui_pad(5,5);
+	ui_split_top(147);
+		ui_split_left(174);
+			control_group("Tone Stack");				
+			ui_split_left(72);	
+				p.fm.gui_dial(p.fm, fm);			
+			ui_split_next();
+				p.qm.gui_dial(p.qm, qm);	
+			ui_pop(); 			
+		ui_pop();	
+		ui_split_left(72);
+		ui_pop();
+		ui_split_left(246)	;		
+			control_group("Speaker Inductor");	
+			ui_split_left(72);			
+				p.gs_pre.gui_dial(p.gs_pre, p.gs_pre);
+			ui_split_next();
+				p.gs_post.gui_dial(p.gs_post, p.gs_post);
+			ui_split_next();
+				p.fs.gui_dial(p.fs, fs);								
+			ui_pop();
+		ui_pop();					
+	ui_split_next();		
+		ui_split_left(102);
+			control_group("Gain");
+			ui_split_left(72);			
+				p.gcomp.gui_switch_toggle(p.gcomp);
+			ui_pop();		
+		ui_pop();		
+		ui_split_left(72);			
+		ui_pop();		
+		ui_split_left(318)	;		
+			control_group("Speaker Resonance");	
+			ui_split_left(72);			
+				p.gp_pre.gui_dial(p.gp_pre, p.gp_pre);
+			ui_split_next();
+				p.gp_post.gui_dial(p.gp_post, p.gp_post);
+			ui_split_next();
+				p.fp.gui_dial(p.fp, fp);
+			ui_split_next();
+				p.qp.gui_dial(p.qp, qp);					
+			ui_pop();
+		ui_pop();		
+	ui_pop();	
+
+):(
+ui_screen() == "about" ? 
+(	
+	control_navbar("About",-1, -1);
+	ui_pad(5,5);
+	ui_push_height(140);
+    ui_color(255,196,0);
+    ui_split_topratio(1/5);
+	ui_split_next();	
+		ui_fontsize(18);	
+		ui_fontbold(1);
+        ui_text(title);
+    ui_split_next();
+		ui_text(version);
+    ui_split_next();
+			ui_text(author);
+    ui_pop();
+):(
+	ui_system();
+);););
+
+ui_interacted() == 1 ?
+(
+	parameter_update();
+);

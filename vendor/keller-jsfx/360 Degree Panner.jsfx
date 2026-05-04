@@ -1,0 +1,314 @@
+// 360 Degree Panner
+// by Helmut Keller
+
+import HK_LIB_TOOLS.jsfx-inc
+import HK_LIB_GUI.jsfx-inc
+import HK_LIB_SMOOTH.jsfx-inc
+import HK_LIB_GAIN.jsfx-inc
+import HK_LIB_MOD.jsfx-inc
+
+desc: HK 360 Degree Panner
+
+in_pin:left input
+in_pin:right input
+out_pin:left output
+out_pin:right output
+
+options:no_meter
+
+slider1:p.swap= 		0   	< 0, 1 , 1 {L R, R L} >-		Swap
+slider2:p.width= 		100 	< 0, 200, 5>-					Width (%)
+
+slider3:p.angle1=		0   	< -45, 45, 2.5>- 				Angle 90(°)
+slider4:p.angle2=		0   	< -180, 180, 7.5>- 			Angle 360 (°)
+slider5:p.range=		0   	< 0,1 , 1 {90 °, 360 °} >- 		Range
+
+slider6:p.depth=		50   	< 0,100, 2.5 >- 				Depth (%)
+slider10:p.sync=		1   	< 0,1,1 {Off, On} >- 			Sync (%)
+slider8:p.note=		20   	< 0, 28, 1{1/64 T, 1/128 D, 1/64,1/32 T, 1/64 D, 1/32, 1/16 T, 1/32 D, 1/16, 1/8 T, 1/16 D, 1/8, 1/4 T, 1/8 D, 1/4 , 1/2 T, 1/4 D, 1/2, 1 T, 1/2 D, 1, 2 T, 1 D, 2, 4 T, 2 D, 4, 8 T, 4 D} >- 	Note(%)
+slider9:p.rate=		-6   	< -20, 28, 1 >- 				Rate (dBHz)  
+slider7:p.dir=			1		< 0 ,1 ,1 {Left, Right} >-		Direction
+slider11:p.phase=		0		< -180, 180, 7.5>-				Phase (°);
+
+
+@init
+
+str1 = string_array_start();
+string_array_add("L R");
+string_array_add("R L");
+
+str2 = string_array_start();
+string_array_add("90 °");
+string_array_add("360 °");
+
+str4 = string_array_start();
+string_array_add("1/64 T");
+string_array_add("1/128 D");
+string_array_add("1/64");
+string_array_add("1/32 T");
+string_array_add("1/64 D");
+string_array_add("1/32");
+string_array_add("1/16 T");
+string_array_add("1/32 D");
+string_array_add("1/16");
+string_array_add("1/8 T");
+string_array_add("1/16 D");
+string_array_add("1/8");
+string_array_add("1/4 T");
+string_array_add("1/8 D");
+string_array_add("1/4");
+string_array_add("1/2 T");
+string_array_add("1/4 D");
+string_array_add("1/2");
+string_array_add("1 T");
+string_array_add("1/2 D");
+string_array_add("1");
+string_array_add("2 T");
+string_array_add("1 D");
+string_array_add("2");
+string_array_add("4 T");
+string_array_add("2 D");
+string_array_add("4");
+string_array_add("8 T");
+string_array_add("4 D");
+
+count4 = string_array_count();
+
+str5 = string_array_start();
+string_array_add("Off");
+string_array_add("On");
+
+str6 = string_array_start();
+string_array_add("Left");
+string_array_add("Right");
+
+p.swap.gui_switch_toggle_set(str1, "Swap");
+p.width.gui_dial_set(100, 0, 200, 5,"Width", "%.0f ", "%", 0);
+
+p.angle1.gui_dial_set(0, -45, 45, 2.5, "Angle", "%.1f ", "°", 0);
+p.angle2.gui_dial_set(0, -180, 180, 7.5, "Angle", "%.1f ", "°", 0);
+p.range.gui_switch_toggle_set(str2, "Range");
+
+p.depth.gui_dial_set(50, 0, 100, 2.5,"Depth", "%.1f ", "%", 0);
+p.sync.gui_switch_toggle_set(str5, "Sync");
+p.note.gui_switch_rotary_set(20, str4, count4, "Note");
+p.rate.gui_dial_set(-6, -20, 28, 1,"Rate", "%.3g ", "Hz", 0);
+p.dir.gui_switch_toggle_set(str6, "Direction");
+p.phase.gui_dial_set(0, -180, 180, 7.5, "Phase", "%.1f ", "°", 0);
+
+p.swap.changed_init();	
+p.width.changed_init();
+
+p.angle1.changed_init();
+p.angle2.changed_init();
+p.range.changed_init();
+
+p.depth.changed_init();
+p.sync.changed_init();
+p.note.changed_init();
+p.rate.changed_init();
+p.dir.changed_init();
+p.phase.changed_init();
+
+mono.gain_init();
+side.gain_init();
+lfo.mod_dco_init();
+pan.mod_panner_init();
+
+title = "360 Degree Panner";
+version ="Version 1.0.4";
+author = "by Helmut Keller";
+
+rate = 0;
+
+function parameter_update()
+local (angle, index_note, index_modifier,  k_mod, beat_rate)
+(		
+
+	p.swap.changed();	
+	p.width.changed();
+
+	p.angle1.changed();
+	p.angle2.changed();
+	p.range.changed();
+
+	p.depth.changed();
+	p.sync.changed();
+	p.note.changed();
+	p.rate.changed();
+	p.dir.changed();
+	p.phase.changed();
+	
+	p.swap.hc || p.width.hc ?
+	( 	
+		angle = $pi / 400 * p.width;
+		mono.gain_set(sqrt(2)*cos(angle),1); 
+		p.swap == 0 ?
+		(
+			side.gain_set(sqrt(2)*sin(angle),1);
+		):(
+			side.gain_set(sqrt(2)*sin(-angle),1);
+		);
+	);	
+
+	p.angle1.hc || p.angle2.hc|| p.range.hc ? 
+	(	
+		p.range == 0 ?
+		(
+			pan.mod_panner_set_angle(p.angle1);
+			     
+		):(
+			pan.mod_panner_set_angle(p.angle2);
+		);
+	);
+	
+	p.depth.hc ?
+	(
+		pan.mod_panner_set_depth(p.depth);
+	);
+	
+	p.rate.hc || p.note.hc || p.sync.hc || p.dir.hc || p.phase.hc ? 																				 
+	(
+		p.sync == 0 ?
+		(
+			rate = iso266(p.rate);
+			
+		):(
+			index_note = floor(p.note / 3);			
+			index_modifier = p.note % 3;
+			
+			index_modifier == 0 ?
+			(
+				k_mod = 1.5;
+			):(
+			index_modifier == 1 ?			
+			(
+				k_mod = 4/3;
+			):(
+			index_modifier == 2 ?
+			
+				k_mod =1;
+			););
+			
+			beat_rate = k_mod *  2^(4-index_note);			
+		);
+		
+		lfo.mod_dco_set(rate, beat_rate, p.dir, p.sync, p.phase * $pi /180);
+	);
+);
+
+
+@slider
+
+parameter_update();
+
+
+@block
+
+lfo.mod_dco_sync();
+
+
+@sample
+
+mono = 0.5 * (spl0 + spl1);
+side = 0.5 * (spl0 - spl1);
+
+mono = mono.gain_process(mono);
+side = side.gain_process(side);
+
+spl0 = mono + side;
+spl1 = mono - side;
+
+lfo.mod_dco_process();
+pan.mod_panner_process(spl0, spl1, lfo.phase);
+spl0 = pan.left;
+spl1 = pan.right;
+
+
+@gfx 402 340
+
+control_start("main","tron");
+
+gui_scroll_scale_set(48);
+
+ui_color(0,0,0);
+ui_fill();
+
+ui_set_rect(0,0,402, 340);
+ui_color(34,48,64);
+ui_fill();
+
+ui_screen() == "main" ? 
+(
+	control_navbar(title,"About","about");
+	ui_pad(5,5);
+	ui_split_top(147);
+		ui_split_left(174);
+			control_group("Input");				
+			ui_split_left(72);				
+				p.swap.gui_switch_toggle(p.swap);
+			ui_split_next();				
+				p.width.gui_dial(p.width, p.width);
+			ui_pop();	
+		ui_pop();	
+		ui_split_left(42);
+		ui_pop();
+		ui_split_left(174);
+			control_group("Pan");				
+			ui_split_left(72);
+				p.range == 1 ?
+				(
+					p.angle2.gui_dial_angle(p.angle2, p.angle2);
+				):(
+					p.angle1.gui_dial(p.angle1, p.angle1);
+				);
+			ui_split_next();
+				ui_automate(p.range,p.range.gui_switch_toggle(p.range));	              
+			ui_pop(); 
+		ui_pop();
+	ui_split_next();
+		ui_split_left(390)	;		
+			control_group("Modulation");	
+			ui_split_left(72);			
+				p.depth.gui_dial(p.depth, p.depth);
+			ui_split_next();
+				ui_automate(p.dir,p.dir.gui_switch_toggle(p.dir));
+			ui_split_next();
+				p.sync == 0 ?
+				(
+					p.rate.gui_dial(p.rate, rate);
+				):(
+					p.note.gui_switch_rotary(p.note);	
+				);
+			ui_split_next();
+				ui_automate(p.sync, p.sync.gui_switch_toggle(p.sync));	
+			ui_split_next();
+				p.phase.gui_dial_angle(p.phase, p.phase);			
+			ui_pop();
+		ui_pop();
+	ui_pop();
+):(
+ui_screen() == "about" ? 
+(	
+	control_navbar("About",-1, -1);
+	ui_pad(4,4);
+	ui_push_height(140);
+    ui_color(255,196,0);
+    ui_split_topratio(1/5);
+	ui_split_next();	
+		ui_fontsize(18);	
+		ui_fontbold(1);
+        ui_text(title);
+    ui_split_next();
+		ui_text(version);
+    ui_split_next();
+			ui_text(author);
+    ui_pop();
+):(
+	ui_system();
+););
+
+ui_interacted() == 1 ?
+(
+	parameter_update();
+);

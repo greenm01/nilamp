@@ -1,0 +1,57 @@
+//FLT_II: Classes of efficient  impulse invariant filters
+
+@init
+
+// first order
+
+function flt_ii1_init()
+instance(s1)      // state variable
+(
+    s1 = 0;
+);
+
+function flt_ii1_set_frequency(f)
+// Set the pole frequecy a FILTER_IIV1 object
+instance(k)           // coefficient
+(
+    k = 1 - exp(-2* $pi * f / srate);    
+);
+
+function flt_ii1_set_tau(tau)
+// Set the time constant of a FILTER_IIV1 object
+instance(k)           // coefficient
+(
+    tau > 0 ?
+	(
+		k = 1 - exp(-1 / tau / srate);   
+	):(
+		k = 1;
+	);
+);
+
+function flt_ii1_process_lp(x)
+// Process a FILTER_IIV1 object as a lowpass
+instance(k)               // coeficient   
+instance(s1)              // state variable   
+(
+    x -=  s1;
+    x *=  k;
+    x +=  s1;
+    s1 = x;
+);
+
+function flt_ii1_process_hp(x)
+// Process a FILTER_IIV1 object as a highpas
+instance(k)               // coeficient   
+instance(s1)              // state variable   
+local(xin)                 // lp output
+(
+    xin = x;
+    x -=  s1;
+    x *=  k;
+    x +=  s1;
+    s1 = x;
+    xin - x;
+);
+
+

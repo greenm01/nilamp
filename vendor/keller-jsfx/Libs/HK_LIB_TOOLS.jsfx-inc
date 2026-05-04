@@ -1,0 +1,100 @@
+// TOOLS: Some usefull functions
+// by Helmut Keller
+
+@init
+
+
+ext_noinit = 1.0; // No cal to @init on play stsrt as default
+
+
+//ARRAY: Variables and functions for array management: 
+
+array_next = 0;     // poinnter to the next array
+
+function array_add(size)
+//size: size of new array
+local(array)       // pointer to the new array
+(
+    array = array_next;
+    array_next += size;
+    array;
+);
+
+
+//ISO266: caculates ISO306 rounded frequncies from dBHz values
+
+function iso266(f_dB)
+local(f, decade, fract, res)
+(
+	f = 10 ^ (0.05 * f_dB);
+	decade = floor(0.05 * f_dB);
+	fract = 0.05 * f_dB - decade;
+	
+	fract >= 0.899 ?
+	(
+		res=0.2 *10^decade;		
+	):(
+	fract >= 0.649?
+	(
+		res=0.1 *10^decade;		
+	):(		
+	fract >= 0.099 -0.01?
+	(
+		res=0.05 *10^decade;		
+	):(
+		res=0.02 *10^decade;			
+	);););
+	
+	f = res * floor(f / res + 0.5);
+);
+
+
+// CHANGED: Class of parameter change checks
+
+function changed_init()
+instance (old, hc)			// old: old paramter value, hc :  paramter value has changed
+(
+	old = this + 1;
+	hc = 0;
+);
+
+function changed()
+instance (old, hc)
+(
+	old !== this ? 
+	(
+		old = this;		
+		hc = 1;
+	):(
+		hc = 0;
+	);		
+	
+);
+
+
+// STRING_ARRAY: Class of Stringarrays
+
+string_array_start = 1;
+string_array_count = 0;
+
+function string_array_start()
+(	 
+	string_array_count = 0;	
+	string_array_start;	
+);
+
+function string_array_add(str)
+(	
+	strcpy(string_array_start,str); 	
+	string_array_start += 1;
+	string_array_count += 1;	
+);
+
+function string_array_count()
+(	 
+	
+	string_array_count;	
+);
+
+
+

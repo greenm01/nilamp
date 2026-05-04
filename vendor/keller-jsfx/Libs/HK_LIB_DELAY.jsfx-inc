@@ -1,0 +1,72 @@
+@init
+
+
+//Delay: Class for delay lines
+
+
+function delay_init(nmax)
+// Initailizes an DELAY object
+
+instance(buffer)       // pointer to the delay buffer 
+instance(nmax)         // size of the delay buffer
+instance(write) 		//  write index
+instance(z1)			// state of the allpass filter
+
+
+(    
+    buffer = array_add(nmax); 
+	this.nmax  = nmax;    
+	write = 0;
+    this.nd.smooth_init();
+    this.a1.smooth_init(); 
+	z1 = 0;
+);
+
+function delay_set(delayTime,smoothing)
+// Sets the delay time in seconds
+// dT:    delay time in seconds;
+
+instance (nmax)
+local(nT, nTint, nTfract, a1)
+
+( 
+    
+	nT = delayTime * srate;
+	nT = min(nT, nmax + 0.618033);
+	nT = max(nT, 0.618034);
+	nTint = floor(nT-0.618034);
+	
+	nTfract = nT - nTint;
+	a1 = (1 - nTfract) / (1 + nTfract);
+	
+	this.nd.smooth_set(nTint, smoothing); 
+	this.a1.smooth_set(a1, smoothing);  
+    
+);
+
+function delay_process(x)
+// Process an ADNL object
+
+instance(buffer, nmax, write,  z1) // as definded by the function delayt_init
+
+local(z0,read)
+
+(	
+	this.nd.smooth_process(this.nd.act);
+	this.a1.smooth_process(this.a1.act);
+	
+		
+	buffer[write] = x;	
+	read = (nmax + write - this.nd.act) % nmax;	
+	z0 = buffer[read];	
+	write = (write + 1) % nmax;	
+	
+    z0 -= z1 * this.a1.act;   
+    x = z0 * this.a1.act;
+    x += z1 ;   
+    z1 = z0;   
+	
+    x ;
+	
+    
+); 
