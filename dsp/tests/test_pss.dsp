@@ -6,6 +6,9 @@
 // from another PSS lump).  Uses sag=1.0 -> r=22000 (TWD-DLX-II's p3
 // resistor at full sag), tau=50ms (canonical PSU smoothing constant).
 //
+// TODO(5e3-v2): cover the chained p1->p2->p3 topology as well, where
+// each stage's `s` output feeds the upstream stage's `snext` input.
+//
 // Output 1: dvs_out (modulated supply voltage).
 // Output 2: s       (smoothed dia, used as snext for upstream PSS).
 import("stdfaust.lib");

@@ -8,9 +8,9 @@
 // dvs hard-coded to 0; see test_tube_ck.dsp for rationale.
 //
 // neq coefficients pinned to identity (b0=1, others=0): the runtime
-// EQ is currently bypassed in nilamp.dsp because c.t3_neq=0; once
-// flt_df2_set_adnl_eq is ported the harness will need to compute and
-// pass the proper coefficients.
+// EQ is currently bypassed in nilamp.dsp because c.t3_neq=0.
+// TODO(5e3-v2): once flt_df2_set_adnl_eq is ported, this harness
+// will need to compute and pass the proper coefficients.
 import("stdfaust.lib");
 tube = library("hk_tube.lib");
 tables = library("5e3_tables.lib");

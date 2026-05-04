@@ -1,3 +1,18 @@
+// 5E3 Tweed Deluxe top-level Faust port.
+//
+// TODO(5e3-v2): the prototype defers four pieces of the canonical
+// TWD-DLX-II patch.  Grep for `5e3-v2` to find the individual call
+// sites; the high-level summary lives here:
+//   1. Multi-PSS chain.  TWD chains three PSS lumps (p1/p2/p3 at
+//      lines 189-191 of the JSFX); we collapse them into one.
+//   2. Push-pull power section.  T4 + T5 6V6 pair with advk averaging
+//      and dia summation (TWD lines 376-379) -> we run T4 alone.
+//   3. ADNL post-EQ.  flt_df2_set_adnl_eq populates a per-stage
+//      DF2 biquad after the ADNL nonlinearity; currently bypassed
+//      with identity coefficients (1,0,0,0,0).
+//   4. Top-level compile.  faust hangs on this file (SIGALRM); gated
+//      behind NILAMP_BUILD_TOPLEVEL=1 in build.rs until that's sorted
+//      (likely needs -mem / -double / split-table investigation).
 import("stdfaust.lib");
 tube = library("hk_tube.lib");
 adnl = library("hk_adnl.lib");
@@ -70,10 +85,10 @@ with {
 
                 // Stage 4: T3 (cathodyne / phase splitter).  No avg_f
                 // arg — tube_cd has no advk averaging path.  No NEQ
-                // here either; the trailing 0,0,0,0,0 are the
-                // bypassed neq_b0/b1/b2/a1/a2 transfer-function
-                // coefficients (TODO: derive from c.t3_neq once we
-                // port flt_df2_set_adnl_eq).
+                // here either; the trailing 1,0,0,0,0 are identity
+                // neq_b0/b1/b2/a1/a2 transfer-function coefficients.
+                // TODO(5e3-v2): port flt_df2_set_adnl_eq and pull the
+                // real coefficients from c.t3_neq_*.
                 res4 = tube.tube_cd(
                     TBL_SIZE, tables.t3_cd_table, XMAX, DX,
                     c.t3_kpre, c.t3_isat, c.t3_rl, c.t3_rkl, c.t3_kpk,

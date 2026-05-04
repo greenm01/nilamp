@@ -3,6 +3,12 @@
 This module reproduces Keller's block-diagram + ADAA tube-amp model in NumPy
 for regression testing the Faust port.  It is intentionally close-to-source,
 not refactored.  Tolerance target: per-sample absolute error < 1e-3, RMS < -60 dB.
+
+TODO(5e3-v2): add a Dempwolf-Zölzer ECC83 triode oracle alongside the GLF
+implementation here so the analytical-tube path (planned for the v2 5E3
+amp) can be regression-tested the same way.  Reference parameters live in
+docs/notes/dsp-project-notes.md § 4 (ECC83), and a MATLAB implementation
+exists at ~/src/NodalDKFramework/triode.m.
 """
 
 import numpy as np
