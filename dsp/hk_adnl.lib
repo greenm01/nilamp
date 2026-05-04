@@ -1,7 +1,13 @@
 import("stdfaust.lib");
 
 // HK ADNL Library
-// Nonlinearities with Antiderivative Antialiasing
+// Nonlinearities with Antiderivative Antialiasing.
+//
+// The waveform table layout is:
+//   [coeffs flattened (num_segments * 9 floats), ymin, ymax, z_at_xmax]
+//
+// The runtime reads the three trailing metadata cells via rdtable at offsets
+// t_size-3, t_size-2 and t_size-1.  See tools/gen_tables.py.
 
 // table is a waveform object: it provides (size, id)
 adnl_process(t_size, t_id, xmax, dx, x) = adaa_result
@@ -14,13 +20,9 @@ with {
     index = min(num_segments - 1, max(0, raw_index));
     w = x + xmax - float(index) * dx;
 
-    ymin = -0.5; // Placeholder
-    ymax = 1.0;  // Placeholder
-
     base = index * 9;
-    
     get(off) = rdtable(t_size, t_id, base + off);
-    
+
     a3 = get(0);
     a2 = get(1);
     a1 = get(2);
@@ -31,16 +33,18 @@ with {
     b1 = get(7);
     b0 = get(8);
 
+    // Metadata at the table tail: [ymin, ymax, z_at_xmax].
+    ymin      = rdtable(t_size, t_id, t_size - 3);
+    ymax      = rdtable(t_size, t_id, t_size - 2);
+    z_at_xmax = rdtable(t_size, t_id, t_size - 1);
+
     y1 = (((a3 * w + a2) * w + a1) * w + a0);
     z1 = ((((b4 * w + b3) * w + b2) * w + b1) * w + b0);
 
     y1_final = select2(x > -xmax, ymin, select2(x < xmax, y1, ymax));
-    
-    last_base = (num_segments - 1) * 9;
-    z_at_xmax = ((((rdtable(t_size, t_id, last_base + 4) * dx + rdtable(t_size, t_id, last_base + 5)) * dx + rdtable(t_size, t_id, last_base + 6)) * dx + rdtable(t_size, t_id, last_base + 7)) * dx + rdtable(t_size, t_id, last_base + 8));
 
-    z1_final = select2(x > -xmax, ymin * (x + xmax), 
-                select2(x < xmax, z1, 
+    z1_final = select2(x > -xmax, ymin * (x + xmax),
+                select2(x < xmax, z1,
                     z_at_xmax + ymax * (x - xmax)));
 
     dx0 = x - x_prev;

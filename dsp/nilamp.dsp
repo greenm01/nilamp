@@ -26,8 +26,8 @@ with {
         with {
             loop_core(v_in_ext, old_dvs) = next_dvs, v_out
             with {
-                // Stage 1: T1 (12AY7)
-                res1 = tables.t1_12ay7_table : tube.tube_ck_simple(15, 0.02, 0.16, 0.0022, 100000, 0, 0, 0, 0.2, 0, 1.0, 0, 0.25, 0.1, 0.1, 10, v_in_ext, old_dvs);
+                // Stage 1: T1 (12AX7 v1)
+                res1 = tables.t1_12ax7_table : tube.tube_ck_simple(15, 0.02, 0.16, 0.0022, 100000, 0, 0, 0, 0.2, 0, 1.0, 0, 0.25, 0.1, 0.1, 10, v_in_ext, old_dvs);
                 res1_v = res1 : _ , !;
                 res1_dia = res1 : ! , _;
 
