@@ -22,14 +22,14 @@ continuing ysfx-backed JSFX parity work while hardening the plugin host surface.
 
 - **C** for realtime DSP and offline rendering
 - **ysfx** for headless Keller JSFX reference renders
-- **Lua** for build-time config/codegen only
+- **KDL 2** for build-time amp model data
 - **Python** with NumPy/SciPy for table generation, oracle fixtures, and ABX
-  analysis
+  analysis, plus KDL-to-C model generation
 - **Make** as the build system
 - **JSFX** reference renders from Keller's source for equivalence checks
 
-Lua, Python, allocation, file I/O, and locks are not allowed in future audio
-callbacks.
+KDL parsing, Lua, Python, allocation, file I/O, and locks are not allowed in
+future audio callbacks.
 
 ## Repository layout
 
@@ -72,6 +72,12 @@ Regenerate generated native tables after table-generator changes:
 
 ```bash
 python3 tools/gen_5e3_tables.py
+```
+
+Regenerate generated native amp model data after KDL model changes:
+
+```bash
+python3 tools/gen_amp_models.py native/generated/nilamp_models.inc models/amps/keller_twd_dlx_ii.kdl
 ```
 
 Run a render:

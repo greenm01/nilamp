@@ -17,9 +17,9 @@ this file adds the operational details an agent needs to act safely.
 
 ## TL;DR
 
-- **Language stack**: C for realtime DSP and offline rendering. Lua may be
-  used for build-time config/codegen only. Python remains the numerical
-  oracle, fixture generator, and ABX analysis layer.
+- **Language stack**: C for realtime DSP and offline rendering. KDL 2 is used
+  for build-time amp model data. Python remains the numerical oracle, fixture
+  generator, KDL-to-C generator, and ABX analysis layer.
 - **Reference behaviour**: Helmut Keller's JSFX implementations under
   `vendor/keller-jsfx/` and the ysfx-rendered staged JSFX harness are
   canonical.
@@ -103,14 +103,20 @@ ysfx source checkout is `/home/niltempus/src/ysfx`; initialize its submodules if
 python3 tools/gen_5e3_tables.py
 ```
 
+`native/generated/nilamp_models.inc` is generated from KDL 2 amp specs by:
+
+```bash
+python3 tools/gen_amp_models.py native/generated/nilamp_models.inc models/amps/keller_twd_dlx_ii.kdl
+```
+
 The normal native build consumes those generated C files directly. It must not
 depend on legacy DSP source formats or generated build output.
 
 ## C conventions
 
 - C11, compiled with `-Wall -Wextra -Wpedantic -Werror`.
-- No allocation, file I/O, locks, Lua, Python, or host calls in future realtime
-  audio processing.
+- No allocation, file I/O, locks, KDL parsing, Lua, Python, or host calls in
+  future realtime audio processing.
 - Prefer DRY, data-oriented design for amp expansion: shared DSP primitives
   should consume explicit model data for stage constants, table choices,
   source impedance, damping, control mappings, and output modes.
@@ -130,10 +136,14 @@ depend on legacy DSP source formats or generated build output.
 - If porting a JSFX block, cite the JSFX source/line range in a comment when
   that helps mechanical verification.
 
-## Lua and Python
+## KDL, Lua, and Python
 
-- Lua is for build-time config/codegen only. It must not run in the renderer,
-  plugin, or audio callback.
+- KDL is for amp model data only. It selects C-backed topology/method/table
+  choices and numeric constants; it must not become an executable DSP graph.
+- KDL parsing is build-time only. It must not run in the renderer, plugin, or
+  audio callback.
+- Lua exists for REAPER helper scripts and other non-DSP tooling only. Do not
+  add Lua/LuaJIT to the renderer, plugin, or audio callback.
 - Python is allowed for numerical generation and reference analysis.
 - `tools/keller_oracle.py` is the numerical reference. Changing it invalidates
   fixtures; regenerate fixtures and rerun native tests after oracle changes.
@@ -144,6 +154,10 @@ depend on legacy DSP source formats or generated build output.
 - `native/src/nilamp_dsp.c` — production DSP and the JSFX-order PSS/tube loop.
 - `native/generated/nilamp_tables.c` — generated ADNL data; update through
   `tools/gen_5e3_tables.py`, never by hand.
+- `native/generated/nilamp_models.inc` — generated amp model data; update
+  through `tools/gen_amp_models.py`, never by hand.
+- `models/amps/*.kdl` — build-time amp model specs. Keep them declarative and
+  schema-valid.
 - `tools/keller_oracle.py` and `tools/gen_5e3_tables.py` — numeric source of
   truth for fixtures and tables.
 - `tools/abx_compare.py` — public JSFX-vs-native gate.
@@ -156,7 +170,7 @@ depend on legacy DSP source formats or generated build output.
 When making DSP-affecting changes:
 
 1. State the hypothesis in one sentence.
-2. Make the smallest possible C/Python/Lua change.
+2. Make the smallest possible C/Python/KDL change.
 3. Run `make native-test`.
 4. If the change affects full-pipeline behavior, run `make native` and
    ysfx-backed ABX via `python3 tools/abx_compare.py`.

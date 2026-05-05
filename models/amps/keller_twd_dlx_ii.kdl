@@ -1,0 +1,41 @@
+amp "keller_twd_dlx_ii" id="NILAMP_MODEL_KELLER_TWD_DLX_II" name="Keller TWD DLX II" family="5E3 tweed deluxe" topology="tweed_5e3_cathodyne_pp" {
+  speaker source_ohms=0.0 nominal_ohms=8.0
+
+  stage "t1" symbol="T1" kind="triode_ck" method="keller_glf_adaa" table="nilamp_t1_12ax7_table" len=13503 {
+    coeffs kpre=0.372960373 isat=0.00165 rl=100000.0 rkl=0.0
+    nonlinear kspre=0.004201680672 kspost=0.004201680672 ksva=0.3846153846 ksvk=0.0 ksib=0.000003193277311
+    peak kfb=0.01515 kpk=0.0 xth=0.25 xdiode=0.25 attack=0.01 release=0.05 avg_tau=0.0375
+  }
+
+  stage "t2" symbol="T2" kind="triode_ck" method="keller_glf_adaa" table="nilamp_t2_12ax7_table" len=13503 {
+    coeffs kpre=0.3970223325 isat=0.00155 rl=100000.0 rkl=0.0
+    nonlinear kspre=0.004201680672 kspost=0.004201680672 ksva=0.3846153846 ksvk=0.0 ksib=0.000003193277311
+    peak kfb=0.01515 kpk=0.05 xth=0.255 xdiode=0.57 attack=0.015 release=0.05 avg_tau=0.0375
+  }
+
+  stage "t3" symbol="T3" kind="cathodyne" method="keller_cd_adaa" table="nilamp_t3_cd_table" len=13503 {
+    coeffs kpre=0.01054674317 isat=0.0016 rl=56000.0 rkl=57500.0
+    nonlinear kspre=0.004201680672 kspost=0.004201680672 ksva=0.8282208589 ksvk=0.1763803681 ksib=0.000003067226891
+    peak kfb=0.0 kpk=0.125 xth=0.272 xdiode=0.394 attack=0.00085 release=0.3872 avg_tau=0.0
+  }
+
+  stage "t4" symbol="T4" kind="power_ck" method="keller_glf_adaa" table="nilamp_t4_6v6_table" len=13503 {
+    coeffs kpre=0.02642706131 isat=0.11 rl=3000.0 rkl=0.0
+    nonlinear kspre=0.0 kspost=0.00289017341 ksva=0.9302325581 ksvk=0.0 ksib=0.0001213872832
+    peak kfb=0.18144 kpk=0.125 xth=0.309 xdiode=0.437 attack=0.00575 release=0.0276 avg_tau=0.00675
+  }
+
+  stage "t5" symbol="T5" kind="power_ck" method="keller_glf_adaa" table="nilamp_t5_6v6_table" len=13503 {
+    coeffs kpre=0.0242248062 isat=0.12 rl=3000.0 rkl=0.0
+    nonlinear kspre=0.0 kspost=0.00289017341 ksva=0.9302325581 ksvk=0.0 ksib=0.0001213872832
+    peak kfb=0.18144 kpk=0.18 xth=0.325 xdiode=0.388 attack=0.00155 release=0.0234 avg_tau=0.00675
+  }
+
+  supply method="keller_pss" {
+    node "p1" r=125.0 tau=0.008
+    node "p2" r=5100.0 tau=0.0816
+    node "p3" r_at_full_sag=22000.0 tau=0.352
+  }
+
+  process input_feed_gain=0.5 input_keller_gain_sq=1.2 phase_t4_gain=0.797 phase_t5_gain=0.940 screen_current_feedback=0.025
+}

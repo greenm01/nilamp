@@ -1,5 +1,6 @@
 CC ?= cc
 CXX ?= c++
+PYTHON ?= python3
 
 NATIVE_DIR := native
 NATIVE_BUILD := $(NATIVE_DIR)/build
@@ -19,6 +20,8 @@ YSFX_LDLIBS := -ldl -pthread -lm
 
 NATIVE_TABLES_C := $(NATIVE_GENERATED)/nilamp_tables.c
 NATIVE_TABLES_H := $(NATIVE_GENERATED)/nilamp_tables.h
+NATIVE_MODELS_INC := $(NATIVE_GENERATED)/nilamp_models.inc
+AMP_MODELS := models/amps/keller_twd_dlx_ii.kdl
 
 NATIVE_OBJS := \
 	$(NATIVE_BUILD)/nilamp_dsp.o \
@@ -52,22 +55,25 @@ native-jsfx-test: $(NATIVE_BIN)/nilamp_render $(NATIVE_BIN)/nilamp_taps_render $
 	python3 tools/abx_compare.py --preset sine --rms-threshold-db -16
 	python3 tools/compare_taps.py --preset sine
 
-$(NATIVE_BUILD) $(NATIVE_BIN):
+$(NATIVE_BUILD) $(NATIVE_BIN) $(NATIVE_GENERATED):
 	mkdir -p $@
+
+$(NATIVE_MODELS_INC): tools/gen_amp_models.py $(AMP_MODELS) | $(NATIVE_GENERATED)
+	$(PYTHON) tools/gen_amp_models.py $@ $(AMP_MODELS)
 
 $(NATIVE_BUILD)/nilamp_tables.o: $(NATIVE_TABLES_C) $(NATIVE_TABLES_H) | $(NATIVE_BUILD)
 	$(CC) $(CFLAGS) -c $(NATIVE_TABLES_C) -o $@
 
-$(NATIVE_BUILD)/nilamp_dsp.o: $(NATIVE_DIR)/src/nilamp_dsp.c $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_TABLES_H) | $(NATIVE_BUILD)
+$(NATIVE_BUILD)/nilamp_dsp.o: $(NATIVE_DIR)/src/nilamp_dsp.c $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_TABLES_H) $(NATIVE_MODELS_INC) | $(NATIVE_BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(NATIVE_BUILD)/nilamp_tables.pic.o: $(NATIVE_TABLES_C) $(NATIVE_TABLES_H) | $(NATIVE_BUILD)
 	$(CC) $(CFLAGS) -fPIC -c $(NATIVE_TABLES_C) -o $@
 
-$(NATIVE_BUILD)/nilamp_dsp.pic.o: $(NATIVE_DIR)/src/nilamp_dsp.c $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_TABLES_H) | $(NATIVE_BUILD)
+$(NATIVE_BUILD)/nilamp_dsp.pic.o: $(NATIVE_DIR)/src/nilamp_dsp.c $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_TABLES_H) $(NATIVE_MODELS_INC) | $(NATIVE_BUILD)
 	$(CC) $(CFLAGS) -fPIC -c $< -o $@
 
-$(NATIVE_BUILD)/nilamp_dsp_test.o: $(NATIVE_DIR)/src/nilamp_dsp.c $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_TABLES_H) | $(NATIVE_BUILD)
+$(NATIVE_BUILD)/nilamp_dsp_test.o: $(NATIVE_DIR)/src/nilamp_dsp.c $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_TABLES_H) $(NATIVE_MODELS_INC) | $(NATIVE_BUILD)
 	$(CC) $(CFLAGS) -DNILAMP_ENABLE_TEST_API -c $< -o $@
 
 $(NATIVE_BUILD)/nilamp_render.o: $(NATIVE_DIR)/src/nilamp_render.c $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_DIR)/src/nilamp_cpu.h | $(NATIVE_BUILD)

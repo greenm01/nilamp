@@ -433,7 +433,8 @@ Native performance hygiene:
 | Nim | GC concerns; stalled momentum; skip |
 | Faust → Rust | Rejected for this project; useful conceptually, but not the current stack. |
 | **C + CLAP** | **Current runtime stack** — direct control, simple build, no Rust/Faust dependency. |
-| **Lua** | Build-time config/codegen only unless a concrete non-audio use appears. |
+| **KDL 2** | Build-time amp model data only. Select C-backed topology/method/table choices and constants; do not load in runtime DSP. |
+| **Lua** | REAPER helper scripts and non-DSP tooling only unless a concrete non-audio use appears. |
 | **ysfx** | **Current JSFX parity stack** — headless Keller reference renders without REAPER. |
 
 **Final stack**: native C DSP + native C CLAP shell, plain `make`, ysfx for

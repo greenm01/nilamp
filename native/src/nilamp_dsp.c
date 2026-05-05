@@ -162,26 +162,6 @@ typedef struct {
     float dia1_next;
 } NilampTapFrame;
 
-static const NilampModelSpec NILAMP_MODELS[] = {
-    {
-        .id = NILAMP_MODEL_KELLER_TWD_DLX_II,
-        .name = "Keller TWD DLX II",
-        .family = "5E3 tweed deluxe",
-        .speaker_source_ohms = 0.0f,
-        .speaker_nominal_ohms = 8.0f,
-    },
-};
-
-static const NilampModelSpec *nilamp_find_model(NilampModelId model_id)
-{
-    for (size_t i = 0; i < sizeof(NILAMP_MODELS) / sizeof(NILAMP_MODELS[0]); i++) {
-        if (NILAMP_MODELS[i].id == model_id) {
-            return &NILAMP_MODELS[i];
-        }
-    }
-    return NULL;
-}
-
 static int nilamp_tap_frame_is_finite(NilampTapFrame taps)
 {
     return isfinite(taps.v_out) && isfinite(taps.res1_v) && isfinite(taps.res3_v) &&
@@ -194,32 +174,6 @@ static int nilamp_tap_frame_is_finite(NilampTapFrame taps)
            isfinite(taps.t5_dia) && isfinite(taps.t4_advk_out) &&
            isfinite(taps.t5_advk_out) && isfinite(taps.dia1_next);
 }
-
-static const StageCfg T1 = {
-    nilamp_t1_12ax7_table, 13503, 0.372960373f, 0.00165f, 100000.0f, 0.0f,
-    0.004201680672f, 0.004201680672f, 0.3846153846f, 0.0f, 3.193277311e-06f,
-    0.01515f, 0.0f, 0.25f, 0.25f, 0.01f, 0.05f, 0.0375f,
-};
-static const StageCfg T2 = {
-    nilamp_t2_12ax7_table, 13503, 0.3970223325f, 0.00155f, 100000.0f, 0.0f,
-    0.004201680672f, 0.004201680672f, 0.3846153846f, 0.0f, 3.193277311e-06f,
-    0.01515f, 0.05f, 0.255f, 0.57f, 0.015f, 0.05f, 0.0375f,
-};
-static const StageCfg T3 = {
-    nilamp_t3_cd_table, 13503, 0.01054674317f, 0.0016f, 56000.0f, 57500.0f,
-    0.004201680672f, 0.004201680672f, 0.8282208589f, 0.1763803681f,
-    3.067226891e-06f, 0.0f, 0.125f, 0.272f, 0.394f, 0.00085f, 0.3872f, 0.0f,
-};
-static const StageCfg T4 = {
-    nilamp_t4_6v6_table, 13503, 0.02642706131f, 0.11f, 3000.0f, 0.0f,
-    0.0f, 0.00289017341f, 0.9302325581f, 0.0f, 0.0001213872832f,
-    0.18144f, 0.125f, 0.309f, 0.437f, 0.00575f, 0.0276f, 0.00675f,
-};
-static const StageCfg T5 = {
-    nilamp_t5_6v6_table, 13503, 0.0242248062f, 0.12f, 3000.0f, 0.0f,
-    0.0f, 0.00289017341f, 0.9302325581f, 0.0f, 0.0001213872832f,
-    0.18144f, 0.18f, 0.325f, 0.388f, 0.00155f, 0.0234f, 0.00675f,
-};
 
 typedef struct {
     const StageCfg *t1;
@@ -240,24 +194,18 @@ typedef struct {
     float screen_current_feedback;
 } NilampTwdDlxIiData;
 
-static const NilampTwdDlxIiData TWD_DLX_II_DATA = {
-    .t1 = &T1,
-    .t2 = &T2,
-    .t3 = &T3,
-    .t4 = &T4,
-    .t5 = &T5,
-    .input_feed_gain = 0.5f,
-    .input_keller_gain_sq = 1.2f,
-    .pss1_r = 125.0f,
-    .pss1_tau = 0.008f,
-    .pss2_r = 5100.0f,
-    .pss2_tau = 0.0816f,
-    .pss3_r_at_full_sag = 22000.0f,
-    .pss3_tau = 0.352f,
-    .phase_t4_gain = 0.797f,
-    .phase_t5_gain = 0.940f,
-    .screen_current_feedback = 0.025f,
-};
+#include "nilamp_models.inc"
+
+static const NilampModelSpec *nilamp_find_model(NilampModelId model_id)
+{
+    for (size_t i = 0; i < sizeof(NILAMP_MODELS) / sizeof(NILAMP_MODELS[0]); i++) {
+        if (NILAMP_MODELS[i].id == model_id) {
+            return &NILAMP_MODELS[i];
+        }
+    }
+    return NULL;
+}
+
 #ifdef NILAMP_ENABLE_TEST_API
 static const StageCfg T2_DZ = {
     nilamp_t2_12ax7_table_dz, 13503, 0.3970223325f, 0.00155f, 100000.0f, 0.0f,

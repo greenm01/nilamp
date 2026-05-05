@@ -1,6 +1,41 @@
-# Next session - native C/Lua parity and legacy purge
+# Next session - native C/KDL parity and legacy purge
 
 ## SESSION LOG (most recent first)
+
+### Session: KDL amp specs -> GENERATED TWD MODEL DATA
+
+**Edit summary.**
+
+- Replaced the interrupted Lua amp-model direction with KDL 2 model data.
+- Added `models/amps/keller_twd_dlx_ii.kdl` as the declarative source for the
+  current baseline amp model.
+- Added `tools/gen_amp_models.py`, a strict stdlib-only KDL subset parser and
+  C generator for native amp model data.
+- Added generated `native/generated/nilamp_models.inc` and wired Make to
+  regenerate it before native DSP compilation.
+- Updated README, AGENTS, and DSP notes to make KDL build-time-only and keep
+  Lua out of renderer/plugin/audio callback paths.
+
+**Verification.**
+
+- `make native-test` passes.
+- `make native` passes.
+- `make native-jsfx-test` passes.
+- `python3 -m py_compile tools/gen_amp_models.py` passes.
+- local `kdl models/amps/keller_twd_dlx_ii.kdl` exits successfully.
+- `ldd native/bin/nilamp.clap` shows only `libm`, `libc`, and the dynamic
+  loader; no KDL, Lua, or LuaJIT runtime dependency.
+- ysfx sine ABX remains at residual `-31.4 dB`, correlation `0.998804`,
+  best native-to-JSFX gain `+0.00 dB`.
+- ysfx sine tap diagnostics still pass the public guard: residual `-48.5 dB`,
+  correlation `0.999986`.
+
+**Next work.**
+
+1. Add the next amp by extending KDL model data and only adding C topology code
+   when a topology cannot share an existing runner.
+2. Keep KDL as declarative method/table/constant selection, not an executable
+   graph language.
 
 ### Session: Multi-amp model boundary -> TWD DLX II BASELINE PRESERVED
 
@@ -408,12 +443,13 @@ python3 tools/abx_compare.py --preset sweep --rms-threshold-db -11.2 --jsfx-time
 ### Session: Native engine replaces feedback-loop investigation → READY FOR C PARITY WORK
 
 **Decision.**  Stop investing in the old graph/toolchain and continue only on
-the native C/Lua path.
+the native C/KDL path.
 
 **Current architecture.**
 
 - C owns realtime DSP and offline rendering.
-- Lua is allowed only for build-time config/codegen.
+- KDL owns build-time amp model data.
+- Lua is limited to REAPER/non-DSP helper tooling.
 - Python remains the numeric oracle, table generator, fixture generator, and
   ABX analysis layer.
 - Keller's JSFX source remains canonical.
