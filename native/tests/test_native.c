@@ -328,9 +328,25 @@ static int test_nilamp_taps(void)
     return rc;
 }
 
+static int test_model_identity(void)
+{
+    NilampEngine *engine = nilamp_engine_create(SAMPLE_RATE);
+    if (engine == NULL) {
+        return -1;
+    }
+    NilampEngine *invalid = nilamp_engine_create_model(SAMPLE_RATE, (NilampModelId)99);
+    const int ok = nilamp_engine_model_id(engine) == NILAMP_MODEL_KELLER_TWD_DLX_II &&
+                   nilamp_model_name(NILAMP_MODEL_KELLER_TWD_DLX_II)[0] != '\0' &&
+                   invalid == NULL;
+    nilamp_engine_destroy(invalid);
+    nilamp_engine_destroy(engine);
+    return ok ? 0 : 1;
+}
+
 int main(void)
 {
     int rc = 0;
+    if (test_model_identity() != 0) rc = 1;
     if (test_pkd() != 0) rc = 1;
     if (test_filters() != 0) rc = 1;
     if (test_adnl() != 0) rc = 1;

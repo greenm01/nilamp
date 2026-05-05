@@ -7,6 +7,11 @@
 
 typedef struct NilampEngine NilampEngine;
 
+typedef enum NilampModelId {
+    NILAMP_MODEL_KELLER_TWD_DLX_II = 0,
+    NILAMP_MODEL_DEFAULT = NILAMP_MODEL_KELLER_TWD_DLX_II,
+} NilampModelId;
+
 typedef struct NilampParams {
     float gain_db;
     float volume_pct;
@@ -31,6 +36,7 @@ typedef enum NilampTestAdnlTable {
 } NilampTestAdnlTable;
 
 NilampEngine *nilamp_engine_create(double sample_rate);
+NilampEngine *nilamp_engine_create_model(double sample_rate, NilampModelId model_id);
 void nilamp_engine_destroy(NilampEngine *engine);
 void nilamp_engine_reset(NilampEngine *engine);
 void nilamp_engine_set_params(NilampEngine *engine, const NilampParams *params);
@@ -38,6 +44,8 @@ void nilamp_engine_process(NilampEngine *engine, const float *input, float *outp
 void nilamp_engine_process_taps(NilampEngine *engine, const float *input, float *outputs[NILAMP_NUM_TAPS], uint32_t nframes);
 
 NilampParams nilamp_default_params(void);
+NilampModelId nilamp_engine_model_id(const NilampEngine *engine);
+const char *nilamp_model_name(NilampModelId model_id);
 
 #ifdef NILAMP_ENABLE_TEST_API
 void nilamp_test_flt_ii1_lp(float f, double sample_rate, const float *input, float *output, size_t n);

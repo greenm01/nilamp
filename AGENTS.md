@@ -26,6 +26,8 @@ this file adds the operational details an agent needs to act safely.
 - **Build system**: plain `make`.
 - **Current deliverable**: native offline renderer, tests, and a no-GUI C CLAP
   plugin shell at `native/bin/nilamp.clap`.
+- **Model baseline**: the current native amp is `Keller TWD DLX II`; preserve
+  its behaviour unless a DSP-changing task explicitly says otherwise.
 - **Do not hand-edit staged JSFX harness files** under
   `native/build/jsfx/Effects/nilamp_abx/`; regenerate them with
   `python3 -m tools.jsfx_render.stage_jsfx`.
@@ -109,11 +111,19 @@ depend on legacy DSP source formats or generated build output.
 - C11, compiled with `-Wall -Wextra -Wpedantic -Werror`.
 - No allocation, file I/O, locks, Lua, Python, or host calls in future realtime
   audio processing.
+- Prefer DRY, data-oriented design for amp expansion: shared DSP primitives
+  should consume explicit model data for stage constants, table choices,
+  source impedance, damping, control mappings, and output modes.
+- Data-oriented does not mean an opaque runtime graph. Keep topology execution
+  in readable C functions when sample order or feedback timing matters; move
+  repeated formulas and constants into shared blocks or model descriptors.
 - `native/src/nilamp_clap.c` may allocate only outside `process()`
   (`create_plugin`/`activate`/`deactivate`/`destroy`). Keep `process()` free of
   allocation, locks, file I/O, Lua/Python, and host callbacks.
 - Keep DSP state explicit in structs. Sample ordering matters; prefer a
   readable per-sample function over clever graph abstractions.
+- New amp models should be added through the native model registry, with
+  `Keller TWD DLX II` as the protected default/reference model.
 - The 5E3 PSS order must match JSFX:
   previous-sample tube currents feed PSS first, then current-sample `dvs2` and
   `dvs3` feed the tube stages in the same sample.

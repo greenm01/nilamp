@@ -2,6 +2,37 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: Multi-amp model boundary -> TWD DLX II BASELINE PRESERVED
+
+**Edit summary.**
+
+- Introduced native amp model identity with `Keller TWD DLX II` as the default
+  model.
+- Wrapped the engine around a model registry plus model-owned state, leaving
+  the current TWD DLX II process order and tap diagnostics intact.
+- Started moving repeated TWD constants into explicit model data so future amp
+  topologies can share Keller blocks without duplicating formulas.
+- Updated agent guidance to prefer DRY, data-oriented amp expansion while
+  avoiding opaque runtime graphs that would hide feedback/sample ordering.
+
+**Verification.**
+
+- `make native-test` passes.
+- `make native-jsfx-test` passes.
+- ysfx sine ABX remains at residual `-31.4 dB`, correlation `0.998804`,
+  best native-to-JSFX gain `+0.00 dB`.
+- ysfx sine tap diagnostics still pass the public guard: residual `-48.5 dB`,
+  correlation `0.999986`.
+
+**Next work.**
+
+1. If verification stays clean, split reusable blocks into separate source
+   files only when a second amp needs them; avoid churn before that.
+2. Add the next amp by adding model data and a topology-specific process
+   function, not by changing the TWD DLX II baseline.
+3. Move per-amp source impedance/damping and IR/line-output choices into model
+   descriptors when the first non-TWD model is introduced.
+
 ### Session: ysfx replaces REAPER parity harness -> HEADLESS JSFX PASS
 
 **Edit summary.**

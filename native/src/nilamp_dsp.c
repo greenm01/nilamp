@@ -65,10 +65,7 @@ typedef struct {
     float s;
 } TubePss;
 
-struct NilampEngine {
-    double sr;
-    NilampParams params;
-
+typedef struct {
     TubeCk t1;
     TubeCk t2;
     TubeCd t3;
@@ -99,6 +96,23 @@ struct NilampEngine {
     float prev_dia1;
     float prev_dig;
     float prev_dia3;
+} NilampTwdDlxIiState;
+
+typedef struct {
+    NilampModelId id;
+    const char *name;
+    const char *family;
+    float speaker_source_ohms;
+    float speaker_nominal_ohms;
+} NilampModelSpec;
+
+struct NilampEngine {
+    double sr;
+    NilampParams params;
+    const NilampModelSpec *model;
+    union {
+        NilampTwdDlxIiState twd_dlx_ii;
+    } state;
 };
 
 typedef struct {
@@ -148,6 +162,26 @@ typedef struct {
     float dia1_next;
 } NilampTapFrame;
 
+static const NilampModelSpec NILAMP_MODELS[] = {
+    {
+        .id = NILAMP_MODEL_KELLER_TWD_DLX_II,
+        .name = "Keller TWD DLX II",
+        .family = "5E3 tweed deluxe",
+        .speaker_source_ohms = 0.0f,
+        .speaker_nominal_ohms = 8.0f,
+    },
+};
+
+static const NilampModelSpec *nilamp_find_model(NilampModelId model_id)
+{
+    for (size_t i = 0; i < sizeof(NILAMP_MODELS) / sizeof(NILAMP_MODELS[0]); i++) {
+        if (NILAMP_MODELS[i].id == model_id) {
+            return &NILAMP_MODELS[i];
+        }
+    }
+    return NULL;
+}
+
 static int nilamp_tap_frame_is_finite(NilampTapFrame taps)
 {
     return isfinite(taps.v_out) && isfinite(taps.res1_v) && isfinite(taps.res3_v) &&
@@ -185,6 +219,44 @@ static const StageCfg T5 = {
     nilamp_t5_6v6_table, 13503, 0.0242248062f, 0.12f, 3000.0f, 0.0f,
     0.0f, 0.00289017341f, 0.9302325581f, 0.0f, 0.0001213872832f,
     0.18144f, 0.18f, 0.325f, 0.388f, 0.00155f, 0.0234f, 0.00675f,
+};
+
+typedef struct {
+    const StageCfg *t1;
+    const StageCfg *t2;
+    const StageCfg *t3;
+    const StageCfg *t4;
+    const StageCfg *t5;
+    float input_feed_gain;
+    float input_keller_gain_sq;
+    float pss1_r;
+    float pss1_tau;
+    float pss2_r;
+    float pss2_tau;
+    float pss3_r_at_full_sag;
+    float pss3_tau;
+    float phase_t4_gain;
+    float phase_t5_gain;
+    float screen_current_feedback;
+} NilampTwdDlxIiData;
+
+static const NilampTwdDlxIiData TWD_DLX_II_DATA = {
+    .t1 = &T1,
+    .t2 = &T2,
+    .t3 = &T3,
+    .t4 = &T4,
+    .t5 = &T5,
+    .input_feed_gain = 0.5f,
+    .input_keller_gain_sq = 1.2f,
+    .pss1_r = 125.0f,
+    .pss1_tau = 0.008f,
+    .pss2_r = 5100.0f,
+    .pss2_tau = 0.0816f,
+    .pss3_r_at_full_sag = 22000.0f,
+    .pss3_tau = 0.352f,
+    .phase_t4_gain = 0.797f,
+    .phase_t5_gain = 0.940f,
+    .screen_current_feedback = 0.025f,
 };
 #ifdef NILAMP_ENABLE_TEST_API
 static const StageCfg T2_DZ = {
@@ -495,12 +567,23 @@ NilampParams nilamp_default_params(void)
 
 NilampEngine *nilamp_engine_create(double sample_rate)
 {
+    return nilamp_engine_create_model(sample_rate, NILAMP_MODEL_DEFAULT);
+}
+
+NilampEngine *nilamp_engine_create_model(double sample_rate, NilampModelId model_id)
+{
     NilampEngine *engine = calloc(1, sizeof(*engine));
     if (engine == NULL) {
         return NULL;
     }
+    const NilampModelSpec *model = nilamp_find_model(model_id);
+    if (model == NULL) {
+        free(engine);
+        return NULL;
+    }
     engine->sr = sample_rate;
     engine->params = nilamp_default_params();
+    engine->model = model;
     return engine;
 }
 
@@ -516,9 +599,11 @@ void nilamp_engine_reset(NilampEngine *engine)
     }
     const double sr = engine->sr;
     const NilampParams params = engine->params;
+    const NilampModelSpec *model = engine->model;
     memset(engine, 0, sizeof(*engine));
     engine->sr = sr;
     engine->params = params;
+    engine->model = model;
 }
 
 void nilamp_engine_set_params(NilampEngine *engine, const NilampParams *params)
@@ -528,77 +613,94 @@ void nilamp_engine_set_params(NilampEngine *engine, const NilampParams *params)
     }
 }
 
-static NilampTapFrame nilamp_engine_process_sample(NilampEngine *engine, float input)
+NilampModelId nilamp_engine_model_id(const NilampEngine *engine)
 {
+    return engine != NULL && engine->model != NULL ? engine->model->id : NILAMP_MODEL_DEFAULT;
+}
+
+const char *nilamp_model_name(NilampModelId model_id)
+{
+    const NilampModelSpec *model = nilamp_find_model(model_id);
+    return model != NULL ? model->name : "";
+}
+
+static NilampTapFrame nilamp_twd_dlx_ii_process_sample(NilampTwdDlxIiState *st, double sr, const NilampParams *params, float input)
+{
+    const NilampTwdDlxIiData *model = &TWD_DLX_II_DATA;
+
     /* Keller g1 uses sqrt(1.2); REAPER's mono JSFX render path contributes
        the 0.5 feed factor that the parity harness measures at the first tap. */
-    const float gain = db_to_linear(engine->params.gain_db) * 0.5f * sqrtf(1.2f);
-    const float volume = engine->params.volume_pct * 0.01f;
-    const float bass = engine->params.bass_pct * 0.01f;
-    const float mid = engine->params.mid_pct * 0.01f;
-    const float treble = engine->params.treble_pct * 0.01f;
-    const float sag = engine->params.sag_pct * 0.01f;
+    const float gain =
+        db_to_linear(params->gain_db) * model->input_feed_gain * sqrtf(model->input_keller_gain_sq);
+    const float volume = params->volume_pct * 0.01f;
+    const float bass = params->bass_pct * 0.01f;
+    const float mid = params->mid_pct * 0.01f;
+    const float treble = params->treble_pct * 0.01f;
+    const float sag = params->sag_pct * 0.01f;
 
-    engine->t4.advk = 0.5f * (engine->t4.advk + engine->t5.advk);
-    engine->t5.advk = engine->t4.advk;
-    const float t4_advk_in = engine->t4.advk;
-    const float t5_advk_in = engine->t5.advk;
+    st->t4.advk = 0.5f * (st->t4.advk + st->t5.advk);
+    st->t5.advk = st->t4.advk;
+    const float t4_advk_in = st->t4.advk;
+    const float t5_advk_in = st->t5.advk;
 
-    const float old_s2 = engine->p2.s;
-    const float old_s3 = engine->p3.s;
+    const float old_s2 = st->p2.s;
+    const float old_s3 = st->p3.s;
 
-    const float dvs1 = tube_pss_process(&engine->p1, 125.0f, 0.008f, engine->sr, old_s2, engine->prev_dia1, 0.0f);
-    const float dvs2 = tube_pss_process(&engine->p2, 5100.0f, 0.0816f, engine->sr, old_s3, engine->prev_dig, dvs1);
-    const float dvs3 = tube_pss_process(&engine->p3, sag * 22000.0f, 0.352f, engine->sr, 0.0f, engine->prev_dia3, dvs2);
-    const float p2_s = engine->p2.s;
-    const float p3_s = engine->p3.s;
+    const float dvs1 =
+        tube_pss_process(&st->p1, model->pss1_r, model->pss1_tau, sr, old_s2, st->prev_dia1, 0.0f);
+    const float dvs2 =
+        tube_pss_process(&st->p2, model->pss2_r, model->pss2_tau, sr, old_s3, st->prev_dig, dvs1);
+    const float dvs3 = tube_pss_process(
+        &st->p3, sag * model->pss3_r_at_full_sag, model->pss3_tau, sr, 0.0f, st->prev_dia3, dvs2);
+    const float p2_s = st->p2.s;
+    const float p3_s = st->p3.s;
 
     float res1_v, res1_dia;
-    tube_ck_process(&engine->t1, &T1, engine->sr, input * gain, dvs3, &res1_v, &res1_dia);
+    tube_ck_process(&st->t1, model->t1, sr, input * gain, dvs3, &res1_v, &res1_dia);
 
-    float v2 = ii1_hp_process(&engine->hp1, 10.0f, engine->sr, res1_v);
+    float v2 = ii1_hp_process(&st->hp1, 10.0f, sr, res1_v);
     v2 *= volume * volume;
-    v2 = svf2_tst(&engine->tone, engine->sr, bass * bass, mid * mid, treble * treble, 630.0f, 0.5f, v2);
-    v2 = ii1_lp_process(&engine->lp1, 8800.0f, engine->sr, v2);
+    v2 = svf2_tst(&st->tone, sr, bass * bass, mid * mid, treble * treble, 630.0f, 0.5f, v2);
+    v2 = ii1_lp_process(&st->lp1, 8800.0f, sr, v2);
 
     float res3_v, res3_dia;
-    tube_ck_process(&engine->t2, &T2, engine->sr, v2, dvs3, &res3_v, &res3_dia);
-    const float res3_hp = ii1_hp_process(&engine->hp2, 0.41f, engine->sr, res3_v);
+    tube_ck_process(&st->t2, model->t2, sr, v2, dvs3, &res3_v, &res3_dia);
+    const float res3_hp = ii1_hp_process(&st->hp2, 0.41f, sr, res3_v);
 
     float res4_v, res4_vk, res4_dia;
-    tube_cd_process(&engine->t3, &T3, engine->sr, res3_hp, dvs3, &res4_v, &res4_vk, &res4_dia);
+    tube_cd_process(&st->t3, model->t3, sr, res3_hp, dvs3, &res4_v, &res4_vk, &res4_dia);
 
-    float drive_t4 = res4_v * 0.797f;
-    drive_t4 = ii1_hp_process(&engine->hp3, 5.8f, engine->sr, drive_t4);
-    drive_t4 = svf2_peq(&engine->peq1_t4, engine->sr, 1.1220184543f, 80.0f, 2.6685237666f, drive_t4);
-    drive_t4 = svf1_hs(&engine->hs1_t4, engine->sr, 1.4125375446f, 2098.1359672f, drive_t4);
+    float drive_t4 = res4_v * model->phase_t4_gain;
+    drive_t4 = ii1_hp_process(&st->hp3, 5.8f, sr, drive_t4);
+    drive_t4 = svf2_peq(&st->peq1_t4, sr, 1.1220184543f, 80.0f, 2.6685237666f, drive_t4);
+    drive_t4 = svf1_hs(&st->hs1_t4, sr, 1.4125375446f, 2098.1359672f, drive_t4);
 
     float res5_v, res5_dia;
-    tube_ck_process(&engine->t4, &T4, engine->sr, drive_t4, dvs2, &res5_v, &res5_dia);
-    const float t4_advk_out = engine->t4.advk;
+    tube_ck_process(&st->t4, model->t4, sr, drive_t4, dvs2, &res5_v, &res5_dia);
+    const float t4_advk_out = st->t4.advk;
 
-    float aux = res4_vk * 0.940f;
-    aux = ii1_hp_process(&engine->hp4, 6.4f, engine->sr, aux);
-    aux = svf2_peq(&engine->peq1_t5, engine->sr, 1.1220184543f, 80.0f, 2.6685237666f, aux);
-    aux = svf1_hs(&engine->hs1_t5, engine->sr, 1.4125375446f, 2098.1359672f, aux);
+    float aux = res4_vk * model->phase_t5_gain;
+    aux = ii1_hp_process(&st->hp4, 6.4f, sr, aux);
+    aux = svf2_peq(&st->peq1_t5, sr, 1.1220184543f, 80.0f, 2.6685237666f, aux);
+    aux = svf1_hs(&st->hs1_t5, sr, 1.4125375446f, 2098.1359672f, aux);
     const float drive_t5 = aux;
 
     float res_t5_v, res_t5_dia;
-    tube_ck_process(&engine->t5, &T5, engine->sr, aux, dvs2, &res_t5_v, &res_t5_dia);
-    const float t5_advk_out = engine->t5.advk;
+    tube_ck_process(&st->t5, model->t5, sr, aux, dvs2, &res_t5_v, &res_t5_dia);
+    const float t5_advk_out = st->t5.advk;
 
     const float post_pp = res5_v - res_t5_v;
-    const float post_peq3 = svf2_peq(&engine->peq3, engine->sr, 1.2589254118f, 80.0f, 2.2440931043f, post_pp);
-    const float post_hs3 = svf1_hs(&engine->hs3, engine->sr, 1.4125375446f, 1485.8089753f, post_peq3);
-    const float post_hp5 = ii1_hp_process(&engine->hp5, 40.0f, engine->sr, post_hs3);
+    const float post_peq3 = svf2_peq(&st->peq3, sr, 1.2589254118f, 80.0f, 2.2440931043f, post_pp);
+    const float post_hs3 = svf1_hs(&st->hs3, sr, 1.4125375446f, 1485.8089753f, post_peq3);
+    const float post_hp5 = ii1_hp_process(&st->hp5, 40.0f, sr, post_hs3);
     float v_out = post_hp5;
-    v_out = df2_lp(&engine->lp2, engine->sr, 10000.0f, sqrtf(0.5f), v_out);
-    v_out *= 0.5f / (T4.rl * T4.isat + T5.rl * T5.isat);
+    v_out = df2_lp(&st->lp2, sr, 10000.0f, sqrtf(0.5f), v_out);
+    v_out *= 0.5f / (model->t4->rl * model->t4->isat + model->t5->rl * model->t5->isat);
 
     const float dia1_next = res5_dia + res_t5_dia;
-    engine->prev_dia1 = dia1_next;
-    engine->prev_dig = 0.025f * engine->prev_dia1;
-    engine->prev_dia3 = res1_dia + res3_dia + res4_dia;
+    st->prev_dia1 = dia1_next;
+    st->prev_dig = model->screen_current_feedback * st->prev_dia1;
+    st->prev_dia3 = res1_dia + res3_dia + res4_dia;
 
     return (NilampTapFrame) {
         .v_out = v_out,
@@ -625,6 +727,15 @@ static NilampTapFrame nilamp_engine_process_sample(NilampEngine *engine, float i
         .t5_advk_out = t5_advk_out,
         .dia1_next = dia1_next,
     };
+}
+
+static NilampTapFrame nilamp_engine_process_sample(NilampEngine *engine, float input)
+{
+    if (engine->model == NULL || engine->model->id == NILAMP_MODEL_KELLER_TWD_DLX_II) {
+        return nilamp_twd_dlx_ii_process_sample(
+            &engine->state.twd_dlx_ii, engine->sr, &engine->params, input);
+    }
+    return (NilampTapFrame) { 0 };
 }
 
 void nilamp_engine_process(NilampEngine *engine, const float *input, float *output, uint32_t nframes)
