@@ -2,6 +2,79 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: PSS p2 values + pre-T4 EQ → still FAIL, runaway pattern reframed
+
+**Hypothesis tested.**  Phase 1' from prior session's plan: keep Faust's
+single-stage PSS but retune to JSFX's `p2` values (r=5100, tau=0.0816,
+1.95 Hz pole) on the theory that the pre-T4 EQ destabilization came from
+Faust's stiffer 3.18 Hz pole + 4.3× higher source impedance.  Combined
+with adding the pre-T4 EQ chain (`drive_t4 = res4_v : *k1_mode0 : hp3 :
+peq1 : hs1`) in one patch.  Build cost ~12 min.
+
+**Edit (since reverted, working tree clean):**
+- `dsp/nilamp.dsp:37`  `r_pss = sag * 22000.0` → `sag * 5100.0`
+- `dsp/nilamp.dsp:38`  `tau_pss = 0.05` → `0.0816`
+- Added `k1_mode0 = 0.797`, `hp3_hz = 5.8` constants.
+- Added `drive_t4` chain and fed it (not `res4_v`) to the T4 stage.
+
+**Result vs prior data points:**
+
+| run                                  | r_pss | tau    | EQ  | sine resid | sweep peak A | sweep RMS A | verdict |
+|--------------------------------------|------:|-------:|-----|-----------:|-------------:|------------:|---------|
+| public baseline (commit before)      | 22000 | 0.05   | no  | -16.0 dB   | 0.42         | 0.18 cont.  | works   |
+| prior session: EQ only               | 22000 | 0.05   | yes | -6.6 dB    | 32.6         | ~0.99       | runaway |
+| **this session: EQ + p2 PSS**        | 5100  | 0.0816 | yes | -6.8 dB    | 10.7         | 1.15 burst  | runaway |
+
+PSS retuning halved sweep peak (32.6 → 10.7) but did not stabilize.
+Sine residual unchanged.
+
+**Critical new observation: Faust output is silent for the bulk of the
+sweep.**  50 ms RMS profile of `/tmp/abx_compare/sweep_nilamp.wav`:
+
+- t=0.000 (f=20 Hz)         RMS 0.7986   peak 1.701   ← startup transient
+- t=0.200-2.800 (26-1030 Hz) RMS ~0.0001 peak ~0.000  ← total silence
+- t=3.000 (f=1365 Hz)        RMS 1.1531  peak 10.744  ← runaway burst
+- t=3.200 (f=1809 Hz)        RMS 0.1402  peak 1.607   ← ringing decay
+- t=3.400+ (>2.4 kHz)        RMS ~0.001  peak ~0.01   ← silence
+
+JSFX same input shows continuous RMS 0.17-0.31 throughout.
+
+**Conclusion:** the runaway is not "loop oscillation in a band of the
+sweep".  Faust is producing essentially zero output across the entire
+20-1000 Hz steady-state range, then a single transient burst at the
+1.3-1.8 kHz region.  This pattern is consistent with **operating point
+collapse**: dvs grows so large in steady state that all tubes are
+biased into hard cutoff; only fast transients (sweep onset, sweep
+crossing the hs1 high-shelf transition near 2 kHz) momentarily kick
+the system out of cutoff and produce output.
+
+**Why r=5100 helped less than expected:**  reducing r reduces dvs
+sensitivity to dia, but Faust's `total_dia = res1+res3+res4+res5`
+sums **preamp + power-tube** dia into the same single PSS node.  In
+JSFX's p2 stage, the dia entering the multiplier is
+`dig = kgrid * dia1` with `kgrid = 0.025` and `dia1 = t4.dia + t5.dia`
+only — so JSFX's effective scale of "power-tube dia × p2.r" is
+`0.025 * 5100 = 127.5`, while Faust at r=5100 with all four tubes'
+dia summed has effective scale `5100 * 1` (no kgrid) = ~40× larger.
+That extra DC bias is what's driving tubes into cutoff.
+
+**Implication:** the `kgrid = 0.025` scale factor I had previously
+classified as "2nd-order, defer" (in prior session log) is actually
+**the dominant scale factor of the power-tube supply**.  Without it,
+no single-stage PSS retune will stabilize the audio path with EQ.
+
+**Next steps left for next session (no edits this session):**
+1. Try Phase 1'' (cheap): revert PSS to baseline (r=22000, tau=0.05),
+   keep pre-T4 EQ, divide `total_dia` by ~40 (= 1/kgrid) entering the
+   PSS.  One-line edit, one rebuild.  Tests "is the issue dia magnitude
+   alone?".
+2. Or go directly to Phase 1: full 3-stage PSS port matching JSFX
+   (p1/p2/p3 cascaded, separate dvs2 for T4/T5 vs dvs3 for T1-T3,
+   `dig = kgrid * dia1`).  More work but most likely correct.
+3. Working tree is clean; revert is already in place.
+
+---
+
 ### Session: JSFX-faithful pre-T4 chain in public audio path → FAIL
 
 **Goal:** test whether public's `-16 dB sine / -11.2 dB sweep` residual
