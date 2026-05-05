@@ -2,6 +2,85 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: PSS topology mismatch identified as runaway root cause → INCONCLUSIVE (analysis only, no edits)
+
+**Hypothesis tested.**  Phase 0 established that JSFX's pre-T4 chain
+(`*k1 → hp3 → peq1 → hs1`) is canonical and missing from Faust.
+Phase 1' / Phase 1'' showed that adding it produces runaway (sweep
+peak 32.6, sine residual −6.6 dB). Bisecting the chain element-by-
+element was the planned next step.  Before running the bisection,
+read the JSFX PSS feeding to check whether `total_dia` is fed
+correctly.
+
+**Finding.**  JSFX (twd_dlx_ii.jsfx:379-390) feeds three PSS lumps
+asymmetrically:
+
+```
+dia1 = t4.dia + t5.dia                           // power tubes
+dig  = kgrid * dia1                              // grid-current
+dia3 = t1.dia + t2.dia + t3.dia                  // preamp tubes
+dvs1 = p1.tube_pss_process(0,    p2.s, dia1)     // R=125 Ω,   τ=8 ms
+dvs2 = p2.tube_pss_process(dvs1, p3.s, dig)      // R=5.1 kΩ,  τ=82 ms
+dvs3 = p3.tube_pss_process(dvs2, 0,   dia3)      // R=22 kΩ,   τ=352 ms
+```
+
+Faust (nilamp.dsp:192-199) collapses to a single lump:
+
+```
+total_dia = res1_dia + res3_dia + res4_dia + res5_dia  // ALL tubes
+tube_pss(r=22000, tau=0.05, snext=0, total_dia, old_dvs)
+```
+
+**Why this matters for the pre-T4 chain runaway.**  In JSFX, preamp
+B+ (`dvs3`) is decoupled from instantaneous power-tube plate-current
+swings: t4/t5 currents hit p1 (R=125 Ω, fast/small) and only the
+kgrid-scaled grid current reaches p3 via the chain.  Preamp tubes
+see a slow-moving B+.  In Faust, **all four stage currents pour
+into one 22 kΩ / 50 ms lump**, so any boost to T4's drive (e.g. via
+the missing `peq1+hs1`) directly modulates the B+ that T1/T3 see,
+and the closed loop gains energy at the boost band → runaway.
+
+This explains the Phase 1' diagnostic: switching the lump's r/τ to
+p2 values (5100 / 0.0816) **halved** sweep peak (32.6 → 10.7) but
+didn't stabilise — it tweaked the lump's poles but kept the wrong
+topology.  Phase 1'' kgrid scaling on `total_dia` had no clean way
+to reproduce the JSFX selectivity (different stages feed different
+lumps in JSFX) and also regressed.
+
+**Conclusion.**  Bisecting `*k1 → +hp3 → +peq1 → +hs1` won't reveal
+new information.  The chain is canonical; its insertion is blocked
+by a topology bug in the PSS, not a parameter or numerical issue.
+The TODO at `dsp/nilamp.dsp:36` (`TODO(5e3-v2): split` the 3-stage
+PSS) is the *prerequisite* for landing the pre-T4 chain.
+
+**Suggested next-session plan.**
+
+1. Port the 3-stage PSS from JSFX to Faust.  Need: `tube_pss` already
+   exists and takes `snext` (the next lump's smoothed state), so the
+   chaining shape is supported.  Add `p1`, `p2`, `p3` instances with
+   the JSFX values (125 Ω/8 ms, 5.1 kΩ/82 ms, 22 kΩ/352 ms).  Wire
+   `dia1 = res4_dia + res5_dia`, `dig = kgrid * dia1`, `dia3 =
+   res1_dia + res3_dia` (Faust has no separate t2; the JSFX t2 is
+   the second triode of the 12AX7 which Faust collapses into res1).
+   Keep both `p1.s` and `p2.s` as 1-cycle-delayed feedback paths
+   (Faust `~`).
+2. ABX-gate the PSS-only change *without* the pre-T4 chain.  Public
+   baseline (sine −16 dB, sweep −11.2 dB) should hold or improve.
+3. If (2) passes, add the pre-T4 chain (`*k1 → hp3 → peq1 → hs1`)
+   between `res4_v` and the T4 stage.  ABX-gate again.
+4. If runaway returns, *then* bisect the chain — but at that point
+   the runaway is no longer topology-driven so bisection is
+   meaningful.
+
+**Estimated cost.**  Step 1 is the work: `tube.tube_pss` already
+takes `snext`, so it's plumbing in `nilamp.dsp` plus probably one
+new state in the `~` feedback (currently a single `old_dvs`; will
+need three: `old_dvs1`, `old_dvs2`, `old_dvs3` — and `p2.s` and
+`p3.s` for the snext arguments).  ~1-2 hours of careful Faust
+plumbing plus a build cycle (~1m44s) to ABX-gate.
+
+**No code changes this session.**  Working tree clean.
+
 ### Session: Phase 0 reconciliation — Faust T4 anode chain is missing, not extra → INCONCLUSIVE (framing only)
 
 **Hypothesis tested.**  After reading Keller's PDF text export
