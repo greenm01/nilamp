@@ -73,10 +73,17 @@ fn main() {
     // Per-stage test DSPs. Each is compiled with -cn <stem> so the generated
     // mydsp struct is renamed to <stem>, avoiding collisions when the test
     // crate includes multiple files in the same module.
+    //
+    // Gated behind the `dsp-tests` Cargo feature so iterative
+    // `cargo build --release --bin nilamp_render` cycles don't pay the
+    // cost of translating + LLVM-optimizing 18 test DSPs.  Run with
+    // `cargo test --features dsp-tests` (or build with the same feature)
+    // to enable.  When disabled, an empty stub is written so any
+    // `include!()` referencing the file still finds a (no-op) module.
     let tests_dir = Path::new("dsp/tests");
-    // Ensure cargo re-runs this build script when test DSPs are added or
-    // removed (a plain rerun-if-changed on each file misses additions).
     println!("cargo:rerun-if-changed=dsp/tests");
+    println!("cargo:rerun-if-env-changed=CARGO_FEATURE_DSP_TESTS");
+    let build_tests = env::var("CARGO_FEATURE_DSP_TESTS").is_ok();
     if tests_dir.is_dir() {
         for entry in fs::read_dir(tests_dir).expect("read dsp/tests") {
             let entry = entry.expect("read dir entry");
@@ -90,12 +97,25 @@ fn main() {
                 .expect("test dsp filename utf8");
             println!("cargo:rerun-if-changed={}", path.display());
             let out_path = out_dir.join(format!("{stem}.rs"));
-            faust_compile(&path, &out_path, Some(stem));
+            if build_tests {
+                faust_compile(&path, &out_path, Some(stem));
+            } else {
+                let stub = format!(
+                    "// dsp/tests/{stem}.dsp skipped: feature dsp-tests not enabled.\n"
+                );
+                fs::write(&out_path, stub).expect("write test dsp stub");
+            }
         }
     }
 
+    // Diagnostic DSPs (full-pipeline tap probes).  Large (~670 KB of
+    // generated Rust each) and only needed by the diagnostic render
+    // binaries (which declare `required-features = ["dsp-diagnostics"]`),
+    // so we gate them off by default to keep the main iteration loop fast.
     let diagnostics_dir = Path::new("dsp/diagnostics");
     println!("cargo:rerun-if-changed=dsp/diagnostics");
+    println!("cargo:rerun-if-env-changed=CARGO_FEATURE_DSP_DIAGNOSTICS");
+    let build_diagnostics = env::var("CARGO_FEATURE_DSP_DIAGNOSTICS").is_ok();
     if diagnostics_dir.is_dir() {
         for entry in fs::read_dir(diagnostics_dir).expect("read dsp/diagnostics") {
             let entry = entry.expect("read dir entry");
@@ -109,7 +129,14 @@ fn main() {
                 .expect("diagnostic dsp filename utf8");
             println!("cargo:rerun-if-changed={}", path.display());
             let out_path = out_dir.join(format!("{stem}.rs"));
-            faust_compile_with_timeout(&path, &out_path, Some(stem), Some("300"));
+            if build_diagnostics {
+                faust_compile_with_timeout(&path, &out_path, Some(stem), Some("300"));
+            } else {
+                let stub = format!(
+                    "// dsp/diagnostics/{stem}.dsp skipped: feature dsp-diagnostics not enabled.\n"
+                );
+                fs::write(&out_path, stub).expect("write diagnostic dsp stub");
+            }
         }
     }
 }

@@ -9,6 +9,17 @@ license = "MIT"
 [lib]
 crate-type = ["cdylib", "lib"]
 
+[features]
+default = []
+# Build dsp/tests/*.dsp into per-stage regression test modules.  Required
+# by `cargo test` (tests/regression.rs).  Off by default to keep iterative
+# `cargo build` cycles fast: the 18 test DSPs add ~1.5 MB of generated
+# Rust that cargo otherwise re-translates on every build.
+dsp-tests = []
+# Build dsp/diagnostics/*.dsp (nilamp_drive_taps, nilamp_t5_balance).
+# Required by the diagnostic-only render binaries declared below.
+dsp-diagnostics = []
+
 [[bin]]
 name = "nilamp_render"
 path = "src/bin/nilamp_render.rs"
@@ -17,12 +28,12 @@ required-features = []
 [[bin]]
 name = "nilamp_t5_balance_render"
 path = "src/bin/nilamp_t5_balance_render.rs"
-required-features = []
+required-features = ["dsp-diagnostics"]
 
 [[bin]]
 name = "nilamp_drive_probe_render"
 path = "src/bin/nilamp_drive_probe_render.rs"
-required-features = []
+required-features = ["dsp-diagnostics"]
 
 [dependencies]
 nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", features = ["vst3"] }
@@ -35,6 +46,20 @@ members = ["xtask"]
 [profile.release]
 lto = "thin"
 strip = "symbols"
+
+# Fast-iteration profile.  Drops LTO and lowers opt-level to cut rustc
+# time on the large Faust-generated modules (~640 KB of dense Rust per
+# DSP file).  Use `cargo build --profile release-fast --bin nilamp_render`
+# during debugging.  Verified bit-identical to `release` on a fixed sweep
+# input at the time of introduction; if numerics drift in the future,
+# fall back to `--release` for ABX-authoritative renders.
+[profile.release-fast]
+inherits = "release"
+lto = "off"
+opt-level = 2
+codegen-units = 16
+debug-assertions = false
+overflow-checks = false
 
 [profile.profiling]
 inherits = "release"
