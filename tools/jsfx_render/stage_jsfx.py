@@ -1,6 +1,6 @@
-"""Stage Keller's JSFX bundle into REAPER's Effects directory for harness use.
+"""Stage Keller's JSFX bundle into a local Effects directory for harness use.
 
-Copies vendor/keller-jsfx into ~/.config/REAPER/Effects/nilamp_abx/, with two
+Copies vendor/keller-jsfx into native/build/jsfx/Effects/nilamp_abx/, with two
 variants of the main amp:
 
   - twd_dlx_ii.jsfx           : verbatim vendor file (for manual GUI use).
@@ -36,7 +36,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 VENDOR_DIR = REPO_ROOT / "vendor" / "keller-jsfx"
-DEFAULT_DEST = Path.home() / ".config" / "REAPER" / "Effects" / "nilamp_abx"
+DEFAULT_DEST = REPO_ROOT / "native" / "build" / "jsfx" / "Effects" / "nilamp_abx"
 
 # Vendor source filename for the main amp.
 VENDOR_AMP = "TWD DLX  II.jsfx"   # note: two spaces, as in upstream

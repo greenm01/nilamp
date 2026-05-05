@@ -1,12 +1,12 @@
 """Numerical ABX comparison: native nilamp vs Keller JSFX.
 
 Renders the same input audio + parameter set through both the native C renderer
-(`native/bin/nilamp_render`) and Keller's JSFX (via `tools.jsfx_render`), then
+(`native/bin/nilamp_render`) and Keller's JSFX (via ysfx), then
 computes a battery of numerical metrics on the difference.
 
 Pipeline per test point:
   1. Render input -> nilamp output (native C path).
-  2. Render input -> jsfx output  (REAPER/Keller path).
+  2. Render input -> jsfx output  (ysfx/Keller path).
   3. Trim first 100 ms from both (JSFX warm-up; see notes below).
   4. Time-align via cross-correlation peak (group delays may differ).
   5. Compute metrics: peak, RMS, residual RMS, max abs diff, per-band level
@@ -54,11 +54,9 @@ from typing import Sequence
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 NILAMP_RENDER = REPO_ROOT / "native" / "bin" / "nilamp_render"
-JSFX_RENDER = [sys.executable, "-m", "tools.jsfx_render.render_jsfx"]
-JSFX_RENDER_DRIVER = REPO_ROOT / "tools" / "jsfx_render" / "render_jsfx.lua"
-JSFX_SOURCE = (
-    Path.home() / ".config" / "REAPER" / "Effects" / "nilamp_abx" / "twd_dlx_ii_harness.jsfx"
-)
+JSFX_RENDER = [sys.executable, "-m", "tools.jsfx_render.render_ysfx"]
+JSFX_RENDER_DRIVER = REPO_ROOT / "native" / "bin" / "ysfx_render"
+JSFX_SOURCE = REPO_ROOT / "native" / "build" / "jsfx" / "Effects" / "nilamp_abx" / "twd_dlx_ii_harness.jsfx"
 
 # JSFX warm-up window (see module docstring).
 JSFX_WARMUP_S = 0.100
@@ -270,8 +268,10 @@ def render_jsfx(input_wav: Path, output_wav: Path, params: Params, timeout_s: fl
 
 
 def jsfx_cache_key(input_wav: Path, params: Params) -> str:
+    if not JSFX_SOURCE.is_file():
+        subprocess.run([sys.executable, "-m", "tools.jsfx_render.stage_jsfx"], check=True, cwd=REPO_ROOT)
     h = hashlib.sha256()
-    h.update(b"nilamp-jsfx-cache-v3\0")
+    h.update(b"nilamp-ysfx-cache-v1\0")
     h.update(input_wav.read_bytes())
     h.update(b"\0")
     for path in (JSFX_RENDER_DRIVER, JSFX_SOURCE):
@@ -527,7 +527,7 @@ def main() -> int:
                          "their linear regime so the residual reflects only "
                          "linear filter mismatch.")
     ap.add_argument("--jsfx-timeout", type=float, default=60.0,
-                    help="REAPER/JSFX render timeout in seconds (default: 60).")
+                    help="ysfx render timeout in seconds (default: 60).")
     ap.add_argument("--no-jsfx-cache", action="store_true",
                     help="Disable JSFX reference-render cache.")
     ap.add_argument("--nilamp-render", type=Path, default=NILAMP_RENDER,

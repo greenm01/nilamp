@@ -6,9 +6,9 @@ Conversation that produced these notes: `dsp.txt` (same directory).
 
 Status update, 2026-05-05: these notes were written before the project moved
 away from the Faust/Rust experiment. The current implementation direction is
-native C for DSP and plugin code, plain `make` for builds, Lua for REAPER host
-harness automation, and Python only for offline/reference tooling where it is
-already useful. The native ADNL hot path uses generated `float` polynomial
+native C for DSP and plugin code, plain `make` for builds, ysfx for headless
+Keller JSFX reference renders, and Python only for offline/reference tooling
+where it is already useful. The native ADNL hot path uses generated `float` polynomial
 tables, not runtime `tanhf()` or linear interpolation.
 
 ---
@@ -20,7 +20,7 @@ tables, not runtime `tanhf()` or linear interpolation.
 **Foundation**: Helmut Keller's "A Tube Amp Modeling Project" 5E3 emulation (JSFX, runs in REAPER or via YSFX wrapper). Block-diagram + ADAA + polynomial lookup tables. Already sounds good and runs on a tablet. We extend, we don't replace.
 
 **Tech stack**: native C DSP + native C CLAP shell, built with plain `make`.
-Lua drives REAPER validation/render harnesses. Python remains for offline
+ysfx drives headless Keller JSFX parity renders. Python remains for offline
 lookup-table/reference generation and parity diagnostics. Linux primary target.
 
 **Direction**: see §2.
@@ -228,9 +228,9 @@ Native C CLAP shell
   ├─ Parameters, automation, state, and audio ports
   └─ Thin wrapper over the native DSP engine
 
-Lua REAPER harnesses
-  ├─ JSFX render/tap parity automation
-  └─ CLAP host validation automation
+ysfx JSFX harness
+  ├─ Headless Keller render/tap parity automation
+  └─ Repo-local staged JSFX under native/build/jsfx
 
 Plain make
   └─ Builds native renderer, tap renderer, tests, and CLAP plugin
@@ -433,10 +433,11 @@ Native performance hygiene:
 | Nim | GC concerns; stalled momentum; skip |
 | Faust → Rust | Rejected for this project; useful conceptually, but not the current stack. |
 | **C + CLAP** | **Current runtime stack** — direct control, simple build, no Rust/Faust dependency. |
-| **Lua** | **Current host/harness scripting stack** — REAPER automation and later lightweight scripting where useful. |
+| **Lua** | Build-time config/codegen only unless a concrete non-audio use appears. |
+| **ysfx** | **Current JSFX parity stack** — headless Keller reference renders without REAPER. |
 
-**Final stack**: native C DSP + native C CLAP shell, plain `make`, Lua for
-REAPER harnesses, Python for offline/reference tooling, primary target Linux.
+**Final stack**: native C DSP + native C CLAP shell, plain `make`, ysfx for
+JSFX parity, Python for offline/reference tooling, primary target Linux.
 
 ---
 

@@ -13,7 +13,7 @@ report numerical metrics on the difference signal.
 ```
 input.wav --+--> native/bin/nilamp_render ----------> nilamp.wav --+
             |                                                     +--> metrics
-            +--> render_jsfx.py -> REAPER -> JSFX -> jsfx.wav ----+
+            +--> render_ysfx.py -> ysfx -> JSFX -> jsfx.wav ------+
 ```
 
 The comparator time-aligns outputs, trims the JSFX warm-up window, then reports
@@ -24,9 +24,9 @@ THD-oriented metrics for sine inputs.
 
 | File | Role |
 |---|---|
-| `tools/jsfx_render/stage_jsfx.py` | Stages Keller source into REAPER's `Effects/nilamp_abx/` directory and emits the harness-patched amp. |
-| `tools/jsfx_render/render_jsfx.lua` | ReaScript driver that renders JSFX output. |
-| `tools/jsfx_render/render_jsfx.py` | Python wrapper around the headless JSFX render. |
+| `tools/jsfx_render/stage_jsfx.py` | Stages Keller source into `native/build/jsfx/Effects/nilamp_abx/` and emits harness-patched amps. |
+| `native/src/ysfx_render.c` | Headless C runner around the ysfx hosting API. |
+| `tools/jsfx_render/render_ysfx.py` | Python wrapper around the ysfx renderer. |
 | `tools/abx_compare.py` | Drives native and JSFX renderers, aligns outputs, computes metrics. |
 | `tools/compare_taps.py` | Renders native and JSFX diagnostic taps and reports per-stage residuals. |
 
@@ -55,9 +55,10 @@ Pinned JSFX sliders:
 | `gs_pre` / `gs_post` | `3` / `3` | TWD DLX II speaker-inductor defaults |
 | `fm` / `qm` / `fs` / `gout` | `56` / `-6` / `62` / `0` | TWD DLX II defaults |
 
-The REAPER driver forces the project/render sample rate before inserting media
-or instantiating JSFX, so Keller's `srate`-derived coefficients initialize at
-the same rate used by the native renderer.
+The ysfx runner sets the JSFX sample rate and block size before `@init`, then
+sets sliders before the first processing block. The Python wrapper applies a
+default `0.5` input gain before JSFX processing to preserve the old REAPER mono
+harness calibration that native currently matches.
 
 ## Warm-up Trim
 
@@ -78,7 +79,7 @@ Use a WAV input directly or generate deterministic inputs on demand:
 make native
 python3 tools/abx_compare.py input.wav
 python3 tools/abx_compare.py --preset sine --rms-threshold-db -16
-python3 tools/abx_compare.py --preset sweep --rms-threshold-db -11.2 --jsfx-timeout 120
+python3 tools/abx_compare.py --preset sweep --rms-threshold-db -11.2
 ```
 
 Generated preset WAVs are written under the selected `--out-dir` and are not
@@ -103,11 +104,10 @@ p2_s, p3_s, drive_t5, post_pp, post_peq3, post_hs3, post_hp5,
 t4_advk_in, t5_advk_in, t4_dia, t5_dia, t4_advk_out, t5_advk_out,
 dia1_next`.
 
-REAPER itself is not truly headless. On a machine without an active display,
-run these harnesses under a virtual display such as `xvfb-run -a`, and keep
-renders serial because the temporary driver paths are shared.
+The ysfx path is truly headless and does not require an active display. Legacy
+REAPER wrappers remain in `tools/jsfx_render/` for manual comparison only.
 
-Latest native C run:
+Latest ysfx-backed native C run:
 
-- sine preset: `-20.9 dB` residual below native peak, threshold `-16.0 dB` -> PASS; correlation `0.997197`, best A->B gain `+1.14 dB`
-- sweep preset: `-19.7 dB` residual below native peak, threshold `-11.2 dB` -> PASS; correlation `0.958873`, best A->B gain `+0.90 dB`
+- sine preset: `-31.4 dB` residual below native peak, threshold `-16.0 dB` -> PASS; correlation `0.998804`, best A->B gain `+0.00 dB`
+- sweep preset: `-23.9 dB` residual below native peak, threshold `-11.2 dB` -> PASS; correlation `0.980020`, best A->B gain `+0.29 dB`

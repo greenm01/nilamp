@@ -2,6 +2,46 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: ysfx replaces REAPER parity harness -> HEADLESS JSFX PASS
+
+**Edit summary.**
+
+- Added `native/bin/ysfx_render`, a Make-built C runner around the maintained
+  ysfx checkout at `/home/niltempus/src/ysfx`.
+- Moved staged Keller harnesses to `native/build/jsfx/Effects/nilamp_abx/`;
+  ABX and tap diagnostics now use `tools.jsfx_render.render_ysfx` by default.
+- `make native-host-test` is now REAPER-free: native CLAP loader plus optional
+  `clap-validator`. The old REAPER CLAP smoke target is
+  `make native-reaper-host-test`.
+- The ysfx wrapper applies `0.5` input gain before JSFX processing to preserve
+  the prior REAPER mono-harness calibration that native currently matches.
+
+**Verification.**
+
+- `make native/bin/ysfx_render` passes.
+- `python3 -m py_compile tools/jsfx_render/render_ysfx.py tools/jsfx_render/render_jsfx.py tools/jsfx_render/stage_jsfx.py tools/abx_compare.py tools/compare_taps.py tools/clap_validate/validate_clap.py` passes.
+- `python3 -m tools.jsfx_render.stage_jsfx` stages to
+  `native/build/jsfx/Effects/nilamp_abx`.
+- ysfx sine ABX passes: residual `-31.4 dB`, correlation `0.998804`,
+  best native-to-JSFX gain `+0.00 dB`.
+- ysfx sweep ABX passes: residual `-23.9 dB`, correlation `0.980020`,
+  best native-to-JSFX gain `+0.29 dB`.
+- ysfx sine tap diagnostics run headlessly; tap/public guard is `-48.5 dB`,
+  correlation `0.999986`.
+- `make native-host-test` passes: native tests, native CLAP loader, and
+  `clap-validator` 21-test suite all pass (`16 passed`, `5 skipped`).
+- `make native-jsfx-test` passes.
+
+**Next work.**
+
+1. Re-baseline tap diagnosis under ysfx. The old REAPER 23-tap T5/DIA numbers
+   should not be mixed with the new ysfx-hosted numbers.
+2. Decide whether to keep native's REAPER-era `0.5 * sqrt(1.2)` input
+   calibration long term or move to true ysfx/Keller mono calibration in a
+   separate DSP-affecting change.
+3. Continue parity work from the ysfx tap residuals, not from legacy REAPER
+   render artifacts.
+
 ### Session: Power-tube current taps -> T5/DIA LOOP SUSPECT
 
 **Edit summary.**

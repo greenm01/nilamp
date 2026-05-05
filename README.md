@@ -9,7 +9,7 @@ The name is "no amp" — `nil` + `amp`.
 
 The active implementation is a native C DSP engine with Make-built offline
 renderers and a first-pass C CLAP plugin shell. The current milestone is
-continuing JSFX parity work while hardening the plugin host surface.
+continuing ysfx-backed JSFX parity work while hardening the plugin host surface.
 
 ## Goals
 
@@ -21,6 +21,7 @@ continuing JSFX parity work while hardening the plugin host surface.
 ## Tech stack
 
 - **C** for realtime DSP and offline rendering
+- **ysfx** for headless Keller JSFX reference renders
 - **Lua** for build-time config/codegen only
 - **Python** with NumPy/SciPy for table generation, oracle fixtures, and ABX
   analysis
@@ -47,6 +48,7 @@ docs/                 Current notes, research references, ABX notes
 make native
 make native-test
 make native-host-test
+make native-jsfx-test
 ```
 
 This builds:
@@ -54,8 +56,17 @@ This builds:
 - `native/bin/nilamp_render`
 - `native/bin/nilamp_taps_render`
 - `native/bin/nilamp.clap`
+- `native/bin/ysfx_render`
 - `native/bin/test_native`
 - `native/bin/test_clap_load`
+
+`native/bin/ysfx_render` is linked against the maintained ysfx checkout at
+`/home/niltempus/src/ysfx` by default. Initialize that checkout's submodules if
+the build reports missing `thirdparty/dr_libs` headers:
+
+```bash
+git -C /home/niltempus/src/ysfx submodule update --init
+```
 
 Regenerate generated native tables after table-generator changes:
 
@@ -77,9 +88,9 @@ python3 tools/abx_compare.py --preset sine
 python3 tools/abx_compare.py --preset sweep
 ```
 
-`make native-host-test` is REAPER-dependent. It validates the CLAP plugin
-through a real host using temporary `CLAP_PATH` discovery and does not install
-or symlink the plugin into `~/.clap`.
+`make native-host-test` is REAPER-free: it runs the native CLAP loader and
+optional `clap-validator` when that tool is installed. The old REAPER smoke
+test remains available as `make native-reaper-host-test` for manual host checks.
 
 ## License
 
