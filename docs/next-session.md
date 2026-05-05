@@ -2,6 +2,48 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: build-time reduction (feature-gate test/diagnostic DSPs) → SUCCESS
+
+**Hypothesis tested.**  Cold `cargo build --release` was ~12 minutes
+because `build.rs` shells out `faust -lang rust` for all 20 .dsp files
+even when only `dsp/nilamp.dsp` is needed by the production binary.
+Gating tests and diagnostics behind Cargo features should slash cold
+build time without affecting audio output.
+
+**Edits (commits `3b2523a`, `6bdabce`, plus user-side `37ae8dd`):**
+- `Cargo.toml`: added `[features]` (`dsp-tests`, `dsp-diagnostics`,
+  `default = []`); added `required-features = ["dsp-diagnostics"]` to
+  `nilamp_t5_balance_render` and `nilamp_drive_probe_render`; added
+  `[profile.release-fast]` (lto=off, opt-level=2, codegen-units=16).
+- `build.rs`: feature-gated the `dsp/tests/*.dsp` and
+  `dsp/diagnostics/*.dsp` loops; emit `// skipped` stub `.rs` when the
+  feature is off so any stale `include!()` still resolves.  Added
+  `cargo:rerun-if-env-changed` for both feature env vars.
+- `tests/regression.rs`: prepended `#![cfg(feature = "dsp-tests")]`.
+- `AGENTS.md`: new project-conventions doc for AI coding agents.
+- `README.md`: documented Cargo features and release-fast profile.
+
+**Measurements.**
+
+| scenario                                | release | release-fast |
+|-----------------------------------------|--------:|-------------:|
+| cold full build (default features)      |   1m44s |        1m41s |
+| incremental, src/lib.rs touched         |    2.6s |         0.9s |
+| incremental, dsp/nilamp.dsp touched     |       — |        1m41s |
+| (old) cold build, all 20 DSPs           | ~12 min |            — |
+
+**Verdict.**  Cold build ~12 min → ~1m44s (~7× faster); src-only
+incremental 2.6s → 0.9s with release-fast.  `release-fast` does NOT
+help DSP-edit rebuilds (rustc frontend on the 639 KB dsp.rs dominates).
+**No DSP behaviour changed**: SHA-256 identical sine-440 Hz and
+log-sweep WAVs through `nilamp_render` between `release` and
+`release-fast`.  All 23 regression tests pass with `--features
+dsp-tests`.  Without the feature, `cargo test` is a fast no-op.
+
+**Deferred.**  `mold` linker (not installed system-wide); static
+table extraction from dsp.rs (would require parsing generated Rust
+or splitting the .dsp; not justified by current bottleneck).
+
 ### Session: Phase 1'' Variant A (uniform kgrid scale + pre-T4 EQ) → REGRESS
 
 **Hypothesis tested.**  Phase 1'' Variant A from prior plan: keep PSS at
