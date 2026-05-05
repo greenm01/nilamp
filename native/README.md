@@ -4,7 +4,7 @@
 
 ## Boundaries
 
-- C owns realtime DSP and offline rendering.
+- C owns realtime DSP, offline rendering, and the CLAP plugin shell.
 - Lua may be used for build-time codegen/config helpers when it is useful.
 - Python remains the numerical oracle, fixture generator, and ABX analysis
   layer.
@@ -36,6 +36,16 @@ The tap renderer is:
 ```bash
 native/bin/nilamp_taps_render --input in.wav --output taps.wav
 ```
+
+The no-GUI CLAP plugin is:
+
+```bash
+native/bin/nilamp.clap
+```
+
+`make native-test` runs both the DSP fixture tests and a small CLAP loader
+smoke test that scans the plugin, activates it, processes audio, and applies
+one automation event.
 
 `tools/abx_compare.py` defaults to `native/bin/nilamp_render` for comparison
 against the canonical Keller JSFX render.

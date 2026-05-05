@@ -2,6 +2,36 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: C CLAP shell lands -> SMOKE TEST PASS
+
+**Edit summary.**
+
+- Vendored official CLAP C headers under `third_party/clap/`.
+- Added `native/src/nilamp_clap.c`, a no-GUI CLAP audio effect exposing the
+  native DSP as one stereo input/output pair.
+- Exposed six automatable host parameters: gain, volume, bass, mid, treble,
+  and sag.
+- Added simple binary CLAP state save/load for those six parameter values.
+- Added `native/tests/test_clap_load.c`, a minimal loader smoke test that
+  scans the plugin, activates it, processes stereo audio, and applies one gain
+  automation event.
+- Updated `make native` to build `native/bin/nilamp.clap`; updated
+  `make native-test` to run the CLAP smoke test.
+
+**Verification.**
+
+- `make native-test` passes.
+
+**Next work.**
+
+1. Run an external CLAP validator when one is available locally.
+2. Try `native/bin/nilamp.clap` in REAPER and confirm generic host controls
+   expose all six parameters.
+3. Continue JSFX parity work using `native/bin/nilamp_render`; the plugin shell
+   should stay thin until the DSP/parity surface stabilizes.
+4. For GUI work, follow `docs/notes/gui-dev.md`: Pugl for native plugin
+   windowing/embed and Sokol headers for lightweight drawing/runtime support.
+
 ### Session: ABX harness gain mapping fix -> PUBLIC GATES PASS
 
 **Edit summary.**

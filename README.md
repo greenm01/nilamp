@@ -8,8 +8,8 @@ The name is "no amp" — `nil` + `amp`.
 ## Status
 
 The active implementation is a native C DSP engine with Make-built offline
-renderers. The current milestone is numerical parity against Keller's JSFX
-reference before adding a C CLAP plugin shell.
+renderers and a first-pass C CLAP plugin shell. The current milestone is
+continuing JSFX parity work while hardening the plugin host surface.
 
 ## Goals
 
@@ -34,6 +34,7 @@ callbacks.
 
 ```
 native/               C engine, renderers, generated ADNL tables, native tests
+third_party/clap/     Vendored official CLAP C headers
 tools/                Python oracle, table/fixture generation, ABX harness
 tests/fixtures/       Raw f32 fixture buffers for native regression tests
 vendor/keller-jsfx/   Keller's reference JSFX source (non-commercial license)
@@ -51,7 +52,9 @@ This builds:
 
 - `native/bin/nilamp_render`
 - `native/bin/nilamp_taps_render`
+- `native/bin/nilamp.clap`
 - `native/bin/test_native`
+- `native/bin/test_clap_load`
 
 Regenerate generated native tables after table-generator changes:
 
