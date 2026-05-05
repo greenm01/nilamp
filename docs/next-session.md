@@ -2,6 +2,46 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: Late-stage tap expansion -> POWER PAIR REMAINS FIRST USEFUL SUSPECT
+
+**Edit summary.**
+
+- Expanded the native and JSFX selected-tap diagnostics from 9 to 16 channels.
+  The original first nine taps are unchanged; appended taps are:
+  `p2_s, p3_s, drive_t5, post_pp, post_peq3, post_hs3, post_hp5`.
+- Regenerated native tap fixtures and updated the loose native tap test
+  tolerances for the new volt-level post-filter checkpoints.
+- No DSP behavior was intentionally changed; this session adds visibility only.
+
+**Verification.**
+
+- `python3 -m py_compile tools/compare_taps.py tools/jsfx_render/stage_jsfx.py tools/gen_fixtures.py` passes.
+- `make native-test` passes.
+- `make native-host-test` passes: `clap-validator` reports 21 tests run,
+  16 passed, 0 failed, 5 skipped; REAPER render is finite with peak
+  `7.398350e+14`.
+- ABX sine: `-20.9 dB` residual below native peak; correlation `0.997197`;
+  best native-to-JSFX gain `1.140195` (`+1.14 dB`).
+- ABX sweep: `-19.7 dB` residual below native peak; correlation `0.958873`;
+  best native-to-JSFX gain `1.109749` (`+0.90 dB`).
+- Sine taps: `drive_t4` and `drive_t5` remain near unity (`-0.53 dB`,
+  `-0.44 dB`), while `res5_v`, `res_t5_v`, and `post_pp` jump to about
+  `-2.4` to `-2.8 dB` native-to-JSFX best-fit gain.
+- Sweep taps show the same useful localization: drive taps stay within about
+  `-0.6 dB`, while power-pair and post-power taps sit around `-1.3` to
+  `-1.5 dB`.
+
+**Next work.**
+
+1. Focus the next DSP hypothesis on T4/T5 tube output behavior and power-pair
+   interaction, not PEQ3/HS3/HP5/LP2; the post filters mostly preserve the
+   `post_pp` mismatch.
+2. Treat `p2_s`/`p3_s` as untrusted until the JSFX instance-field tap is
+   verified; their selected-tap values do not agree with the `dvs2`/`dvs3`
+   magnitudes and are not yet source-backed enough for a PSS scaling edit.
+3. Continue running REAPER render harnesses serially. A parallel ABX attempt
+   collided as expected; the sine result was rerun serially.
+
 ### Session: Source-backed input calibration -> BEST GAIN NEAR ZERO
 
 **Edit summary.**

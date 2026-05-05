@@ -97,6 +97,10 @@ python3 tools/compare_taps.py --preset sine --out-dir /tmp/nilamp_tap_compare --
 python3 tools/compare_taps.py --preset sweep --out-dir /tmp/nilamp_tap_compare --label sweep --jsfx-timeout 120
 ```
 
+The native and selected-JSFX tap order is:
+`v_out, res1_v, res3_v, res4_v, drive_t4, res5_v, res_t5_v, dvs2, dvs3,
+p2_s, p3_s, drive_t5, post_pp, post_peq3, post_hs3, post_hp5`.
+
 Latest native C run:
 
 - sine preset: `-20.9 dB` residual below native peak, threshold `-16.0 dB` -> PASS; correlation `0.997197`, best A->B gain `+1.14 dB`

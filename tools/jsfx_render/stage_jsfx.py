@@ -114,6 +114,13 @@ def _apply_tap_patches(src: str) -> str:
         "out_pin:res_t5_v",
         "out_pin:dvs2",
         "out_pin:dvs3",
+        "out_pin:p2_s",
+        "out_pin:p3_s",
+        "out_pin:drive_t5",
+        "out_pin:post_pp",
+        "out_pin:post_peq3",
+        "out_pin:post_hs3",
+        "out_pin:post_hp5",
     ])
     if out_pin_needle not in src:
         raise RuntimeError("expected JSFX mono output pin block not found")
@@ -124,7 +131,9 @@ def _apply_tap_patches(src: str) -> str:
             "dvs3 = p3.tube_pss_process(dvs2, 0, \tdia3);",
             "dvs3 = p3.tube_pss_process(dvs2, 0, \tdia3);\n"
             "tap_dvs2 = dvs2;\n"
-            "tap_dvs3 = dvs3;",
+            "tap_dvs3 = dvs3;\n"
+            "tap_p2_s = p2.s;\n"
+            "tap_p3_s = p3.s;",
         ),
         (
             "spl0 = t1.tube_ck_process(spl0, dvs3);",
@@ -160,6 +169,36 @@ def _apply_tap_patches(src: str) -> str:
             "spl0 -= aux;",
         ),
         (
+            "aux = hs2.flt_sv1_process(aux);\naux = t5.tube_ck_process(aux, dvs2);",
+            "aux = hs2.flt_sv1_process(aux);\n"
+            "tap_drive_t5 = aux;\n"
+            "aux = t5.tube_ck_process(aux, dvs2);",
+        ),
+        (
+            "spl0 -= aux;\nspl0 = peq3.flt_sv2_process(spl0);",
+            "spl0 -= aux;\n"
+            "tap_post_pp = spl0;\n"
+            "spl0 = peq3.flt_sv2_process(spl0);",
+        ),
+        (
+            "spl0 = peq3.flt_sv2_process(spl0);\nspl0 = hs3.flt_sv1_process(spl0);",
+            "spl0 = peq3.flt_sv2_process(spl0);\n"
+            "tap_post_peq3 = spl0;\n"
+            "spl0 = hs3.flt_sv1_process(spl0);",
+        ),
+        (
+            "spl0 = hs3.flt_sv1_process(spl0);\nspl0 = hp5.flt_ii1_process_hp(spl0);",
+            "spl0 = hs3.flt_sv1_process(spl0);\n"
+            "tap_post_hs3 = spl0;\n"
+            "spl0 = hp5.flt_ii1_process_hp(spl0);",
+        ),
+        (
+            "spl0 = hp5.flt_ii1_process_hp(spl0);\nspl0 = lp2.flt_df2_process(spl0);",
+            "spl0 = hp5.flt_ii1_process_hp(spl0);\n"
+            "tap_post_hp5 = spl0;\n"
+            "spl0 = lp2.flt_df2_process(spl0);",
+        ),
+        (
             "spl0 = g3.gain_process(spl0);",
             "spl0 = g3.gain_process(spl0);\n"
             "tap_v_out = spl0;",
@@ -175,7 +214,14 @@ def _apply_tap_patches(src: str) -> str:
             "spl5 = tap_res5_v;\n"
             "spl6 = tap_res_t5_v;\n"
             "spl7 = tap_dvs2;\n"
-            "spl8 = tap_dvs3;",
+            "spl8 = tap_dvs3;\n"
+            "spl9 = tap_p2_s;\n"
+            "spl10 = tap_p3_s;\n"
+            "spl11 = tap_drive_t5;\n"
+            "spl12 = tap_post_pp;\n"
+            "spl13 = tap_post_peq3;\n"
+            "spl14 = tap_post_hs3;\n"
+            "spl15 = tap_post_hp5;",
         ),
     ]
     for needle, replacement in replacements:
@@ -194,7 +240,7 @@ def _apply_tap_select_patches(src: str) -> str:
     slider_replacement = "\n".join([
         slider_needle,
         "",
-        "slider19:p.tap=        0       <0, 8, 1{v_out, res1_v, res3_v, res4_v, drive_t4, res5_v, res_t5_v, dvs2, dvs3}>-   Tap",
+        "slider19:p.tap=        0       <0, 15, 1{v_out, res1_v, res3_v, res4_v, drive_t4, res5_v, res_t5_v, dvs2, dvs3, p2_s, p3_s, drive_t5, post_pp, post_peq3, post_hs3, post_hp5}>-   Tap",
     ])
     if slider_needle not in src:
         raise RuntimeError("expected JSFX gain-comp slider declaration not found")
@@ -205,7 +251,9 @@ def _apply_tap_select_patches(src: str) -> str:
             "dvs3 = p3.tube_pss_process(dvs2, 0, \tdia3);",
             "dvs3 = p3.tube_pss_process(dvs2, 0, \tdia3);\n"
             "tap_dvs2 = dvs2;\n"
-            "tap_dvs3 = dvs3;",
+            "tap_dvs3 = dvs3;\n"
+            "tap_p2_s = p2.s;\n"
+            "tap_p3_s = p3.s;",
         ),
         (
             "spl0 = t1.tube_ck_process(spl0, dvs3);",
@@ -241,6 +289,36 @@ def _apply_tap_select_patches(src: str) -> str:
             "spl0 -= aux;",
         ),
         (
+            "aux = hs2.flt_sv1_process(aux);\naux = t5.tube_ck_process(aux, dvs2);",
+            "aux = hs2.flt_sv1_process(aux);\n"
+            "tap_drive_t5 = aux;\n"
+            "aux = t5.tube_ck_process(aux, dvs2);",
+        ),
+        (
+            "spl0 -= aux;\nspl0 = peq3.flt_sv2_process(spl0);",
+            "spl0 -= aux;\n"
+            "tap_post_pp = spl0;\n"
+            "spl0 = peq3.flt_sv2_process(spl0);",
+        ),
+        (
+            "spl0 = peq3.flt_sv2_process(spl0);\nspl0 = hs3.flt_sv1_process(spl0);",
+            "spl0 = peq3.flt_sv2_process(spl0);\n"
+            "tap_post_peq3 = spl0;\n"
+            "spl0 = hs3.flt_sv1_process(spl0);",
+        ),
+        (
+            "spl0 = hs3.flt_sv1_process(spl0);\nspl0 = hp5.flt_ii1_process_hp(spl0);",
+            "spl0 = hs3.flt_sv1_process(spl0);\n"
+            "tap_post_hs3 = spl0;\n"
+            "spl0 = hp5.flt_ii1_process_hp(spl0);",
+        ),
+        (
+            "spl0 = hp5.flt_ii1_process_hp(spl0);\nspl0 = lp2.flt_df2_process(spl0);",
+            "spl0 = hp5.flt_ii1_process_hp(spl0);\n"
+            "tap_post_hp5 = spl0;\n"
+            "spl0 = lp2.flt_df2_process(spl0);",
+        ),
+        (
             "spl0 = g3.gain_process(spl0);",
             "spl0 = g3.gain_process(spl0);\n"
             "tap_v_out = spl0;",
@@ -257,6 +335,13 @@ def _apply_tap_select_patches(src: str) -> str:
             "p.tap == 6 ? tap_selected = tap_res_t5_v;\n"
             "p.tap == 7 ? tap_selected = tap_dvs2;\n"
             "p.tap == 8 ? tap_selected = tap_dvs3;\n"
+            "p.tap == 9 ? tap_selected = tap_p2_s;\n"
+            "p.tap == 10 ? tap_selected = tap_p3_s;\n"
+            "p.tap == 11 ? tap_selected = tap_drive_t5;\n"
+            "p.tap == 12 ? tap_selected = tap_post_pp;\n"
+            "p.tap == 13 ? tap_selected = tap_post_peq3;\n"
+            "p.tap == 14 ? tap_selected = tap_post_hs3;\n"
+            "p.tap == 15 ? tap_selected = tap_post_hp5;\n"
             "spl0 = tap_selected;",
         ),
     ]

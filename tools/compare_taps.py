@@ -44,6 +44,13 @@ TAP_NAMES = [
     "res_t5_v",
     "dvs2",
     "dvs3",
+    "p2_s",
+    "p3_s",
+    "drive_t5",
+    "post_pp",
+    "post_peq3",
+    "post_hs3",
+    "post_hp5",
 ]
 
 

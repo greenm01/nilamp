@@ -216,7 +216,7 @@ static void usage(FILE *f)
 {
 #ifdef NILAMP_TAPS_RENDER
     const char *program = "nilamp_taps_render";
-    const char *extra = "\nWrites 9 float32 channels: v_out, res1_v, res3_v, res4_v, drive_t4, res5_v, res_t5_v, dvs2, dvs3.\n";
+    const char *extra = "\nWrites 16 float32 channels: v_out, res1_v, res3_v, res4_v, drive_t4, res5_v, res_t5_v, dvs2, dvs3, p2_s, p3_s, drive_t5, post_pp, post_peq3, post_hs3, post_hp5.\n";
 #else
     const char *program = "nilamp_render";
     const char *extra = "";

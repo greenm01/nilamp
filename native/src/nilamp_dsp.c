@@ -132,13 +132,23 @@ typedef struct {
     float res_t5_v;
     float dvs2;
     float dvs3;
+    float p2_s;
+    float p3_s;
+    float drive_t5;
+    float post_pp;
+    float post_peq3;
+    float post_hs3;
+    float post_hp5;
 } NilampTapFrame;
 
 static int nilamp_tap_frame_is_finite(NilampTapFrame taps)
 {
     return isfinite(taps.v_out) && isfinite(taps.res1_v) && isfinite(taps.res3_v) &&
            isfinite(taps.res4_v) && isfinite(taps.drive_t4) && isfinite(taps.res5_v) &&
-           isfinite(taps.res_t5_v) && isfinite(taps.dvs2) && isfinite(taps.dvs3);
+           isfinite(taps.res_t5_v) && isfinite(taps.dvs2) && isfinite(taps.dvs3) &&
+           isfinite(taps.p2_s) && isfinite(taps.p3_s) && isfinite(taps.drive_t5) &&
+           isfinite(taps.post_pp) && isfinite(taps.post_peq3) && isfinite(taps.post_hs3) &&
+           isfinite(taps.post_hp5);
 }
 
 static const StageCfg T1 = {
@@ -528,6 +538,8 @@ static NilampTapFrame nilamp_engine_process_sample(NilampEngine *engine, float i
     const float dvs1 = tube_pss_process(&engine->p1, 125.0f, 0.008f, engine->sr, old_s2, engine->prev_dia1, 0.0f);
     const float dvs2 = tube_pss_process(&engine->p2, 5100.0f, 0.0816f, engine->sr, old_s3, engine->prev_dig, dvs1);
     const float dvs3 = tube_pss_process(&engine->p3, sag * 22000.0f, 0.352f, engine->sr, 0.0f, engine->prev_dia3, dvs2);
+    const float p2_s = engine->p2.s;
+    const float p3_s = engine->p3.s;
 
     float res1_v, res1_dia;
     tube_ck_process(&engine->t1, &T1, engine->sr, input * gain, dvs3, &res1_v, &res1_dia);
@@ -556,14 +568,16 @@ static NilampTapFrame nilamp_engine_process_sample(NilampEngine *engine, float i
     aux = ii1_hp_process(&engine->hp4, 6.4f, engine->sr, aux);
     aux = svf2_peq(&engine->peq1_t5, engine->sr, 1.1220184543f, 80.0f, 2.6685237666f, aux);
     aux = svf1_hs(&engine->hs1_t5, engine->sr, 1.4125375446f, 2098.1359672f, aux);
+    const float drive_t5 = aux;
 
     float res_t5_v, res_t5_dia;
     tube_ck_process(&engine->t5, &T5, engine->sr, aux, dvs2, &res_t5_v, &res_t5_dia);
 
-    float v_out = res5_v - res_t5_v;
-    v_out = svf2_peq(&engine->peq3, engine->sr, 1.2589254118f, 80.0f, 2.2440931043f, v_out);
-    v_out = svf1_hs(&engine->hs3, engine->sr, 1.4125375446f, 1485.8089753f, v_out);
-    v_out = ii1_hp_process(&engine->hp5, 40.0f, engine->sr, v_out);
+    const float post_pp = res5_v - res_t5_v;
+    const float post_peq3 = svf2_peq(&engine->peq3, engine->sr, 1.2589254118f, 80.0f, 2.2440931043f, post_pp);
+    const float post_hs3 = svf1_hs(&engine->hs3, engine->sr, 1.4125375446f, 1485.8089753f, post_peq3);
+    const float post_hp5 = ii1_hp_process(&engine->hp5, 40.0f, engine->sr, post_hs3);
+    float v_out = post_hp5;
     v_out = df2_lp(&engine->lp2, engine->sr, 10000.0f, sqrtf(0.5f), v_out);
     v_out *= 0.5f / (T4.rl * T4.isat + T5.rl * T5.isat);
 
@@ -581,6 +595,13 @@ static NilampTapFrame nilamp_engine_process_sample(NilampEngine *engine, float i
         .res_t5_v = res_t5_v,
         .dvs2 = dvs2,
         .dvs3 = dvs3,
+        .p2_s = p2_s,
+        .p3_s = p3_s,
+        .drive_t5 = drive_t5,
+        .post_pp = post_pp,
+        .post_peq3 = post_peq3,
+        .post_hs3 = post_hs3,
+        .post_hp5 = post_hp5,
     };
 }
 
@@ -622,6 +643,13 @@ void nilamp_engine_process_taps(NilampEngine *engine, const float *input, float 
         outputs[6][i] = taps.res_t5_v;
         outputs[7][i] = taps.dvs2;
         outputs[8][i] = taps.dvs3;
+        outputs[9][i] = taps.p2_s;
+        outputs[10][i] = taps.p3_s;
+        outputs[11][i] = taps.drive_t5;
+        outputs[12][i] = taps.post_pp;
+        outputs[13][i] = taps.post_peq3;
+        outputs[14][i] = taps.post_hs3;
+        outputs[15][i] = taps.post_hp5;
     }
 }
 
