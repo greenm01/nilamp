@@ -548,6 +548,44 @@ static void nilamp_process_channel(NilampEngine *engine, const clap_audio_buffer
     }
 }
 
+static bool nilamp_stereo_input_is_mono_equivalent(const clap_audio_buffer_t *input)
+{
+    // Detect when both stereo channels carry identical content. The common case
+    // is a host (e.g. REAPER) widening a mono source onto a stereo bus by
+    // sharing the same backing buffer for both channels. Pointer equality is
+    // realtime-safe and catches that case. Constant-channel flags carry the
+    // same meaning when both are constant with identical first samples.
+    if (!input || !input->data32 || input->channel_count < 2u) {
+        return false;
+    }
+    float *left = input->data32[0];
+    float *right = input->data32[1];
+    if (!left || !right) {
+        return false;
+    }
+    if (left == right) {
+        return true;
+    }
+    const bool left_constant = (input->constant_mask & UINT64_C(1)) != 0u;
+    const bool right_constant = (input->constant_mask & (UINT64_C(1) << 1)) != 0u;
+    if (left_constant && right_constant && left[0] == right[0]) {
+        return true;
+    }
+    return false;
+}
+
+static void nilamp_duplicate_channel(float *dst, const float *src, uint32_t offset,
+                                     uint32_t nframes)
+{
+    if (!dst || !src || nframes == 0) {
+        return;
+    }
+    if (dst == src) {
+        return;
+    }
+    memcpy(dst + offset, src + offset, sizeof(float) * nframes);
+}
+
 static bool nilamp_process_segment(NilampClap *plug, const clap_process_t *process,
                                    uint32_t start, uint32_t end)
 {
@@ -572,8 +610,19 @@ static bool nilamp_process_segment(NilampClap *plug, const clap_process_t *proce
 
     if (process_channels >= 2u && input && input->data32 && input_channels == 1u &&
         input->data32[0] && output->data32[0] == input->data32[0]) {
+        // In-place mono->stereo: write R first (engine[1]) before L overwrites
+        // the shared input buffer.
         nilamp_process_channel(plug->engines[1], input, 0u, output, 1u, start, frames);
         nilamp_process_channel(plug->engines[0], input, 0u, output, 0u, start, frames);
+    } else if (process_channels >= 2u && nilamp_stereo_input_is_mono_equivalent(input) &&
+               output->data32[0] && output->data32[1] &&
+               output->data32[0] != output->data32[1]) {
+        // Mono content presented on a stereo port (e.g. REAPER mono track on a
+        // stereo bus). Run a single engine and duplicate the result so the two
+        // output channels stay bit-identical instead of decorrelating through
+        // two independent nonlinear engines, which produces audible static.
+        nilamp_process_channel(plug->engines[0], input, 0u, output, 0u, start, frames);
+        nilamp_duplicate_channel(output->data32[1], output->data32[0], start, frames);
     } else {
         for (uint32_t ch = 0; ch < process_channels; ch++) {
             const uint32_t input_channel = input && input_channels > 1u ? ch : 0u;

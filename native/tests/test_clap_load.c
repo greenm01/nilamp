@@ -330,6 +330,43 @@ static void run_clap_engine_compare(const clap_plugin_t *plugin,
     compare_output(mono_inplace, ref_l, Frames, "mono in-place left");
     compare_output(mono_r, ref_r, Frames, "mono in-place right");
 
+    // Mono content presented on a stereo port (REAPER mono-track default):
+    // both input channels point at the same buffer. The plugin must run a
+    // single engine and duplicate the output so L and R are bit-identical
+    // instead of decorrelating through two independent nonlinear engines.
+    plugin->reset(plugin);
+    float mono_shared[Frames];
+    float mono_stereo_out_l[Frames];
+    float mono_stereo_out_r[Frames];
+    float mono_stereo_ref[Frames];
+    memcpy(mono_shared, in_l, sizeof(mono_shared));
+    memset(mono_stereo_out_l, 0, sizeof(mono_stereo_out_l));
+    memset(mono_stereo_out_r, 0, sizeof(mono_stereo_out_r));
+    {
+        NilampEngine *engine = nilamp_engine_create(48000.0);
+        check(engine != NULL, "mono-on-stereo engine create failed");
+        nilamp_engine_process(engine, mono_shared, mono_stereo_ref, Frames);
+        nilamp_engine_destroy(engine);
+    }
+    float *mono_shared_inputs[2] = {mono_shared, mono_shared};
+    float *mono_stereo_outputs[2] = {mono_stereo_out_l, mono_stereo_out_r};
+    input.data32 = mono_shared_inputs;
+    input.channel_count = 2;
+    input.constant_mask = 0u;
+    output.data32 = mono_stereo_outputs;
+    output.channel_count = 2;
+    run_process_chunks(plugin, process, Frames);
+    compare_output(mono_stereo_out_l, mono_stereo_ref, Frames, "mono-on-stereo left");
+    compare_output(mono_stereo_out_r, mono_stereo_ref, Frames, "mono-on-stereo right");
+    for (uint32_t i = 0; i < Frames; i++) {
+        if (mono_stereo_out_l[i] != mono_stereo_out_r[i]) {
+            fprintf(stderr,
+                    "test_clap_load: mono-on-stereo L/R diverge at %u: L=%g R=%g\n",
+                    i, mono_stereo_out_l[i], mono_stereo_out_r[i]);
+            exit(1);
+        }
+    }
+
     plugin->reset(plugin);
     float constant = 0.025f;
     float constant_in[1] = {constant};

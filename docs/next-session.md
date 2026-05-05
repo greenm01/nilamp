@@ -2,6 +2,49 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: REAPER static (mono on stereo) -> SINGLE-ENGINE FOLD
+
+**Edit summary.**
+
+- Root-caused the residual REAPER static to two independent nonlinear amp
+  engines processing nominally-identical mono content on a stereo bus. Tiny
+  per-channel divergence in the high-gain tube/PSS state produced audible
+  decorrelation between L and R that read as static.
+- Added a mono-equivalent input detector in `nilamp_process_segment`: when both
+  stereo input channels point at the same buffer (REAPER's mono-track default
+  on a stereo bus) or both are constant with identical first samples, the
+  plugin now runs a single engine on channel 0 and `memcpy`s the result to
+  channel 1. The dual-engine path remains for genuinely stereo input.
+- The pre-existing in-place mono->stereo branch (`input_channels == 1`) and
+  the per-channel `nilamp_sanitize_host_sample` clamp are unchanged.
+- Extended `tests/test_clap_load.c` with a mono-on-stereo case that asserts
+  bit-exact L/R equality and matches the offline `NilampEngine` reference,
+  catching any future regression that re-introduces the dual-engine drift.
+
+**Verification.**
+
+- `make native-test` passes (includes the new bit-exact mono-on-stereo
+  assertion).
+- `make native-host-test` passes; `clap-validator` reports 21 tests run, 16
+  passed, 0 failed, 5 skipped, 0 warnings.
+- `make native-jsfx-test` passes; sine ABX residual `-31.4 dB`,
+  correlation `0.998804`, best native-to-JSFX gain unchanged.
+- Installed `native/bin/nilamp.clap` to `~/.clap/nilamp.clap`; both hashes are
+  `f58f25b6048e24a0bd66ba93f221048e07e8299f0ed0d4af209a4b3b5c197ccb`.
+
+**Next work.**
+
+1. Manually retest in REAPER on a mono guitar track at default settings to
+   confirm the static is gone end-to-end.
+2. If any host turns out to feed two distinct buffers with identical content
+   (defeats pointer equality), add a cheap first-N-sample probe before
+   dropping into the dual-engine path. Defer until a real host shows that.
+3. Coordinate per-channel NaN resets across both engines so a single-channel
+   reset cannot desync L vs R on truly stereo input. Defer.
+4. Consider advertising `CLAP_PORT_MONO` for v1 since a guitar amp is
+   fundamentally mono. Larger surface change; defer unless mono-on-stereo
+   continues to surface host-specific edge cases.
+
 ### Session: REAPER static report -> CLAP OUTPUT SAFETY LIMIT
 
 **Edit summary.**
