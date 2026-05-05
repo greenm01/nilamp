@@ -61,7 +61,12 @@ fn main() {
         Ok("0") | Ok("false") | Ok("off") | Ok("no")
     );
     if toplevel {
-        faust_compile(Path::new("dsp/nilamp.dsp"), &out_dir.join("dsp.rs"), None);
+        faust_compile_with_timeout(
+            Path::new("dsp/nilamp.dsp"),
+            &out_dir.join("dsp.rs"),
+            None,
+            Some("300"),
+        );
         println!("cargo:rustc-cfg=nilamp_toplevel");
     } else {
         // Emit a stub so any `include!(concat!(env!("OUT_DIR"), "/dsp.rs"))`

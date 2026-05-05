@@ -1,6 +1,135 @@
-# Next session — pre-T4 EQ regression confirmed in audio path
+# Next session — investigate Faust gain deficit before re-landing PSS-3 topology
 
 ## SESSION LOG (most recent first)
+
+### Session: 3-stage PSS port lands cleanly but reveals upstream gain deficit → INCONCLUSIVE (worktree reverted; build.rs timeout bump kept)
+
+**Hypothesis tested.**  Previous session identified that JSFX's
+asymmetric 3-stage PSS topology is the runaway root cause: collapsing
+to a single lump (Faust) creates a closed-loop path where the pre-T4
+chain modulates B+ that preamp tubes also see.  Port the 3-stage
+topology faithfully (`p1: 125 Ω/8 ms` ← `t4.dia+t5.dia`,
+`p2: 5.1 kΩ/82 ms` ← `kgrid·dia1`, `p3: 22 kΩ/352 ms` ←
+`t1.dia+t2.dia+t3.dia`; preamp tubes consume `dvs3`, power tubes
+consume `dvs2`); then add the missing pre-T4 chain
+(`*k1_mode0 → hp3 → peq1 → hs1`).  Expected: PSS-only ABX holds the
+public baseline; PSS+chain meets or beats it without runaway.
+
+**What was done.**
+
+1. Refactored `dsp/nilamp.dsp` `loop_block` to a 4-wire feedback
+   (`~ si.bus(4)` over `dvs2, dvs3, s2, s3`) with three sequential
+   `tube_pss` calls in topological order.  Removed the single
+   `r_pss`/`tau_pss`/`total_dia` lump; added `r_p1, tau_p1, r_p2,
+   tau_p2, kgrid=0.025` constants alongside the existing
+   `r_p3 = sag * 22000, tau_p3 = 0.352`.  Preamp tubes (res1, res3,
+   res4) now read `old_dvs3`; power tubes (res5, res_t5) read
+   `old_dvs2`.  Confirmed `tube_pss` Faust signature
+   (`hk_tube.lib:88-93`) matches JSFX `tube_pss_process` semantics.
+2. Inserted pre-T4 chain on `res4_v` →
+   `*(k1_mode0) : flt_ii1_hp(hp3_hz) : flt_sv2_peq(kp1, fp_hz, qp1, 1, 1) : flt_sv1_hs(ks1, fs1_hz, 1)`
+   with new constants `k1_mode0 = 0.797, hp3_hz = 5.8` (mode 0 from
+   twd_dlx_ii.jsfx:293-299).  Reused existing `kp1, fp_hz, qp1, ks1,
+   fs1_hz` already defined for the T5 cathode path.
+3. First build SIGALRM'd at faust frontend on the new feedback
+   topology.  Bumped `build.rs` to pass `Some("300")` to the nilamp.dsp
+   faust invocation via `faust_compile_with_timeout` (mirrors the
+   diagnostic-DSP path at `build.rs:133`).  Cold build then succeeded
+   in 4 m 01 s (vs 1 m 44 s baseline; faust frontend ~2 min, rustc
+   ~2 min — acceptable for now).
+4. Ran ABX gate at the canonical reference point
+   (`gain_db=6, sag_pct=100`, all tone controls at 50 %).
+
+**Numbers.**
+
+| Configuration | Sine residual | Sweep RMS resid | Sweep peak A (B=0.47) |
+|---|---:|---:|---:|
+| Public baseline (single lump, no chain) — committed | **−16.0 dB** ✅ | **−11.2 dB** ✅ | 0.42 |
+| Phase 1'/1'' (single lump + chain) — reverted | −6.6 dB | −6.8 dB | **32.6** ⚠ runaway |
+| **PSS-3 only, no chain** (this session) | −13.2 dB ❌ | −3.4 dB ❌ | 0.44 ✅ |
+| **PSS-3 + chain** (this session) | −12.8 dB ❌ | −3.1 dB ❌ | 0.42 ✅ |
+
+`cargo test --features dsp-tests` → 23 / 23 pass for both PSS-3
+configurations.
+
+**Verdict.**  Topology fix **works** in the structural sense:
+
+- Sweep peak A drops from runaway 32.6 → 0.42, in line with JSFX
+  0.47.  Adding the pre-T4 chain on top of the corrected PSS does
+  *not* destabilise.  Hypothesis "single-lump PSS is the runaway
+  cause" is **confirmed**.
+- But the public ABX gate **regresses**: −12.8 dB sine vs −16 dB
+  baseline, −3.1 dB sweep vs −11.2 dB baseline.  The single-lump code
+  was a coincidentally-good numerical match — fixing the topology
+  unmasked a separate gain-staging mismatch.
+
+**New finding.**  Faust output is now systematically **quieter** than
+JSFX:
+
+```
+sweep:  Faust RMS A = 0.147   JSFX RMS B = 0.258   →  ~5 dB deficit
+```
+
+The single-lump PSS over-attenuated the loop-feedback at low frequencies
+(longer effective combined τ) and masked an upstream/downstream gain
+mismatch elsewhere in the Faust graph.  The corrected 3-stage topology
+exposes it.
+
+**Action taken.**  Reverted `dsp/nilamp.dsp` (worktree clean apart
+from `build.rs`).  Kept the `build.rs` timeout bump — it is a small,
+independent improvement that makes future PSS-touching iterations
+buildable.  Patch saved at `/tmp/opencode/pss3_chain.patch` (210
+lines) for the next session to re-apply.
+
+**Why not commit the topology fix.**  AGENTS.md "Reference-checking
+workflow" gates DSP-affecting changes on `sine ≥ −16 dB` and
+`sweep ≥ −11.2 dB`.  Landing PSS-3 alone or PSS-3 + chain breaks both
+gates.  Re-landing in the same session would have required either
+(a) finding the gain-deficit cause and fixing it (no clear hypothesis
+yet, multiple possibilities — see below) or (b) bypassing the gate
+without an in-session follow-up.  Stashing keeps the public contract
+intact and gives the next session clean hypothesis-state.
+
+**Leading hypothesis for next session.**  The Faust pre-amp chain has
+hidden compensation gain that was tuned against the *single-lump* PSS
+B+ trajectory.  Now that preamp tubes correctly read `dvs3` (longer
+τ, more sustained sag), their effective transconductance drops and
+the whole signal path is ~5 dB quieter than JSFX.  Candidates:
+
+1. **`flt_lumped_*` / coupling-cap chain DC gain** between stages —
+   audit each `flt_*` call against JSFX equivalents for any silently-
+   normalised gain.
+2. **`tube_pss` Faust DC-gain vs JSFX** — confirm
+   `lp(dvs_in) - r·s` matches JSFX `tube_pss_process` exactly under
+   the cascaded feeding (the per-call signature was confirmed; the
+   *cascaded* DC behaviour was not).
+3. **Tube-stage `kpre`/`kspre` constants in `5e3_constants.lib`** —
+   verify against JSFX twd_dlx_ii.jsfx tube-init values.
+4. **Sag-slider mapping** — currently only scales `r_p3`; JSFX has no
+   sag concept (`sag = 1` always).  At `sag_pct=100` Faust should be
+   identical; this is *not* the cause but worth re-confirming if
+   other ideas miss.
+
+**Concrete next-step plan.**
+
+1. Re-apply patch from `/tmp/opencode/pss3_chain.patch`.
+2. Build a diagnostic harness that taps `dvs1`, `dvs2`, `dvs3`, and
+   the stage-output voltages `res1_v`, `res3_v`, `res4_v`, `res5_v`,
+   `res_t5_v`.  Add a parallel JSFX-side tap (instrument the harness
+   under `~/.config/REAPER/Effects/nilamp_abx_taps/`, *not* the
+   ABX-cached `nilamp_abx/` directory).
+3. Run the same sweep input through both, compare tap-by-tap to
+   localise where the 5 dB deficit appears.  First non-matching tap
+   is the bug locus.
+4. Fix at that locus, re-gate.  Then add the pre-T4 chain.
+5. Once both gates clear, commit topology + chain together; record
+   `SUCCESS` here.
+
+**Cost ledger.**  Two cold builds (~4 min each) + two ABX runs.
+Build-time was within the new release-fast envelope; the timeout bump
+made the second build complete instead of SIGALRM'ing.
+
+---
 
 ### Session: PSS topology mismatch identified as runaway root cause → INCONCLUSIVE (analysis only, no edits)
 
