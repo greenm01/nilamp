@@ -2,7 +2,7 @@
 """Keller oracle — mechanical NumPy translation of Keller's JSFX reference.
 
 This module reproduces Keller's block-diagram + ADAA tube-amp model in NumPy
-for regression testing the Faust port.  It is intentionally close-to-source,
+for regression testing the native C implementation. It is intentionally close-to-source,
 not refactored.  Tolerance target: per-sample absolute error < 1e-3, RMS < -60 dB.
 
 Two static-NL paths are provided:
@@ -471,7 +471,7 @@ def _adnl_eval(table, x):
     ymin = table["ymin"]
     ymax = table["ymax"]
 
-    # Faust-style clamp + index
+    # Runtime clamp + index
     if x <= -xmax:
         return ymin
     if x >= xmax:
@@ -518,8 +518,7 @@ class AdnlProcessor:
                 y1 = ymin
                 z1 = ymin * (x + xmax)
             elif x >= xmax:
-                # last-base z_at_xmax — precompute once outside the loop if needed,
-                # here keep close to Faust logic
+                # last-base z_at_xmax; keep this close to the runtime logic.
                 last_base = num_segments - 1
                 ab = coeffs[last_base]
                 b4, b3, b2, b1, b0 = ab[4], ab[5], ab[6], ab[7], ab[8]
@@ -549,7 +548,7 @@ class AdnlProcessor:
                 adaa_result = 0.5 * (y1 + y0)
             else:
                 # safe_dx0 guards against the (theoretical) reldx0 >= 1e-4
-                # but dx0 == 0 case; matches Faust's safe_dx0 in hk_adnl.lib.
+                # but dx0 == 0 case.
                 safe_dx0 = dx0 if dx0 != 0.0 else 1e-20
                 adaa_result = (z1 - z0) / safe_dx0
 
@@ -617,9 +616,9 @@ def pkd_k2(tau_release, sr):
 # ---------------------------------------------------------------------------
 #
 # Direct sample-by-sample ports of the JSFX implementations so we can pin
-# the Faust port (dsp/hk_filters.lib) against an oracle that doesn't depend
-# on scipy.signal.  All functions take a numpy float32 input buffer and
-# return a same-length float32 output buffer.
+# the native C filters against an oracle that doesn't depend on scipy.signal.
+# All functions take a numpy float32 input buffer and return a same-length
+# float32 output buffer.
 
 class FltIi1Lp:
     """Stateful 1st-order impulse-invariant LP."""
@@ -846,13 +845,13 @@ class TubeCk:
         return self.pk_s2
 
     def _avg_lp(self, x):
-        """Impulse-invariant 1st-order LP (same as Faust flt_ii1_lp)."""
+        """Impulse-invariant 1st-order LP."""
         k = 1.0 - np.exp(-2.0 * np.pi * self.avg_f / self.sr)
         self.avg_s = (x - self.avg_s) * k + self.avg_s
         return self.avg_s
 
     def _eq(self, x):
-        """Direct Form 2 biquad (same as Faust fi.tf2)."""
+        """Direct Form 2 biquad."""
         b0, b1, b2 = self.neq_b0, self.neq_b1, self.neq_b2
         a1, a2 = self.neq_a1, self.neq_a2
         # Standard DF2: y = b0*x + b1*s1 + b2*s2 - a1*y1 - a2*y2
@@ -869,7 +868,7 @@ class TubeCk:
         v3 = v2 / (1.0 + self.kspre * dvs)
         v4 = v3 - self.kpk * self._pkd(v3)
         # Use float32 so AdnlProcessor's intermediate w/dx0 cancellations
-        # match Faust's f32 arithmetic; default np.array would promote to
+        # match the native runtime arithmetic; default np.array would promote to
         # f64 and shift small near-cancelled differences enough to break
         # bit-comparable agreement (~3e-4 RMS skew on T3_CD with sub-pkre
         # signals).  See ADNL_DTYPE note in TubeCd below.
@@ -961,10 +960,10 @@ class TubeCd:
         v4 = v3 - self.kpk * self._pkd(v3)
         # ADNL_DTYPE: see TubeCk.process_sample.  Pinning to float32 here
         # is what makes T3_CD's tiny-signal output (kpre=0.0105, sine 0.5
-        # in -> 0.005 max into ADNL) match Faust; without it the oracle
-        # disagrees with Faust by O(1) of the signal because the
+        # in -> 0.005 max into ADNL) match the native runtime; without it the
+        # oracle disagrees by O(1) of the signal because the
         # antiderivative quotient (z1-z0)/dx0 cancels at f32 precision
-        # in Faust but survives at f64 in NumPy.
+        # in float32 but survives at f64 in NumPy.
         v5 = self.adnl.process_block(np.array([v4], dtype=np.float32))[0]
         v6 = self._eq(v5)
         v7 = v6 * (1.0 + self.kspost * dvs)

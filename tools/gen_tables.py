@@ -139,8 +139,8 @@ def gen_adnl_table_dz_ck(vs, ra, rl, rk, isat, ibias, kpre,
     Imports the load-line solver from keller_oracle (kept there as the
     single source of truth for the DZ model + Newton iteration).  The
     output curve is centered on the DZ-derived quiescent so that f(0)=0,
-    matching Keller's GLF convention exactly — i.e. downstream Faust
-    wiring (``v *= isat; v += ksib*dvs;``) drops in unchanged.
+    matching Keller's GLF convention exactly. Downstream runtime wiring can
+    then use the same normalized-current convention as Keller's JSFX.
 
     Saturation handling: at the negative end (cutoff) the load-line solve
     naturally gives ``ip → 0``, so f → -ip_q/isat = -kbias_actual.  At the
@@ -191,22 +191,28 @@ def gen_adnl_table_dz_cd(vs, ra, rl, rk, isat, ibias, kpre,
     return _curve_to_adnl_table(f_closed, xmax, dx, ymin=float(ymin), ymax=float(ymax))
 
 
-def export_faust_table(name, table):
-    """Export a generated ADNL table to a Faust waveform definition.
+def c_symbol(name):
+    return "nilamp_" + "".join(ch if ch.isalnum() or ch == "_" else "_" for ch in name)
 
-    Layout:
-        [coeffs flattened (num_segments * 9 floats),
-         ymin, ymax, z_at_xmax]
+def export_c_table_decl(name, table):
+    flat_len = int(table["coeffs"].size) + 3
+    sym = c_symbol(name)
+    return f"extern const float {sym}[{flat_len}];\nextern const size_t {sym}_len;\n"
 
-    Total length is num_segments * 9 + 3.  The runtime (hk_adnl.lib) reads the
-    three trailing metadata cells via rdtable at offsets t_size-3, t_size-2,
-    and t_size-1.
-    """
+def export_c_table_def(name, table):
     coeffs = table["coeffs"]
     flat = list(np.asarray(coeffs).flatten())
     flat += [table["ymin"], table["ymax"], table["z_at_xmax"]]
-    body = ", ".join(f"{v:.10e}" for v in flat)
-    return f"{name} = waveform {{{body}}};\n"
+    sym = c_symbol(name)
+    lines = [f"const float {sym}[{len(flat)}] = {{"]
+    for i in range(0, len(flat), 6):
+        chunk = ", ".join(f"{v:.10e}f" for v in flat[i:i + 6])
+        suffix = "," if i + 6 < len(flat) else ""
+        lines.append(f"    {chunk}{suffix}")
+    lines.append("};")
+    lines.append(f"const size_t {sym}_len = {len(flat)};")
+    lines.append("")
+    return "\n".join(lines)
 
 if __name__ == "__main__":
     # Smoke-test: 12AX7 common-cathode (ibias / isat).
@@ -215,4 +221,3 @@ if __name__ == "__main__":
     print(f"Generated table: {spec['num_segments']} segments, "
           f"ymin={spec['ymin']:.4f}, ymax={spec['ymax']:.4f}, "
           f"z_at_xmax={spec['z_at_xmax']:.4f}")
-

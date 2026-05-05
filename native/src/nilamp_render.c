@@ -184,14 +184,14 @@ static int wav_to_mono(const Wav *wav, float **mono, size_t *frames)
     return 0;
 }
 
-static int write_wav_f32(const char *path, const float *samples, size_t frames, uint32_t sample_rate)
+static int write_wav_f32(const char *path, const float *samples, size_t frames, uint16_t channels, uint32_t sample_rate)
 {
     FILE *f = fopen(path, "wb");
     if (f == NULL) {
         fprintf(stderr, "error: creating %s: %s\n", path, strerror(errno));
         return -1;
     }
-    const uint32_t data_size = (uint32_t)(frames * sizeof(float));
+    const uint32_t data_size = (uint32_t)(frames * (size_t)channels * sizeof(float));
     const uint32_t riff_size = 4u + (8u + 16u) + (8u + data_size);
     fwrite("RIFF", 1, 4, f);
     wr32(f, riff_size);
@@ -199,14 +199,14 @@ static int write_wav_f32(const char *path, const float *samples, size_t frames, 
     fwrite("fmt ", 1, 4, f);
     wr32(f, 16u);
     wr16(f, 3u);
-    wr16(f, 1u);
+    wr16(f, channels);
     wr32(f, sample_rate);
-    wr32(f, sample_rate * 4u);
-    wr16(f, 4u);
+    wr32(f, sample_rate * (uint32_t)channels * 4u);
+    wr16(f, (uint16_t)(channels * 4u));
     wr16(f, 32u);
     fwrite("data", 1, 4, f);
     wr32(f, data_size);
-    fwrite(samples, sizeof(float), frames, f);
+    fwrite(samples, sizeof(float), frames * (size_t)channels, f);
     const int ok = ferror(f) == 0;
     fclose(f);
     return ok ? 0 : -1;
@@ -214,8 +214,16 @@ static int write_wav_f32(const char *path, const float *samples, size_t frames, 
 
 static void usage(FILE *f)
 {
+#ifdef NILAMP_TAPS_RENDER
+    const char *program = "nilamp_taps_render";
+    const char *extra = "\nWrites 9 float32 channels: v_out, res1_v, res3_v, res4_v, drive_t4, res5_v, res_t5_v, dvs2, dvs3.\n";
+#else
+    const char *program = "nilamp_render";
+    const char *extra = "";
+#endif
     fprintf(f,
-            "nilamp_render --input IN.wav --output OUT.wav [params]\n"
+            "%s --input IN.wav --output OUT.wav [params]\n"
+            "%s"
             "\n"
             "Params:\n"
             "  --gain    dB      Input gain (default 0)\n"
@@ -224,7 +232,9 @@ static void usage(FILE *f)
             "  --mid     pct     Mid 0..100 (default 50)\n"
             "  --treble  pct     Treble 0..100 (default 50)\n"
             "  --sag     pct     Sag 0..100 (default 50)\n"
-            "  --block   n       Accepted for CLI compatibility\n");
+            "  --block   n       Processing block size\n",
+            program,
+            extra);
 }
 
 static int parse_float_arg(const char *name, const char *value, float *out)
@@ -311,10 +321,34 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    float *out = calloc(frames, sizeof(float));
     NilampEngine *engine = nilamp_engine_create(wav.sample_rate);
+    float *out = NULL;
+#ifdef NILAMP_TAPS_RENDER
+    float *tap_channels[NILAMP_NUM_TAPS] = { 0 };
+    for (size_t ch = 0; ch < NILAMP_NUM_TAPS; ch++) {
+        tap_channels[ch] = calloc(frames, sizeof(float));
+        if (tap_channels[ch] == NULL) {
+            fprintf(stderr, "error: allocation failed\n");
+            for (size_t j = 0; j < NILAMP_NUM_TAPS; j++) {
+                free(tap_channels[j]);
+            }
+            free(mono);
+            nilamp_engine_destroy(engine);
+            free_wav(&wav);
+            return 1;
+        }
+    }
+    out = calloc(frames * NILAMP_NUM_TAPS, sizeof(float));
+#else
+    out = calloc(frames, sizeof(float));
+#endif
     if (out == NULL || engine == NULL) {
         fprintf(stderr, "error: allocation failed\n");
+#ifdef NILAMP_TAPS_RENDER
+        for (size_t ch = 0; ch < NILAMP_NUM_TAPS; ch++) {
+            free(tap_channels[ch]);
+        }
+#endif
         free(out);
         free(mono);
         nilamp_engine_destroy(engine);
@@ -326,15 +360,46 @@ int main(int argc, char **argv)
     size_t pos = 0;
     while (pos < frames) {
         const size_t n = args.block < frames - pos ? args.block : frames - pos;
+#ifdef NILAMP_TAPS_RENDER
+        float *views[NILAMP_NUM_TAPS];
+        for (size_t ch = 0; ch < NILAMP_NUM_TAPS; ch++) {
+            views[ch] = tap_channels[ch] + pos;
+        }
+        nilamp_engine_process_taps(engine, mono + pos, views, (uint32_t)n);
+#else
         nilamp_engine_process(engine, mono + pos, out + pos, (uint32_t)n);
+#endif
         pos += n;
     }
 
-    const int rc = write_wav_f32(args.output_path, out, frames, wav.sample_rate);
+#ifdef NILAMP_TAPS_RENDER
+    for (size_t f = 0; f < frames; f++) {
+        for (size_t ch = 0; ch < NILAMP_NUM_TAPS; ch++) {
+            out[f * NILAMP_NUM_TAPS + ch] = tap_channels[ch][f];
+        }
+    }
+    const int rc = write_wav_f32(args.output_path, out, frames, NILAMP_NUM_TAPS, wav.sample_rate);
+#else
+    const int rc = write_wav_f32(args.output_path, out, frames, 1u, wav.sample_rate);
+#endif
     if (rc == 0) {
-        fprintf(stderr, "rendered %zu frames @ %u Hz -> %s\n", frames, wav.sample_rate, args.output_path);
+        fprintf(stderr,
+                "rendered %zu frames @ %u Hz, %u ch -> %s\n",
+                frames,
+                wav.sample_rate,
+#ifdef NILAMP_TAPS_RENDER
+                (unsigned)NILAMP_NUM_TAPS,
+#else
+                1u,
+#endif
+                args.output_path);
     }
     nilamp_engine_destroy(engine);
+#ifdef NILAMP_TAPS_RENDER
+    for (size_t ch = 0; ch < NILAMP_NUM_TAPS; ch++) {
+        free(tap_channels[ch]);
+    }
+#endif
     free(out);
     free(mono);
     free_wav(&wav);

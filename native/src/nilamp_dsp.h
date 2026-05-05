@@ -16,11 +16,16 @@ typedef struct NilampParams {
     float sag_pct;
 } NilampParams;
 
+enum {
+    NILAMP_NUM_TAPS = 9,
+};
+
 NilampEngine *nilamp_engine_create(double sample_rate);
 void nilamp_engine_destroy(NilampEngine *engine);
 void nilamp_engine_reset(NilampEngine *engine);
 void nilamp_engine_set_params(NilampEngine *engine, const NilampParams *params);
 void nilamp_engine_process(NilampEngine *engine, const float *input, float *output, uint32_t nframes);
+void nilamp_engine_process_taps(NilampEngine *engine, const float *input, float *outputs[NILAMP_NUM_TAPS], uint32_t nframes);
 
 NilampParams nilamp_default_params(void);
 

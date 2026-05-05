@@ -123,6 +123,18 @@ typedef struct {
     float avg_tau;
 } StageCfg;
 
+typedef struct {
+    float v_out;
+    float res1_v;
+    float res3_v;
+    float res4_v;
+    float drive_t4;
+    float res5_v;
+    float res_t5_v;
+    float dvs2;
+    float dvs3;
+} NilampTapFrame;
+
 static const StageCfg T1 = {
     nilamp_t1_12ax7_table, 13503, 0.372960373f, 0.00165f, 100000.0f, 0.0f,
     0.004201680672f, 0.004201680672f, 0.3846153846f, 0.0f, 3.193277311e-06f,
@@ -420,12 +432,8 @@ void nilamp_engine_set_params(NilampEngine *engine, const NilampParams *params)
     }
 }
 
-void nilamp_engine_process(NilampEngine *engine, const float *input, float *output, uint32_t nframes)
+static NilampTapFrame nilamp_engine_process_sample(NilampEngine *engine, float input)
 {
-    if (engine == NULL || input == NULL || output == NULL) {
-        return;
-    }
-
     const float gain = db_to_linear(engine->params.gain_db);
     const float volume = engine->params.volume_pct * 0.01f;
     const float bass = engine->params.bass_pct * 0.01f;
@@ -433,55 +441,93 @@ void nilamp_engine_process(NilampEngine *engine, const float *input, float *outp
     const float treble = engine->params.treble_pct * 0.01f;
     const float sag = engine->params.sag_pct * 0.01f;
 
+    const float old_s2 = engine->p2.s;
+    const float old_s3 = engine->p3.s;
+
+    const float dvs1 = tube_pss_process(&engine->p1, 125.0f, 0.008f, engine->sr, old_s2, engine->prev_dia1, 0.0f);
+    const float dvs2 = tube_pss_process(&engine->p2, 5100.0f, 0.0816f, engine->sr, old_s3, engine->prev_dig, dvs1);
+    const float dvs3 = tube_pss_process(&engine->p3, sag * 22000.0f, 0.352f, engine->sr, 0.0f, engine->prev_dia3, dvs2);
+
+    float res1_v, res1_dia;
+    tube_ck_process(&engine->t1, &T1, engine->sr, input * gain, dvs3, &res1_v, &res1_dia);
+
+    float v2 = ii1_hp_process(&engine->hp1, 10.0f, engine->sr, res1_v);
+    v2 *= volume * volume;
+    v2 = svf2_tst(&engine->tone, engine->sr, bass * bass, mid * mid, treble * treble, 630.0f, 0.5f, v2);
+    v2 = ii1_lp_process(&engine->lp1, 8800.0f, engine->sr, v2);
+
+    float res3_v, res3_dia;
+    tube_ck_process(&engine->t2, &T2, engine->sr, v2, dvs3, &res3_v, &res3_dia);
+
+    float res4_v, res4_vk, res4_dia;
+    tube_cd_process(&engine->t3, &T3, engine->sr, res3_v, dvs3, &res4_v, &res4_vk, &res4_dia);
+
+    float drive_t4 = res4_v * 0.797f;
+    drive_t4 = ii1_hp_process(&engine->hp3, 5.8f, engine->sr, drive_t4);
+    drive_t4 = svf2_peq(&engine->peq1_t4, engine->sr, 1.1220184543f, 80.0f, 2.6685237666f, drive_t4);
+    drive_t4 = svf1_hs(&engine->hs1_t4, engine->sr, 1.4125375446f, 2098.1359672f, drive_t4);
+
+    float res5_v, res5_dia;
+    tube_ck_process(&engine->t4, &T4, engine->sr, drive_t4, dvs2, &res5_v, &res5_dia);
+
+    float aux = res4_vk * 0.940f;
+    aux = ii1_hp_process(&engine->hp4, 6.4f, engine->sr, aux);
+    aux = svf2_peq(&engine->peq1_t5, engine->sr, 1.1220184543f, 80.0f, 2.6685237666f, aux);
+    aux = svf1_hs(&engine->hs1_t5, engine->sr, 1.4125375446f, 2098.1359672f, aux);
+
+    float res_t5_v, res_t5_dia;
+    tube_ck_process(&engine->t5, &T5, engine->sr, aux, dvs2, &res_t5_v, &res_t5_dia);
+
+    float v_out = res5_v - res_t5_v;
+    v_out = svf2_peq(&engine->peq3, engine->sr, 1.2589254118f, 80.0f, 2.2440931043f, v_out);
+    v_out = svf1_hs(&engine->hs3, engine->sr, 1.4125375446f, 1485.8089753f, v_out);
+    v_out = ii1_hp_process(&engine->hp5, 40.0f, engine->sr, v_out);
+    v_out = df2_lp(&engine->lp2, engine->sr, 10000.0f, sqrtf(0.5f), v_out);
+    v_out *= 0.5f / (T4.rl * T4.isat + T5.rl * T5.isat);
+
+    engine->prev_dia1 = res5_dia + res_t5_dia;
+    engine->prev_dig = 0.025f * engine->prev_dia1;
+    engine->prev_dia3 = res1_dia + res3_dia + res4_dia;
+
+    return (NilampTapFrame) {
+        .v_out = v_out,
+        .res1_v = res1_v,
+        .res3_v = res3_v,
+        .res4_v = res4_v,
+        .drive_t4 = drive_t4,
+        .res5_v = res5_v,
+        .res_t5_v = res_t5_v,
+        .dvs2 = dvs2,
+        .dvs3 = dvs3,
+    };
+}
+
+void nilamp_engine_process(NilampEngine *engine, const float *input, float *output, uint32_t nframes)
+{
+    if (engine == NULL || input == NULL || output == NULL) {
+        return;
+    }
     for (uint32_t i = 0; i < nframes; i++) {
-        const float old_s2 = engine->p2.s;
-        const float old_s3 = engine->p3.s;
+        output[i] = nilamp_engine_process_sample(engine, input[i]).v_out;
+    }
+}
 
-        const float dvs1 = tube_pss_process(&engine->p1, 125.0f, 0.008f, engine->sr, old_s2, engine->prev_dia1, 0.0f);
-        const float dvs2 = tube_pss_process(&engine->p2, 5100.0f, 0.0816f, engine->sr, old_s3, engine->prev_dig, dvs1);
-        const float dvs3 = tube_pss_process(&engine->p3, sag * 22000.0f, 0.352f, engine->sr, 0.0f, engine->prev_dia3, dvs2);
-
-        float res1_v, res1_dia;
-        tube_ck_process(&engine->t1, &T1, engine->sr, input[i] * gain, dvs3, &res1_v, &res1_dia);
-
-        float v2 = ii1_hp_process(&engine->hp1, 10.0f, engine->sr, res1_v);
-        v2 *= volume * volume;
-        v2 = svf2_tst(&engine->tone, engine->sr, bass * bass, mid * mid, treble * treble, 630.0f, 0.5f, v2);
-        v2 = ii1_lp_process(&engine->lp1, 8800.0f, engine->sr, v2);
-
-        float res3_v, res3_dia;
-        tube_ck_process(&engine->t2, &T2, engine->sr, v2, dvs3, &res3_v, &res3_dia);
-
-        float res4_v, res4_vk, res4_dia;
-        tube_cd_process(&engine->t3, &T3, engine->sr, res3_v, dvs3, &res4_v, &res4_vk, &res4_dia);
-
-        float drive_t4 = res4_v * 0.797f;
-        drive_t4 = ii1_hp_process(&engine->hp3, 5.8f, engine->sr, drive_t4);
-        drive_t4 = svf2_peq(&engine->peq1_t4, engine->sr, 1.1220184543f, 80.0f, 2.6685237666f, drive_t4);
-        drive_t4 = svf1_hs(&engine->hs1_t4, engine->sr, 1.4125375446f, 2098.1359672f, drive_t4);
-
-        float res5_v, res5_dia;
-        tube_ck_process(&engine->t4, &T4, engine->sr, drive_t4, dvs2, &res5_v, &res5_dia);
-
-        float aux = res4_vk * 0.940f;
-        aux = ii1_hp_process(&engine->hp4, 6.4f, engine->sr, aux);
-        aux = svf2_peq(&engine->peq1_t5, engine->sr, 1.1220184543f, 80.0f, 2.6685237666f, aux);
-        aux = svf1_hs(&engine->hs1_t5, engine->sr, 1.4125375446f, 2098.1359672f, aux);
-
-        float res_t5_v, res_t5_dia;
-        tube_ck_process(&engine->t5, &T5, engine->sr, aux, dvs2, &res_t5_v, &res_t5_dia);
-
-        float v_out = res5_v - res_t5_v;
-        v_out = svf2_peq(&engine->peq3, engine->sr, 1.2589254118f, 80.0f, 2.2440931043f, v_out);
-        v_out = svf1_hs(&engine->hs3, engine->sr, 1.4125375446f, 1485.8089753f, v_out);
-        v_out = ii1_hp_process(&engine->hp5, 40.0f, engine->sr, v_out);
-        v_out = df2_lp(&engine->lp2, engine->sr, 10000.0f, sqrtf(0.5f), v_out);
-        v_out *= 0.5f / (T4.rl * T4.isat + T5.rl * T5.isat);
-        output[i] = v_out;
-
-        engine->prev_dia1 = res5_dia + res_t5_dia;
-        engine->prev_dig = 0.025f * engine->prev_dia1;
-        engine->prev_dia3 = res1_dia + res3_dia + res4_dia;
+void nilamp_engine_process_taps(NilampEngine *engine, const float *input, float *outputs[NILAMP_NUM_TAPS], uint32_t nframes)
+{
+    if (engine == NULL || input == NULL || outputs == NULL) {
+        return;
+    }
+    for (uint32_t i = 0; i < nframes; i++) {
+        const NilampTapFrame taps = nilamp_engine_process_sample(engine, input[i]);
+        outputs[0][i] = taps.v_out;
+        outputs[1][i] = taps.res1_v;
+        outputs[2][i] = taps.res3_v;
+        outputs[3][i] = taps.res4_v;
+        outputs[4][i] = taps.drive_t4;
+        outputs[5][i] = taps.res5_v;
+        outputs[6][i] = taps.res_t5_v;
+        outputs[7][i] = taps.dvs2;
+        outputs[8][i] = taps.dvs3;
     }
 }
 

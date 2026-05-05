@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: MIT
-"""Generate float32 .bin fixtures for tests/regression.rs.
+"""Generate float32 .bin fixtures for native regression tests.
 
 All fixtures are raw little-endian float32 buffers (no header), produced by
 the Python oracle in tools/keller_oracle.py.  Inputs and reference outputs are
-both committed under tests/fixtures/ so cargo test does not require Python at
-test time (only at fixture-regeneration time).
+both committed under tests/fixtures/ so native tests do not require Python at
+test time.
 
 Run:
     python3 tools/gen_fixtures.py
@@ -38,7 +38,7 @@ def gen_input_sine(freq: float = 1000.0, amp: float = 0.5) -> np.ndarray:
 
 
 def gen_pkd(input_buf: np.ndarray) -> np.ndarray:
-    """Reference output for dsp/tests/test_pkd.dsp at the canonical parameter set."""
+    """Reference output for the PKD canonical parameter set."""
     xth = 0.0
     xdiode = 0.001
     tau_attack = 1e-3
@@ -61,10 +61,7 @@ def gen_adnl(cfg, input_buf: np.ndarray) -> np.ndarray:
 
 
 def _ck_oracle(cfg) -> ko.TubeCk:
-    """Build a TubeCk oracle whose params line up with c.t<N>_* in
-    dsp/5e3_constants.lib.  Keep this in sync with _ck_lines() in
-    gen_5e3_tables.py: same scalars, same NEQ-bypass coefficients
-    (b0=1, all others 0)."""
+    """Build a TubeCk oracle using the native C engine's stage constants."""
     table = gen_adnl_table(cfg.kbias, cfg.b, cfg.type_b, cfg.kloop)
     pk_k1 = 1.0 - np.exp(-1.0 / (cfg.tattack * SAMPLE_RATE))
     pk_k2 = np.exp(-1.0 / (cfg.trelease * SAMPLE_RATE))
@@ -83,8 +80,7 @@ def _ck_oracle(cfg) -> ko.TubeCk:
 def _ck_oracle_dz(cfg) -> ko.TubeCk:
     """DZ-table variant of :func:`_ck_oracle`.  Same params, only the
     ADNL waveform changes (Dempwolf-Zölzer ECC83 + per-stage CK load
-    line, with the same saturation clipping the Faust-side DZ table
-    uses)."""
+    line, with the same saturation clipping the native DZ table uses)."""
     table = gen_adnl_table_dz_ck(
         vs=cfg.vs, ra=cfg.ra, rl=cfg.rl, rk=cfg.rk,
         isat=cfg.isat, ibias=cfg.ibias, kpre=cfg.kpre,
@@ -104,8 +100,7 @@ def _ck_oracle_dz(cfg) -> ko.TubeCk:
 
 
 def _cd_oracle(cfg) -> ko.TubeCd:
-    """Build a TubeCd oracle matching dsp/tests/test_tube_cd.dsp.
-    No tck/avg_f for cathodyne (no advk path)."""
+    """Build a TubeCd oracle. No tck/avg_f for cathodyne (no advk path)."""
     table = gen_adnl_table(cfg.kbias, cfg.b, cfg.type_b, cfg.kloop)
     pk_k1 = 1.0 - np.exp(-1.0 / (cfg.tattack * SAMPLE_RATE))
     pk_k2 = np.exp(-1.0 / (cfg.trelease * SAMPLE_RATE))
@@ -139,8 +134,8 @@ def _cd_oracle_dz(cfg) -> ko.TubeCd:
     )
 
 
-# Stages we have per-stage test DSPs for.  Keep the short names in sync with
-# dsp/tests/test_adnl_<short>.dsp and the test names in tests/regression.rs.
+# Stages with per-stage oracle fixtures. Keep the short names stable because
+# fixture filenames and native test names refer to them.
 ADNL_STAGES = [
     ("t1_12ax7", t5e3.T1_12AX7),
     ("t2_12ax7", t5e3.T2_12AX7),
@@ -159,7 +154,7 @@ def gen_power_pair_inputs() -> tuple[np.ndarray, np.ndarray]:
 
 
 def gen_backend_filter_diag(input_buf: np.ndarray) -> tuple[np.ndarray, ...]:
-    """Reference for dsp/tests/test_filter_backend.dsp."""
+    """Reference for the backend filter diagnostic."""
     k1 = 0.797
     k2 = 0.940
     hp3_hz = 5.8
@@ -196,7 +191,7 @@ def gen_backend_filter_diag(input_buf: np.ndarray) -> tuple[np.ndarray, ...]:
 
 
 def gen_power_pair_diag(t3_v: np.ndarray, t3_vk: np.ndarray) -> tuple[np.ndarray, ...]:
-    """Reference for dsp/tests/test_power_pair_t5.dsp.
+    """Reference for the T4/T5 power-pair diagnostic.
 
     Mirrors the mode-0 T4/T5 branch only: pre-power PEQ/HS on both T3 taps,
     T4/T5 tube_ck stages with dvs=0, subtractive push-pull mix, and summed
@@ -238,7 +233,7 @@ def gen_power_pair_diag(t3_v: np.ndarray, t3_vk: np.ndarray) -> tuple[np.ndarray
 
 
 def gen_nilamp_taps(input_buf: np.ndarray) -> tuple[np.ndarray, ...]:
-    """Reference for dsp/tests/test_nilamp_taps.dsp.
+    """Reference for the nilamp tap-render diagnostic.
 
     Mirrors the current top-level cascade at frozen ABX defaults:
     gain=0 dB; volume/bass/mid/treble/sag=50%.  The feedback loop uses the
@@ -332,7 +327,7 @@ def main() -> None:
 
     # ADNL — small-signal (sine well inside [-xmax, xmax]) and large-signal
     # (peak amplitude 20, exceeds xmax=15) for each table.  The large-signal
-    # case exercises the ymin/ymax saturation arms in hk_adnl.lib.
+    # case exercises the ymin/ymax saturation arms in the ADNL runtime.
     for short, cfg in ADNL_STAGES:
         write(
             FIXTURES_DIR / f"adnl_{short}_sine05_48k.f32",
@@ -343,9 +338,8 @@ def main() -> None:
             gen_adnl(cfg, big_sine),
         )
 
-    # Filters — same operating points the 5E3 top-level (dsp/nilamp.dsp:37)
-    # uses, against the 1 kHz/amp 0.5 sine.  Lets us pin the Faust port of
-    # hk_filters.lib (flt_ii1_lp / flt_ii1_hp / flt_sv2_tst) to the JSFX
+    # Filters: same operating points the native 5E3 top-level uses, against
+    # the 1 kHz/amp 0.5 sine. This pins the filter math to Keller's JSFX
     # implementations without depending on scipy.signal at test time.
     write(
         FIXTURES_DIR / "filter_lp_8800_sine05_48k.f32",
@@ -374,7 +368,6 @@ def main() -> None:
     # Composite tube stage — full pipeline (ADNL + PKD + advk feedback +
     # state) with dvs hard-coded to 0.  T2 (12AX7 v2) for the CK harness
     # because it has kpk>0 and a non-trivial advk path; T3 for cathodyne.
-    # See dsp/tests/test_tube_ck.dsp / test_tube_cd.dsp.
     dvs_zero = np.zeros(N, dtype=np.float32)
 
     ck = _ck_oracle(t5e3.T2_12AX7)
@@ -400,8 +393,7 @@ def main() -> None:
     write(FIXTURES_DIR / "tube_cd_t3_dia_sine05_48k.f32", cd_dia)
 
     # DZ variants — same harness shape, swap the ADNL table for the
-    # Dempwolf-Zölzer load-line curve.  See dsp/tests/test_tube_ck_t2_dz.dsp
-    # / test_tube_cd_t3_dz.dsp.
+    # Dempwolf-Zölzer load-line curve.
     ck_dz = _ck_oracle_dz(t5e3.T2_12AX7)
     ck_dz_v, ck_dz_dia = ck_dz.process_block(sine.copy(), dvs_zero)
     write(FIXTURES_DIR / "tube_ck_t2_dz_v_sine05_48k.f32", ck_dz_v)

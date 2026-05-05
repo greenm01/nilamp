@@ -1,17 +1,16 @@
-# Native C/Lua migration path
+# Native C Path
 
-This directory contains the side-by-side replacement path for the current
-Faust/Rust stack.
+`native/` contains the current runtime implementation for nilamp.
 
 ## Boundaries
 
 - C owns realtime DSP and offline rendering.
-- Lua is build-time codegen/config only.
+- Lua may be used for build-time codegen/config helpers when it is useful.
 - Python remains the numerical oracle, fixture generator, and ABX analysis
   layer.
 
-Lua is not linked into the renderer or DSP engine, and must not run in the
-future audio callback.
+Lua and Python are not linked into the renderer or DSP engine, and neither
+should run in a future audio callback.
 
 ## Build
 
@@ -20,16 +19,23 @@ make native
 make native-test
 ```
 
-The Makefile runs `native/scripts/gen_tables.lua` to parse the existing
-`dsp/5e3_tables.lib` waveform definitions into generated C arrays under
-`native/build/`. Those generated files are disposable build artifacts.
+Generated ADNL tables live under `native/generated/` and are produced by:
 
-The renderer is:
+```bash
+python3 tools/gen_5e3_tables.py
+```
+
+The main renderer is:
 
 ```bash
 native/bin/nilamp_render --input in.wav --output out.wav
 ```
 
-The CLI intentionally mirrors the existing Rust renderer so
-`tools/abx_compare.py --nilamp-render native/bin/nilamp_render ...` can point
-at the native path.
+The tap renderer is:
+
+```bash
+native/bin/nilamp_taps_render --input in.wav --output taps.wav
+```
+
+`tools/abx_compare.py` defaults to `native/bin/nilamp_render` for comparison
+against the canonical Keller JSFX render.

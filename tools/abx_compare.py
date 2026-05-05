@@ -1,11 +1,11 @@
-"""Numerical ABX comparison: nilamp (Faust/Rust) vs Keller JSFX.
+"""Numerical ABX comparison: native nilamp vs Keller JSFX.
 
-Renders the same input audio + parameter set through both the Rust offline
-renderer (`nilamp_render`) and Keller's JSFX (via `tools.jsfx_render`), then
+Renders the same input audio + parameter set through both the native C renderer
+(`native/bin/nilamp_render`) and Keller's JSFX (via `tools.jsfx_render`), then
 computes a battery of numerical metrics on the difference.
 
 Pipeline per test point:
-  1. Render input -> nilamp output (Rust/Faust path).
+  1. Render input -> nilamp output (native C path).
   2. Render input -> jsfx output  (REAPER/Keller path).
   3. Trim first 100 ms from both (JSFX warm-up; see notes below).
   4. Time-align via cross-correlation peak (group delays may differ).
@@ -13,12 +13,12 @@ Pipeline per test point:
      deltas, THD ratio (if input is pure sine), spectral centroid delta.
   6. Pass/fail vs configurable thresholds.
 
-Slider mapping (Rust plugin params <-> JSFX sliders), native units:
+Slider mapping (nilamp params <-> JSFX sliders), native units:
     gain    (-12..12 dB)  ->   gin     (-12..12 dB)  with -12.79 dB offset
                                (JSFX applies an internal +12 dB plus a
                                 sqrt(1.2) factor; the harness translates
                                 p.gin = gain_db - 12.79 to equalize.
-                                Rust gain_db must be in [+0.79, +24.79] dB.)
+                                nilamp gain_db must be in [+0.79, +24.79] dB.)
     volume  (0..100 %)    <->  vol     (0..100 %)    identity
     bass    (0..100 %)    <->  bass    (0..100 %)    identity
     mid     (0..100 %)    <->  mid     (0..100 %)    identity
@@ -26,9 +26,9 @@ Slider mapping (Rust plugin params <-> JSFX sliders), native units:
     sag     (0..100 %)    <->  (held at 100; JSFX has no counterpart slider,
                                 its 3-stage PSS is fixed-internal)
 
-Other JSFX sliders are pinned to match the Rust DSP topology:
-    tube1 = 1   (12AX7 path; matches t1_12ax7_table in nilamp.dsp)
-    mode  = 0   (CD 5E3 cathodyne; matches tube_cd() stage 4 in nilamp.dsp)
+Other JSFX sliders are pinned to match the native DSP topology:
+    tube1 = 1   (12AX7 path)
+    mode  = 0   (CD 5E3 cathodyne)
     gcomp, gp_*, gs_*, f*, q*, gout = JSFX slider defaults
 
 Why the 100 ms trim:
@@ -54,7 +54,7 @@ from pathlib import Path
 from typing import Sequence
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-NILAMP_RENDER = REPO_ROOT / "target" / "release" / "nilamp_render"
+NILAMP_RENDER = REPO_ROOT / "native" / "bin" / "nilamp_render"
 JSFX_RENDER = [sys.executable, "-m", "tools.jsfx_render.render_jsfx"]
 
 # JSFX warm-up window (see module docstring).
@@ -63,9 +63,9 @@ JSFX_WARMUP_S = 0.100
 # JSFX input-gain offset, derived from twd_dlx_ii_harness.jsfx
 # parameter_update() line 229:
 #     gin_eff = 10^(0.05 * (p.gin + 12)) * sqrt(1.2)
-# Faust nilamp.dsp applies plain db2linear(p.gain). Equating effective
-# gains: p.gin = p.gain - 12 - 20*log10(sqrt(1.2)) = p.gain - 12.79.
-# We translate at the harness boundary so identical Rust gain_db produces
+# Native nilamp applies plain db2linear(p.gain). Equating effective gains:
+# p.gin = p.gain - 12 - 20*log10(sqrt(1.2)) = p.gain - 12.79.
+# We translate at the harness boundary so identical nilamp gain_db produces
 # identical actual signal gain into T1.
 JSFX_GIN_OFFSET_DB = 12.0 + 20.0 * math.log10(math.sqrt(1.2))  # = 12.7918
 
@@ -88,7 +88,7 @@ class Params:
     bass_pct: float = 50.0     # 0..100
     mid_pct: float = 50.0      # 0..100
     treble_pct: float = 50.0   # 0..100
-    sag_pct: float = 100.0     # 0..100 (Rust only; JSFX has no equivalent)
+    sag_pct: float = 100.0     # 0..100 (nilamp only; JSFX has no equivalent)
 
     def to_nilamp_args(self) -> list[str]:
         return [
@@ -101,7 +101,7 @@ class Params:
         ]
 
     def jsfx_gin(self) -> float:
-        """Translate Rust gain_db to the JSFX p.gin slider value that produces
+        """Translate nilamp gain_db to the JSFX p.gin slider value that produces
         the same effective audio gain into T1. See JSFX_GIN_OFFSET_DB."""
         gin = self.gain_db - JSFX_GIN_OFFSET_DB
         if gin < JSFX_GIN_MIN_DB or gin > JSFX_GIN_MAX_DB:
@@ -116,7 +116,7 @@ class Params:
 
     def to_jsfx_args(self) -> list[str]:
         # JSFX bass/mid/treble sliders have range 0..100 (verified from
-        # twd_dlx_ii_harness.jsfx slider declarations), matching Rust 1:1.
+        # twd_dlx_ii_harness.jsfx slider declarations), matching nilamp 1:1.
         # gin is offset-translated; see jsfx_gin().
         return [
             "-s", f"gin={self.jsfx_gin()}",
@@ -125,8 +125,8 @@ class Params:
             "-s", f"mid={self.mid_pct}",
             "-s", f"treble={self.treble_pct}",
             # Topology pins:
-            "-s", "tube1=1",   # 12AX7 (matches nilamp.dsp t1_12ax7_table)
-            "-s", "mode=0",    # CD 5E3 cathodyne (matches tube_cd() stage 4)
+            "-s", "tube1=1",   # 12AX7 path.
+            "-s", "mode=0",    # CD 5E3 cathodyne.
         ]
 
 
@@ -209,12 +209,9 @@ def render_nilamp(
     output_wav: Path,
     params: Params,
     renderer: Path,
-    variant: str | None,
 ) -> None:
     cmd = [str(renderer), "--input", str(input_wav), "--output", str(output_wav),
            *params.to_nilamp_args()]
-    if variant is not None:
-        cmd.extend(["--variant", variant])
     subprocess.run(cmd, check=True, capture_output=True)
 
 
@@ -407,7 +404,6 @@ def compute_metrics(a: list[float], b: list[float], sr: int) -> Metrics:
 def run_one(input_wav: Path, params: Params, out_dir: Path, label: str,
             input_scale: float = 1.0, jsfx_timeout_s: float = 60.0,
             nilamp_renderer: Path = NILAMP_RENDER,
-            nilamp_variant: str | None = None,
             use_jsfx_cache: bool = True) -> Metrics:
     out_dir.mkdir(parents=True, exist_ok=True)
     nilamp_wav = out_dir / f"{label}_nilamp.wav"
@@ -424,11 +420,11 @@ def run_one(input_wav: Path, params: Params, out_dir: Path, label: str,
         rendered_input = input_wav
 
     print(f"[{label}] JSFX p.gin = {params.jsfx_gin():+.4f} dB "
-          f"(Rust gain_db = {params.gain_db:+.4f})", flush=True)
+          f"(nilamp gain_db = {params.gain_db:+.4f})", flush=True)
     if input_scale != 1.0:
         print(f"[{label}] input pre-scale = {input_scale:g}", flush=True)
     print(f"[{label}] rendering nilamp...", flush=True)
-    render_nilamp(rendered_input, nilamp_wav, params, nilamp_renderer, nilamp_variant)
+    render_nilamp(rendered_input, nilamp_wav, params, nilamp_renderer)
     render_jsfx_cached(
         rendered_input,
         jsfx_wav,
@@ -454,7 +450,7 @@ def main() -> int:
     ap.add_argument("--out-dir", type=Path, default=Path("/tmp/abx_compare"))
     ap.add_argument("--label", default="default")
     ap.add_argument("--gain", type=float, default=EQUALIZABLE_GAIN_MIN_DB,
-                    help=f"Rust gain_db (default: {EQUALIZABLE_GAIN_MIN_DB:.4f} = "
+                    help=f"nilamp gain_db (default: {EQUALIZABLE_GAIN_MIN_DB:.4f} = "
                          "minimum equalizable). Must be in "
                          f"[{EQUALIZABLE_GAIN_MIN_DB:.4f}, "
                          f"{EQUALIZABLE_GAIN_MAX_DB:.4f}] dB.")
@@ -474,8 +470,6 @@ def main() -> int:
                     help="Disable JSFX reference-render cache.")
     ap.add_argument("--nilamp-render", type=Path, default=NILAMP_RENDER,
                     help=f"nilamp renderer binary (default: {NILAMP_RENDER})")
-    ap.add_argument("--nilamp-variant",
-                    help="Optional diagnostic variant passed to nilamp renderer.")
     ap.add_argument("--rms-threshold-db", type=float, default=-60.0)
     args = ap.parse_args()
 
@@ -492,7 +486,6 @@ def main() -> int:
     m = run_one(args.input, params, args.out_dir, args.label,
                 input_scale=args.input_scale, jsfx_timeout_s=args.jsfx_timeout,
                 nilamp_renderer=args.nilamp_render,
-                nilamp_variant=args.nilamp_variant,
                 use_jsfx_cache=not args.no_jsfx_cache)
     print(f"\nresults [{args.label}]:")
     print(m.report())
