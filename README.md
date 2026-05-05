@@ -82,5 +82,4 @@ directory.
 
 ## Author
 
-Mason Austin Green
-GitHub: [@greenm01](https://github.com/greenm01)
+niltempus
