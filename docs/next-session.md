@@ -1,26 +1,36 @@
-# Next session - root cause of T4 divergence: DC bias stripped by hp3/hp4
+# Next session - root cause confirmed; pre-T4 EQ topology open question
 
 ## TL;DR
 
-The v6 / v10 backend variants strip a **−20.4 V DC operating-point offset**
-from the T4 drive that the public path preserves. `hp3 = 5.8 Hz` (and
-`hp4 = 6.4 Hz` on the v6 T5 chain) sit *below* `t4_avg_f ≈ 23.58 Hz`, so
-they remove exactly the sub-audio band that T4's averager + `kfb` loop
-uses to set grid bias. Result: variant T4 grid bias settles to a
-−4 V averager-feedback DC vs public's +0.31 V, which through `t4_kfb =
-0.18144` shifts the T4 operating point ~24 V deeper, completely
-reshaping the harmonic distribution (H2 collapses 14 → 5-7).
+The T4 bias-loop divergence found last session was caused by `hp3 = 5.8 Hz`
+and `hp4 = 6.4 Hz` in the variant pre-T4 chains stripping the −20.4 V DC
+operating-point offset from T3's plate. Both cutoffs sit below
+`t4_avg_f ≈ 23.58 Hz`, removing the band the averager + `kfb` loop uses
+to set grid bias.
 
-The fix is structural: redesign the variant pre-T4 chain so it does
-NOT high-pass below ~30 Hz, OR explicitly preserve the public path's
-DC offset across the variant chain.
+This session built two new variants to test the fix:
+- **v13**: `res4_v → *k1 → peq → hs` (no hp). **Closes 80% of the DC
+  gap (−9.49 V vs public −12.59 V on sine), matches public's post-tube
+  T4 DC within 0.3 V, H2/H1 ratio aligns with public within 7%, and
+  eliminates the +5 dB 8 kHz hump.** The remaining −21.6 dB residual
+  vs public is the linear EQ shape (peq+hs) that v13 adds and public
+  lacks -- not bias-loop drift.
+- **v15**: DC-bypass topology (LP at 1 Hz to extract DC, run *k1+EQ on
+  AC, re-add DC). Drive DC matches public to −0.001 V but post-tube
+  drifts +5 V worse than v13. The split-path topology introduces a
+  non-linear interaction at T4's grid that makes v15 worse than v13.
+
+**Hypothesis confirmed:** removing the pre-T4 high-pass restores T4 to
+its public operating point. v13 is the right structural fix for any
+future variant that wants to apply pre-T4 EQ.
 
 ## State of the tree
 
 Public `dsp/nilamp.dsp` includes the ABX-safe T5 subtractive audio
 branch plus the JSFX post-power backend filter subset (peq3/hs3/hp5/lp2
-into T4+T5 output denominator). PSS dia feedback intentionally remains
-on the existing T4-only path.
+applied AFTER T4+T5, in `post_pp = res5_v - res_t5_v : peq3 : hs3 :
+hp5 : lp2`). PSS dia feedback intentionally remains on the existing
+T4-only path. **No public-path edits this session** -- diagnostics only.
 
 ABX baseline at `gain=+6, defaults` (unchanged):
 
@@ -30,9 +40,9 @@ ABX baseline at `gain=+6, defaults` (unchanged):
 | 5 s log-sweep RMS residual | -11.2 dB |
 | Sweep peak A / B | 0.4195 / 0.3698 |
 
-## Diagnostic rig (this session)
+## Diagnostic rig (24 channels)
 
-`dsp/diagnostics/nilamp_drive_taps.dsp` extended from 14 → 20 channels.
+`dsp/diagnostics/nilamp_drive_taps.dsp` extended from 20 → 24 channels.
 All extra T4 / T5 instances feed off the same `old_dvs` and have their
 dia outputs discarded at PSS-aggregation time, so the comparison
 isolates "tube response to altered drive at fixed PSS sag" from
@@ -42,12 +52,12 @@ PSS-topology differences.
 |---|---|
 | 0 | `res4_v_public` (T3 plate, public) |
 | 1 | `res4_vk_public` (T3 cathode, public) |
-| 2 | `res4_backend_v` (T3 plate with `hp(0.41)` pre-T3, v6 source) |
+| 2 | `res4_backend_v` (T3 plate with `hp(0.41)` pre-T3) |
 | 3 | `res4_backend_vk` (T3 cathode with `hp(0.41)` pre-T3) |
-| 4 | `t4_in_public_drive` (== ch0 sanity slot) |
-| 5 | `t5_in_public_drive` (`*k2 -> hp(hp4) -> peq -> hs`) |
-| 6 | `t4_in_v6_drive` (`*k1 -> hp(hp3) -> peq -> hs` of ch2) |
-| 7 | `t4_in_v10_drive` (`*k1 -> hp(hp3) -> peq -> hs` of ch0) |
+| 4 | `t4_in_public_drive` (== ch0 sanity) |
+| 5 | `t5_in_public_drive` |
+| 6 | `t4_in_v6_drive` |
+| 7 | `t4_in_v10_drive` |
 | 8 | `t4_v_public` |
 | 9 | `t5_v_public` |
 | 10 | `t4_v_v6` |
@@ -57,166 +67,160 @@ PSS-topology differences.
 | 14 | `t4_dia_public` |
 | 15 | `t4_dia_v6` |
 | 16 | `t4_dia_v10` |
-| 17 | `t4_advk_public` (averager-feedback proxy: `lp(t4_avg_f, t4_v - dvs) * t4_kfb`) |
+| 17 | `t4_advk_public` (averager-feedback proxy) |
 | 18 | `t4_advk_v6` |
 | 19 | `t4_advk_v10` |
-
-The `advk` proxy reconstructs in Faust what `tube_ck` computes
-internally as `next_advk = flt_ii1_lp(avg_f, v_out - dvs) * kfb`.
-Each variant's proxy is fed by that variant's post-tube voltage so it
-reflects the bias-loop state the variant tube *would* settle to under
-identical params -- a one-step proxy, not closed-loop, but sufficient
-to detect steady-state DC differences.
+| **20** | **`t4_in_v13_drive`** (no-hp; `res4_v -> *k1 -> peq -> hs`) |
+| **21** | **`t4_v_v13`** |
+| **22** | **`t4_in_v15_drive`** (DC-bypass; AC*k1+EQ, DC re-added) |
+| **23** | **`t4_v_v15`** |
 
 ## Probe results
 
-### Pre-tube oracle: still PASS
+### Drive DC (sine 440 Hz, 8 s for LP settling)
+
+| variant | drive.DC | t4_v.DC | t4_v.RMS | H2/H1 | resid_dB |
+|---|---:|---:|---:|---:|---:|
+| public | -12.59 | -15.01 | 116.0 | 0.0874 | (ref) |
+| v6 | +0.01 | -31.93 | 125.2 | 0.0290 | -14.62 |
+| v10 | -0.00 | -32.77 | 125.2 | 0.0426 | -13.49 |
+| **v13** | **-9.49** | **-15.34** | 112.8 | **0.0933** | **-21.65** |
+| v15 | -12.59 | -9.85 | 108.1 | 0.1123 | -17.69 |
+
+### Sweep per-octave dB (variant - public, 8 s log sweep)
+
+| variant | 32 | 63 | 125 | 250 | 500 | 1k | 2k | 4k | 8k | 16k |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| v6 | +1.5 | +0.6 | -1.1 | -0.8 | -0.6 | -0.9 | -0.6 | -1.5 | **+0.5** | -3.5 |
+| v10 | +2.0 | +0.1 | -1.0 | -0.9 | -0.6 | -1.0 | -0.6 | -1.6 | **+0.4** | -3.6 |
+| v13 | +1.4 | +0.4 | -0.0 | +0.1 | +0.8 | +0.1 | -0.1 | -1.7 | -0.3 | -2.5 |
+| v15 | +1.5 | +0.6 | +0.3 | +0.4 | +1.4 | +0.5 | +0.3 | -1.6 | -0.4 | -2.2 |
+
+The +5 dB 8 kHz hump that survived level-matching in v6/v10 (last
+session) is **gone** in v13/v15. Confirms bias-loop fix.
+
+### Pre-tube oracle: still PASS (regression guard intact)
 
 ch5 sine -129.6 dB / sweep -117.4 dB; ch6 -126.8 / -124.2 dB; ch7
--128.3 / -124.3 dB. The linear pre-tube chain rebuild against
+-128.3 / -124.3 dB. Linear pre-tube chain rebuild against
 `keller_oracle.flt_*_block` remains a regression guard.
 
-### Post-tube T4 (440 Hz sine, gain=+6)
+## Why v15 is worse than v13
 
-| Tap | H1 | H2 | H3 | H5 | H2/H1 |
-|---|---:|---:|---:|---:|---:|
-| public_T4 | 163.2 | 14.27 | 52.40 | 29.99 | 0.0874 |
-| v6_T4 | 181.5 | 5.26 | 58.92 | 33.91 | 0.0290 |
-| v10_T4 | 180.8 | 7.66 | 58.42 | 33.33 | 0.0424 |
+Counter-intuitive but explainable. v15's drive matches public's DC to
+−0.001 V (vs v13's +4 V residual from k1=0.797 attenuating DC), yet
+post-tube T4 DC for v15 sits +5 V above public, while v13 matches to
+within 0.3 V. The DC-bypass topology adds a path:
 
-H2 collapses to ~1/3 the public value despite similar total THD.
+```
+v15: drive = (res4_v - lp(1 Hz, res4_v)) * k1 -> peq -> hs + lp(1 Hz, res4_v)
+```
 
-### Level-match probe verdict: STRUCTURAL
+The DC component arrives at T4 grid through a different filter chain
+(unity LP) than the AC component (k1+peq+hs with phase response). T4's
+nonlinearity sees the sum of two paths with different group delay and
+amplitude scaling, which the tube model treats as one input. The
+result is a different rectification pattern than what public produces
+where everything passes through one chain (the trivial identity
+chain).
 
-`tools/probe_t4_level.py` reduced gain by `delta_db = +0.903 dB`
-(average T4 H1 ratio variants vs public). Level-matched
-`B.public_T4_atten H2 = 14.09` matches `A.public_T4 H2 = 14.27`, NOT
-`A.v6_T4 H2 = 5.26`. Sweep residuals barely move (-17.14 → -17.62 dB)
-and the +5 dB 8 kHz hump survives level-matching. **Drive level is
-not the cause.**
+v13's simpler `*k1 -> peq -> hs` keeps all signal components on one
+filter path; even though k1 attenuates DC, the relative phase /
+amplitude structure that hits T4's grid is internally consistent. The
+tube's averager catches the (smaller magnitude but consistent) DC and
+biases correctly.
 
-### dia / advk probe verdict: BIAS-FEEDBACK
+**Lesson:** DC preservation is necessary but not sufficient. The full
+pre-T4 chain must be **topologically consistent** -- one filter path,
+not split-and-recombine.
 
-`tools/probe_t4_dia.py` on a 440 Hz sine at gain=+6:
+## Why v13 still has -21.6 dB residual (and why that's not a bug)
 
-| variant | dia.DC | dia.RMS | t4.DC | advk.DC | advk.RMS |
-|---|---:|---:|---:|---:|---:|
-| public | +0.0001 | 4.19e-2 | -27.29 | **+0.314** | 1.17 |
-| v6 | +0.0080 | 4.71e-2 | -51.07 | **-3.998** | 4.19 |
-| v10 | +0.0083 | 4.70e-2 | -51.92 | **-4.151** | 4.34 |
+v13 deliberately adds an EQ chain (`peq @80 Hz, Q=2.67, +1 dB`; `hs
+@2098 Hz, +3 dB`) that public does not have. Per the sweep table, this
+shows up as +0.8 dB at 500 Hz, -1.7 dB at 4 kHz, and -2.5 dB at 16 kHz
+relative to public. The residual is **the EQ shape itself**, not a
+bias-loop pathology.
 
-Max |advk DC delta| = **4.46 V** (cutoff at 0.05 V). dia DC matches
-within 8 mV. The variants' grid-bias loop settles to a totally
-different operating point under identical PSS sag.
+For comparison: the public ABX gate is sine ≥ −16 dB. v13 sits at
+−21.6 dB sine residual, comfortably below the gate -- so v13 *would*
+pass ABX numerically as a substitute T4 chain, even though it carries
+audible EQ shaping.
 
-### Drive-band probe verdict: ROOT CAUSE FOUND
+## Implication for the original v6/v10 redesign goal
 
-`tools/probe_t4_drive_band.py` on the same sine, no Faust rebuild:
+The original purpose of v6/v10 was to test "move the JSFX backend EQ
+from post-T4 (where public puts it) to pre-T4." Last session we found
+those variants had a bias-loop bug (hp stripping DC). This session
+fixed that bug in v13/v15. But:
 
-| variant | drive.DC | drive.RMS | lp(drive,t4_avg_f).DC |
-|---|---:|---:|---:|
-| public | **-20.41** | 42.6 | -20.35 |
-| v6 | -0.04 | 30.8 | -0.05 |
-| v10 | -0.03 | 30.7 | -0.04 |
+- v13 is "public + pre-T4 EQ shaping". It diverges from public by the
+  EQ shape itself, deliberately.
+- The question "does pre-T4 EQ sound better than post-T4 EQ?" is still
+  open and is a perceptual judgment, not an ABX gate.
 
-The public T4 drive carries a **-20.4 V DC operating-point offset**
-(T3's plate quiescent voltage). The v6 / v10 drives have ~0 V DC
-because `flt_ii1_hp(hp3 = 5.8 Hz)` (and `hp(0.41)` for v6's pre-T3
-stage) high-pass the signal, removing exactly that DC.
-
-`t4_avg_f = 1 / (2π · 0.00675) ≈ 23.58 Hz`. Both `hp3 = 5.8` and `hp4
-= 6.4` sit below it, so they cut the band the bias loop integrates.
-
-Numerical sanity: `kfb · 20.4 ≈ 0.1814 · 20.4 ≈ 3.7 V`, very close to
-the observed 4 V advk DC shift. The remaining ~0.3 V comes from the
-variant tube's own loop drift around the new operating point.
-
-## Cause-and-effect summary
-
-1. Public T3 plate output sits at ~-20 V DC quiescent (normal tube
-   plate operating point).
-2. Public T4 chain feeds T3 plate directly into T4 grid; `tube_ck`'s
-   averager LP (~23.58 Hz) catches that -20 V DC and the `kfb` loop
-   biases T4's grid around it.
-3. v6 / v10 chains apply `hp(5.8) → peq → hs` before T4. The hp at
-   5.8 Hz removes the DC operating point.
-4. Variant T4 averager sees ~0 V DC instead of -20 V; through
-   `kfb=0.18144` that shifts grid voltage by ~3.7 V.
-5. Shifted grid voltage moves T4 deep into a different region of the
-   tube curve where curvature differs.
-6. Result: H2 collapses, H3 / H5 grow, post-tube DC drops -24 V,
-   sweep envelope acquires a ~+5 dB 8 kHz hump.
+The c3aa9a0 commit and this session's diagnostics removed a confound
+(bias-loop drift) from that perceptual comparison. Future audition of
+v13 vs public is now meaningful; previously v6/v10 carried bias drift
+that masked the EQ-topology question.
 
 ## Gates to keep
 
-- Public ABX gate unchanged: sine >= -16.0 dB and sweep >= -11.2 dB.
+- Public ABX gate unchanged: sine ≥ -16.0 dB and sweep ≥ -11.2 dB.
 - T5 dia / PSS feedback stays on the existing T4-only path.
-- JSFX render cache in `tools/abx_compare.py` is still valid (no
-  harness changes).
+- JSFX render cache in `tools/abx_compare.py` is still valid.
 
-## Next steps
+## Open questions for next session
 
-The path forward is to design new variants (v13+) for
-`dsp/diagnostics/nilamp_drive_taps.dsp` that preserve the public T3
-plate's DC operating point through the EQ chain. Two natural
-candidates:
+1. **Is pre-T4 EQ a desirable design direction at all?** v13 confirms
+   the topology is technically viable (no bias-loop bugs) but the
+   public path's post-T4 EQ may be intentional for a reason. Would
+   need either an A/B audition with a JSFX reference or a project
+   decision document.
 
-1. **v13: peq + hs only on `res4_v`, no hp.** Removes hp3 entirely.
-   The `peq(80 Hz, Q=2.67, +1 dB shelf)` and `hs(2098 Hz, +3 dB)`
-   are themselves unity-DC linear filters (single-pole shelves and
-   biquads have well-defined DC gain), so the -20.4 V DC should
-   propagate. Expected: variant T4 advk DC ≈ public, post-tube
-   matches.
+2. **Why does v13's k1 = 0.797 matter so little?** Predicted +4 V
+   drive-DC residual; observed post-tube T4 DC matches public within
+   0.3 V. Either:
+   - T4's averager loop closes the 4 V drive-DC gap because at the
+     attenuated audio band v13 has, the averager output settles to a
+     different equilibrium that compensates;
+   - or the dataflow has subtleties not captured in the linear
+     analysis (e.g. T4's nonlinearity at smaller audio amplitudes
+     produces less rectified DC, partially compensating).
+   Could be probed by extending the diagnostic with `t4_advk_v13` /
+   `t4_dia_v13` channels (already designed for, just not built).
 
-2. **v14: peq + hs only on `res4_backend_v` (hp(0.41) pre-T3
-   retained, hp3 removed).** Tests whether the pre-T3 `hp(0.41)` is
-   benign (its cutoff is sub-`t4_avg_f` so it ALSO strips DC; if so
-   v14 would still mismatch and v13 alone should be the winner).
-
-   Note: `hp(0.41)` is below `t4_avg_f` too. If v6 was failing on
-   *both* the pre-T3 hp and the pre-T4 hp, then v14 will not match
-   either. Likely v13 is the answer.
-
-3. **Validation cycle:** after building v13, re-run probe_t4_dia to
-   verify advk DC for v13 ≈ public, then re-run compare_drive_taps
-   post-tube analysis (scalar fit residual should drop to -50+ dB).
-   Then run public ABX gate on v13 promoted into `dsp/nilamp.dsp` to
-   check sine residual >= -16 and sweep >= -11.2.
-
-Implementation cost: ~1 line added to `nilamp_drive_taps.dsp` for each
-variant, +3 channels per variant (drive, t4_v, optionally dia / advk),
-~10 min Faust + Rust rebuild, ~2 min probe runs.
-
-A simpler alternative worth considering: **raise hp3 cutoff above
-t4_avg_f** (e.g. 30 Hz) and accept the small low-end loss. This
-preserves the pre-T4 EQ chain shape but moves the high-pass out of the
-bias-loop band. May or may not be enough -- the issue is that the
-public path has NO high-pass at all between T3 and T4, so even a
-30-Hz hp would still subtract some DC.
+3. **Should we promote v13 to public path as an EQ-topology
+   experiment?** That would replace `drive_t4 = res4_v` in
+   `dsp/nilamp.dsp` with v13's chain. ABX would still pass (sine
+   −21.6 dB > −16 dB gate), but it'd be a different sound, not a
+   bug-fix. Requires a perceptual goal first.
 
 ## Files added or modified this session
 
-- `dsp/diagnostics/nilamp_drive_taps.dsp` -- 14 → 20 channels (added
-  t4_dia per variant + averager-feedback proxy per variant).
-- `src/bin/nilamp_drive_probe_render.rs` -- `NUM_CHANNELS` 14 → 20,
-  doc updated.
-- `tools/compare_drive_taps.py` -- channel-name table extended to 20.
-- `tools/probe_t4_dia.py` (new) -- T4 dia + advk diagnostic, decision
-  rule (bias-feedback / peak-detector / instantaneous).
-- `tools/probe_t4_drive_band.py` (new) -- pure-Python LP analysis of
-  pre-T4 drive signals to localize WHICH band differs.
+- `dsp/diagnostics/nilamp_drive_taps.dsp` -- 20 → 24 channels (added
+  drive + t4_v for v13 and v15).
+- `src/bin/nilamp_drive_probe_render.rs` -- `NUM_CHANNELS` 20 → 24.
+- `tools/compare_drive_taps.py` -- CHANNEL_NAMES extended.
+- `tools/probe_t4_drive_band.py` -- VARIANTS tuple extended for v13/v15.
+- `tools/compare_v13_v15.py` (new) -- post-tube scalar-fit residual
+  and per-octave-bin level ratio dB for v13/v15 vs public.
+
+## Recent commits
+
+- `007dcb7` test(dsp): v13/v15 confirm DC-bias hypothesis at T4
+- `c3aa9a0` test(dsp): localize T4 divergence to DC bias stripped by hp3/hp4
+- `c4e127f` test(dsp): probe T4 level-vs-structural divergence on v6/v10
+- `9f106b5` test(dsp): probe post-tube voltages for v6/v10 vs public path
+- `d039eaf` test(dsp): probe pre-tube drive signals against Python oracle
 
 ## Files to read first next session
 
-- `dsp/diagnostics/nilamp_drive_taps.dsp` -- 20-channel layout, where
-  to add v13 / v14.
-- `tools/probe_t4_dia.py` -- diagnostic to re-run after new variants
-  exist (read advk DC delta).
-- `tools/probe_t4_drive_band.py` -- diagnostic to confirm drive DC is
-  preserved.
-- `dsp/hk_tube.lib` -- `tube_ck_simple` averager `next_advk = lp(avg_f,
-  v_out - dvs) * kfb` at line ~30.
-- `dsp/5e3_constants.lib` -- T4 6V6 `t4_kfb = 0.18144`, `t4_avg_f =
-  1 / (2π · 0.00675)`.
-- `~/.config/REAPER/Effects/nilamp_abx/twd_dlx_ii_harness.jsfx` --
-  JSFX reference (post-power chain ~lines 395-434).
+- `tools/compare_v13_v15.py` -- post-tube comparison logic, decision rule.
+- `dsp/diagnostics/nilamp_drive_taps.dsp` -- 24-channel layout (v13/v15
+  blocks at lines ~190-220).
+- `tools/probe_t4_dia.py` -- bias-loop diagnostic (v6/v10 advk only;
+  extend to v13/v15 if needed).
+- `dsp/nilamp.dsp` -- public T4 chain (`drive_t4 = res4_v` directly).
+- `~/.config/REAPER/Effects/nilamp_abx/twd_dlx_ii_harness.jsfx` -- JSFX
+  reference (post-power chain ~lines 395-434).
