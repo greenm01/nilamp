@@ -1,3 +1,130 @@
+# Next session — pre-T4 EQ regression confirmed in audio path
+
+## SESSION LOG (most recent first)
+
+### Session: JSFX-faithful pre-T4 chain in public audio path → FAIL
+
+**Goal:** test whether public's `-16 dB sine / -11.2 dB sweep` residual
+vs JSFX is caused by Faust public missing JSFX's pre-T4 EQ chain
+(`*k1 -> hp3(5.8) -> peq1 -> hs1`).
+
+**Discovery before testing:** JSFX harness `twd_dlx_ii.jsfx:411-414`
+applies the v6/v10-style pre-T4 chain. JSFX `tube_ck_process`
+(`HK_LIB_TUBE.jsfx-inc:81-111`) is structurally identical to Faust
+`tube_ck` (`dsp/hk_tube.lib:15-37`). JSFX `peq1`/`hs1` and `peq2`/`hs2`
+share the same constants (`kp1, fp, qp1` and `ks1, fs1`) per JSFX
+lines 251-252, 265-266. `k1=0.797`, `hp3=5.8 Hz` for mode 0
+(`twd_dlx_ii.jsfx:293, 298`).
+
+**Reframe of c3aa9a0:** the "DC-stripping breaks bias loop" framing in
+that commit is mechanically incomplete. The averager closes its loop
+on the **output** voltage (`v_out - dvs`), not the input. Stripped
+input DC doesn't break the feedback; it shifts the operating point.
+JSFX uses `hp3=5.8 Hz` and works fine, so the v6/v10 numerical
+divergence I observed in the diagnostic must come from somewhere
+other than "averager can't see DC".
+
+**Edit applied to `dsp/nilamp.dsp`:** added `k1_mode0=0.797`,
+`hp3_hz=5.8`; inserted `drive_t4 = res4_v : *(k1_mode0) :
+flt_ii1_hp(hp3_hz) : flt_sv2_peq(kp1, fp_hz, qp1, 1, 1) :
+flt_sv1_hs(ks1, fs1_hz, 1)` and fed `drive_t4` (not `res4_v`) to T4.
+Mirrors the existing pre-T5 `aux_in` chain.
+
+**Build:** `cargo build --release --bin nilamp_render` (12 min).
+
+**ABX result:**
+
+| Test | Public baseline | Public + pre-T4 chain |
+|---|---:|---:|
+| Sine 440 Hz residual | -16.0 dB | **-6.6 dB** (9 dB worse) |
+| Sweep peak A / B | 0.4195 / 0.3698 | **32.6 / 0.47** (70× peak blowup) |
+
+**Verdict:** experiment FAILED. Adding the chain widened the gap and
+caused massive sweep-peak runaway. **Reverted.**
+
+**Mechanism candidate:** the public audio path runs T4 inside the
+global PSS sag loop with `total_dia = res1_dia + res3_dia + res4_dia
++ res5_dia`. The pre-T4 EQ changes `res5_dia` (T4 plate current draw)
+in a frequency-dependent way; this couples back through PSS and may
+oscillate or drive runaway gain at the EQ peak frequency. The
+diagnostic harness `nilamp_drive_taps.dsp` deliberately *excludes*
+v13/v15 T4 dia from PSS feedback (line 305: `total_dia_current =
+res1_dia + res3_dia + res4_dia + t4_dia_public`) -- only public T4
+loops back. So v13's "0.3 V post-tube DC delta vs public" was measured
+under PSS isolation, which the audio path does not provide.
+
+**Pre-existing warning underweighted:** `dsp/nilamp.dsp:205-207`:
+> "The pre-T4 backend chain remains diagnostic-only until its sweep
+> regression is isolated."
+This is the regression. Independently rediscovered.
+
+### Reframed conclusions
+
+1. **Faust public's `-16 dB / -11.2 dB` residual vs JSFX is NOT just
+   "missing pre-T4 EQ".** Adding the EQ alone makes it worse, much
+   worse. There is a coupling problem between pre-T4 EQ + T4 dia +
+   PSS sag loop that JSFX either lacks or compensates for differently.
+
+2. **The c3aa9a0 / 007dcb7 commits' findings about v13 still stand
+   *within the diagnostic harness*** (T4 voltage at fixed PSS),
+   but their relevance to the public audio path is now in question.
+   v13 may still be a useful comparison point, but only after the
+   pre-T4-EQ-vs-PSS coupling is understood.
+
+3. **The next-session.md prior content (below) is preserved for
+   continuity but its "v13 is the right structural fix" claim should
+   be read with caution.** v13 has not been tested in a configuration
+   that includes PSS feedback from T4 dia (the audio path).
+
+### Open questions for next session
+
+1. **Does JSFX's PSS implementation differ?** Worth comparing
+   `tube_pss` Faust vs JSFX. The pre-T4 EQ + PSS coupling that
+   destabilizes Faust may be tamed in JSFX by a different sag
+   topology (e.g. JSFX may not include T4 dia in its PSS feedback,
+   or may use different `r_pss / tau_pss`).
+
+2. **Can the pre-T4 chain be added without including T4 dia in PSS?**
+   I.e. add the chain but keep `total_dia = res1_dia + res3_dia +
+   res4_dia` (drop `res5_dia` from the sum). This would isolate
+   whether the regression is "EQ + T4-into-PSS" or "EQ + something
+   else in T4."
+
+3. **Is the regression at a specific frequency?** Sweep blew up to
+   peak 32.6; useful to render the post-pre-T4-chain Faust on an
+   actual sweep recording and inspect where the peak occurs in the
+   sweep. If at ~80 Hz (peq1 center) or ~2098 Hz (hs1 corner), it
+   confirms EQ-driven runaway. Bash-level: `python3 -c "..."` to find
+   peak sample index, divide by sr, map to instantaneous sweep
+   frequency.
+
+4. **Is `flt_sv2_peq` Faust signature truly equivalent to JSFX
+   `flt_sv2_set_peq`?** I assumed yes based on the working pre-T5
+   chain, but the pre-T5 chain is fed by `res4_vk` (T3 cathode, much
+   smaller magnitude than T3 plate `res4_v`). The pre-T4 chain is fed
+   by the much-higher-amplitude T3 plate. Possibly the filter is
+   numerically unstable at that input scale.
+
+5. **What about `flt_ii1_hp` at 5.8 Hz at sr=48000?** Pole near unity
+   (`tau ~= 27 ms`). Combined with PSS feedback this could be a
+   long-time-constant integrator with positive loop gain. Worth
+   isolating.
+
+### Files touched this session
+- (no commits) — `dsp/nilamp.dsp` was edited then reverted.
+- `docs/next-session.md` (this file) prepended with session log.
+
+### What was actually committed across the broader work span
+- `75e082f` docs: write up v13/v15 results and DC-coupling fix verification
+- `007dcb7` test(dsp): v13/v15 confirm DC-bias hypothesis at T4
+- `c3aa9a0` test(dsp): localize T4 divergence to DC bias stripped by hp3/hp4
+- All of these now flagged as "framing too confident; mechanism may be
+  different; v13's success is PSS-isolated and may not transfer."
+
+---
+
+## ORIGINAL CONTENT (prior session — read with caution)
+
 # Next session - root cause confirmed; pre-T4 EQ topology open question
 
 ## TL;DR
