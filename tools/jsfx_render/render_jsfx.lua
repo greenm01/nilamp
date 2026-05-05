@@ -5,10 +5,11 @@
 --
 -- Config table fields:
 --   input    : absolute path to input wav
---   output   : absolute path for rendered wav (32-bit float mono)
+--   output   : absolute path for rendered wav (32-bit float)
 --   effect   : REAPER-relative JSFX effect name
 --   sliders  : array of {index = N, value = X} (1-based slider numbers as in JSFX)
 --   sr       : sample rate (default 48000)
+--   channels : render channel count (default 1)
 --
 -- Strategy:
 --   1. Start from an empty project (REAPER opens with one when given a script).
@@ -28,6 +29,7 @@ local cfg_path = "/tmp/render_jsfx_cfg.lua"
 local ok, cfg = pcall(dofile, cfg_path)
 if not ok or type(cfg) ~= "table" then
   reaper.ShowConsoleMsg("FATAL: failed to load " .. cfg_path .. "\n")
+  reaper.Main_SaveProject(0, false)
   reaper.Main_OnCommand(40004, 0)
   return
 end
@@ -35,6 +37,11 @@ end
 local function log(msg)
   local f = io.open("/tmp/render_jsfx.log", "a")
   if f then f:write(msg .. "\n"); f:close() end
+end
+
+local function quit_reaper()
+  reaper.Main_SaveProject(0, false)
+  reaper.Main_OnCommand(40004, 0)
 end
 
 log("=== render_jsfx.lua start ===")
@@ -51,6 +58,7 @@ log("effect=" .. tostring(cfg.effect))
 -- @slider, so setting this later can leave the reference render initialized at
 -- the device/default rate.
 local sr = cfg.sr or 48000
+local render_channels = cfg.channels or 1
 reaper.GetSetProjectInfo(0, "PROJECT_SRATE", sr, true)
 reaper.GetSetProjectInfo(0, "PROJECT_SRATE_USE", 1, true)
 reaper.GetSetProjectInfo(0, "RENDER_SRATE", sr, true)
@@ -60,17 +68,24 @@ log("sample rate forced before FX init: " .. tostring(sr))
 reaper.InsertTrackAtIndex(0, true)
 local track = reaper.GetTrack(0, 0)
 reaper.SetOnlyTrackSelected(track)
+reaper.SetMediaTrackInfo_Value(track, "I_NCHAN", render_channels)
+reaper.SetMediaTrackInfo_Value(reaper.GetMasterTrack(0), "I_NCHAN", render_channels)
+log("track channels before media=" .. tostring(reaper.GetMediaTrackInfo_Value(track, "I_NCHAN")))
 -- InsertMedia mode: 0 = add to current track at edit cursor.
 reaper.SetEditCurPos(0, false, false)
 local insret = reaper.InsertMedia(cfg.input, 0)
 log("InsertMedia ret=" .. tostring(insret))
+reaper.SetMediaTrackInfo_Value(track, "I_NCHAN", render_channels)
+reaper.SetMediaTrackInfo_Value(reaper.GetMasterTrack(0), "I_NCHAN", render_channels)
+log("track channels after media=" .. tostring(reaper.GetMediaTrackInfo_Value(track, "I_NCHAN")))
+log("master channels after media=" .. tostring(reaper.GetMediaTrackInfo_Value(reaper.GetMasterTrack(0), "I_NCHAN")))
 
 -- 4. Add JSFX. AddByName flag bits: 1 = add (not just query).
 local effect_name = cfg.effect or "nilamp_abx/twd_dlx_ii_harness"
 local fx_idx = reaper.TrackFX_AddByName(track, effect_name, false, -1)
 log("TrackFX_AddByName ret=" .. tostring(fx_idx))
 if fx_idx < 0 then
-  log("FATAL: JSFX not found: " .. tostring(effect_name)); reaper.Main_OnCommand(40004, 0); return
+  log("FATAL: JSFX not found: " .. tostring(effect_name)); quit_reaper(); return
 end
 
 local n_params = reaper.TrackFX_GetNumParams(track, fx_idx)
@@ -94,8 +109,8 @@ end
 -- 5. Configure render settings via project info.
 -- Render bounds: 1 = entire project
 reaper.GetSetProjectInfo(0, "RENDER_BOUNDSFLAG", 1, true)
--- Render channels: 1 = mono
-reaper.GetSetProjectInfo(0, "RENDER_CHANNELS", 1, true)
+-- Render channels: 1 = mono, higher values for diagnostic tap renders.
+reaper.GetSetProjectInfo(0, "RENDER_CHANNELS", render_channels, true)
 -- Render sample rate
 reaper.GetSetProjectInfo(0, "RENDER_SRATE", sr, true)
 -- Render source: 0 = master mix
@@ -136,4 +151,4 @@ reaper.Main_OnCommand(42230, 0)
 log("render command issued")
 
 -- 7. Quit. Use 40004 = "File: Quit REAPER".
-reaper.Main_OnCommand(40004, 0)
+quit_reaper()

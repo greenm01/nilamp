@@ -2,6 +2,44 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: JSFX/native tap diagnostics -> SCALE-LIKE MISMATCH LOCALIZED
+
+**Edit summary.**
+
+- Added a staged `twd_dlx_ii_taps.jsfx` harness variant that emits the same
+  nine diagnostic taps as `native/bin/nilamp_taps_render`.
+- Extended the JSFX render wrapper to support multichannel renders and to open
+  a temporary project with `-newinst`, matching the unattended host-test
+  pattern.
+- Added `tools/compare_taps.py` for per-tap JSFX/native comparison.
+- No DSP code was changed; the tap results show high correlation and mostly
+  scale-like mismatch, not a clear topology break.
+
+**Verification.**
+
+- `python3 -m py_compile tools/abx_compare.py tools/jsfx_render/render_jsfx.py tools/jsfx_render/stage_jsfx.py tools/compare_taps.py` passes.
+- `make native-test` passes.
+- `make native-host-test` passes with `clap-validator`: 21 tests run, 16
+  passed, 0 failed, 5 skipped, 0 warnings.
+- Tap sine comparison: first suspect remains `v_out`; per-stage correlations
+  are `>= 0.9996`, with best-fit gain mostly around `+0.70 dB` through the
+  middle taps.
+- Tap sweep comparison: correlations are lower but still mostly shape-aligned
+  (`0.9735` to `0.9954`); best-fit gain is about `+0.9 dB` through signal
+  taps and `+1.6 dB` through PSS taps.
+- ABX sine: `-16.5 dB` residual below native peak, threshold `-16.0 dB` -> PASS.
+  Correlation `0.999330`; best native-to-JSFX gain `0.805335` (`-1.88 dB`).
+- ABX sweep: `-16.8 dB` residual below native peak, threshold `-11.2 dB` -> PASS.
+  Correlation `0.978765`; best native-to-JSFX gain `0.732585` (`-2.70 dB`).
+
+**Next work.**
+
+1. Do not add arbitrary output trim. The tap harness should be used to test
+   one source-backed gain hypothesis at a time.
+2. Leading candidates are gain/smoothing initialization around Keller `g1/g2/g3`
+   and PSS/current scaling, because taps remain highly correlated while scale
+   differs.
+
 ### Session: C CLAP shell lands -> REAPER HOST TEST PASS
 
 **Edit summary.**

@@ -6,6 +6,8 @@ variants of the main amp:
   - twd_dlx_ii.jsfx           : verbatim vendor file (for manual GUI use).
   - twd_dlx_ii_harness.jsfx   : with wall-clock mute disabled for deterministic
                                 offline rendering. Used by the ABX harness.
+  - twd_dlx_ii_taps.jsfx      : harness variant that emits internal stage taps
+                                as nine output channels for parity debugging.
 
 The harness variant patches one line:
 
@@ -38,6 +40,7 @@ DEFAULT_DEST = Path.home() / ".config" / "REAPER" / "Effects" / "nilamp_abx"
 VENDOR_AMP = "TWD DLX  II.jsfx"   # note: two spaces, as in upstream
 STAGED_AMP = "twd_dlx_ii.jsfx"
 HARNESS_AMP = "twd_dlx_ii_harness.jsfx"
+TAPS_AMP = "twd_dlx_ii_taps.jsfx"
 PROBE_SRC = REPO_ROOT / "tools" / "jsfx_render" / "filter_semantics_probe.jsfx"
 PROBE_AMP = "filter_semantics_probe.jsfx"
 
@@ -65,6 +68,7 @@ def stage(dest: Path) -> None:
     text = (dest / STAGED_AMP).read_text()
     patched = _apply_harness_patches(text)
     (dest / HARNESS_AMP).write_text(patched)
+    (dest / TAPS_AMP).write_text(_apply_tap_patches(patched))
 
     shutil.copy2(PROBE_SRC, dest / PROBE_AMP)
 
@@ -73,8 +77,9 @@ def stage(dest: Path) -> None:
         f"vendor: {VENDOR_DIR}",
         f"amp_orig: {STAGED_AMP}",
         f"amp_harness: {HARNESS_AMP}",
+        f"amp_taps: {TAPS_AMP}",
         f"filter_probe: {PROBE_AMP}",
-        "harness_patches: remove-wallclock-mute",
+        "harness_patches: remove-wallclock-mute, tap-outputs",
         "",
     ]))
 
@@ -89,6 +94,90 @@ def _apply_harness_patches(src: str) -> str:
         )
     replacement = "is_muted = 0; // harness: removed wall-clock dependency"
     return src.replace(needle, replacement, 1)
+
+
+def _apply_tap_patches(src: str) -> str:
+    """Emit the stage taps that native/bin/nilamp_taps_render writes."""
+    out_pin_needle = "out_pin:mono output\n//out_pin:right output"
+    out_pin_replacement = "\n".join([
+        "out_pin:v_out",
+        "out_pin:res1_v",
+        "out_pin:res3_v",
+        "out_pin:res4_v",
+        "out_pin:drive_t4",
+        "out_pin:res5_v",
+        "out_pin:res_t5_v",
+        "out_pin:dvs2",
+        "out_pin:dvs3",
+    ])
+    if out_pin_needle not in src:
+        raise RuntimeError("expected JSFX mono output pin block not found")
+    src = src.replace(out_pin_needle, out_pin_replacement, 1)
+
+    replacements = [
+        (
+            "dvs3 = p3.tube_pss_process(dvs2, 0, \tdia3);",
+            "dvs3 = p3.tube_pss_process(dvs2, 0, \tdia3);\n"
+            "tap_dvs2 = dvs2;\n"
+            "tap_dvs3 = dvs3;",
+        ),
+        (
+            "spl0 = t1.tube_ck_process(spl0, dvs3);",
+            "spl0 = t1.tube_ck_process(spl0, dvs3);\n"
+            "tap_res1_v = spl0;",
+        ),
+        (
+            "spl0 = t2.tube_ck_process(spl0, dvs3);\nspl0 = hp2.flt_ii1_process_hp(spl0);",
+            "spl0 = t2.tube_ck_process(spl0, dvs3);\n"
+            "tap_res3_v = spl0;\n"
+            "spl0 = hp2.flt_ii1_process_hp(spl0);",
+        ),
+        (
+            "spl0 = t3.tube_cd_process(spl0, dvs3);",
+            "spl0 = t3.tube_cd_process(spl0, dvs3);\n"
+            "tap_res4_v = spl0;",
+        ),
+        (
+            "spl0 = hs1.flt_sv1_process(spl0);\nspl0 = t4.tube_ck_process(spl0, dvs2);",
+            "spl0 = hs1.flt_sv1_process(spl0);\n"
+            "tap_drive_t4 = spl0;\n"
+            "spl0 = t4.tube_ck_process(spl0, dvs2);",
+        ),
+        (
+            "spl0 = t4.tube_ck_process(spl0, dvs2);",
+            "spl0 = t4.tube_ck_process(spl0, dvs2);\n"
+            "tap_res5_v = spl0;",
+        ),
+        (
+            "aux = t5.tube_ck_process(aux, dvs2);\nspl0 -= aux;",
+            "aux = t5.tube_ck_process(aux, dvs2);\n"
+            "tap_res_t5_v = aux;\n"
+            "spl0 -= aux;",
+        ),
+        (
+            "spl0 = g3.gain_process(spl0);",
+            "spl0 = g3.gain_process(spl0);\n"
+            "tap_v_out = spl0;",
+        ),
+        (
+            "is_muted ==1 ?\n(\n\tspl0 = 0;\n\t//spl1 = 0\n);",
+            "is_muted ==1 ?\n(\n\tspl0 = 0;\n\t//spl1 = 0\n);\n\n"
+            "spl0 = tap_v_out;\n"
+            "spl1 = tap_res1_v;\n"
+            "spl2 = tap_res3_v;\n"
+            "spl3 = tap_res4_v;\n"
+            "spl4 = tap_drive_t4;\n"
+            "spl5 = tap_res5_v;\n"
+            "spl6 = tap_res_t5_v;\n"
+            "spl7 = tap_dvs2;\n"
+            "spl8 = tap_dvs3;",
+        ),
+    ]
+    for needle, replacement in replacements:
+        if needle not in src:
+            raise RuntimeError(f"expected JSFX tap patch site not found: {needle!r}")
+        src = src.replace(needle, replacement, 1)
+    return src
 
 
 def main() -> int:

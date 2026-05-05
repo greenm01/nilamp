@@ -28,6 +28,7 @@ THD-oriented metrics for sine inputs.
 | `tools/jsfx_render/render_jsfx.lua` | ReaScript driver that renders JSFX output. |
 | `tools/jsfx_render/render_jsfx.py` | Python wrapper around the headless JSFX render. |
 | `tools/abx_compare.py` | Drives native and JSFX renderers, aligns outputs, computes metrics. |
+| `tools/compare_taps.py` | Renders native and JSFX diagnostic taps and reports per-stage residuals. |
 
 ## Parameters
 
@@ -82,6 +83,19 @@ python3 tools/abx_compare.py --preset sweep --rms-threshold-db -11.2 --jsfx-time
 
 Generated preset WAVs are written under the selected `--out-dir` and are not
 tracked in git.
+
+Stage the JSFX harnesses, including the tap harness:
+
+```bash
+python3 -m tools.jsfx_render.stage_jsfx
+```
+
+Run stage-level tap diagnostics:
+
+```bash
+python3 tools/compare_taps.py --preset sine --out-dir /tmp/nilamp_tap_compare --label sine
+python3 tools/compare_taps.py --preset sweep --out-dir /tmp/nilamp_tap_compare --label sweep --jsfx-timeout 120
+```
 
 Latest native C run:
 
