@@ -69,6 +69,8 @@ Run ABX comparison against JSFX:
 
 ```bash
 python3 tools/abx_compare.py input.wav
+python3 tools/abx_compare.py --preset sine
+python3 tools/abx_compare.py --preset sweep
 ```
 
 ## License

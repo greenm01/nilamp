@@ -2,6 +2,41 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: Native fixture parity and ABX presets -> PARTIAL SUCCESS
+
+**Edit summary.**
+
+- Expanded native test-only C wrappers for PKD, ADNL, SVF filters, CK/CD tube
+  stages, power-pair diagnostics, PSS, and full 5E3 taps.
+- Regenerated nilamp tap fixtures to match the native tap renderer order:
+  `v_out, res1_v, res3_v, res4_v, drive_t4, res5_v, res_t5_v, dvs2, dvs3`.
+- Added deterministic `tools/abx_compare.py --preset sine|sweep` input
+  generation so ABX does not depend on tracked WAV files.
+
+**Verification.**
+
+- `python3 tools/gen_fixtures.py` regenerated fixtures successfully.
+- `make clean-native`, `make native-test`, and `make native` pass.
+- `native/bin/nilamp_taps_render` on the generated sweep produced finite
+  9-channel output for all taps through the old `[0.5, 3.0]` s collapse window.
+- ABX sine: `-15.2 dB` residual below native peak, threshold `-16.0 dB` -> FAIL.
+- ABX sweep: `-14.6 dB` residual below native peak, threshold `-11.2 dB` -> PASS.
+
+**Next work.**
+
+1. Investigate the remaining sine ABX miss. First compare native/JSFX peak and
+   RMS scale after alignment; sine peak is currently native `0.2488`, JSFX
+   `0.1937`, which suggests a remaining gain/topology mismatch rather than
+   collapse.
+2. Keep `make native-test` as the regression gate before touching ABX-facing
+   DSP.
+3. Rerun:
+
+```bash
+python3 tools/abx_compare.py --preset sine --rms-threshold-db -16 --out-dir /tmp/nilamp_abx_native --label native_sine
+python3 tools/abx_compare.py --preset sweep --rms-threshold-db -11.2 --jsfx-timeout 120 --out-dir /tmp/nilamp_abx_native --label native_sweep
+```
+
 ### Session: Native engine replaces feedback-loop investigation → READY FOR C PARITY WORK
 
 **Decision.**  Stop investing in the old graph/toolchain and continue only on

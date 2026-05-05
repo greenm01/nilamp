@@ -62,9 +62,19 @@ Public gates:
 - sine residual >= `-16 dB`
 - sweep residual >= `-11.2 dB`
 
-Run:
+Use a WAV input directly or generate deterministic inputs on demand:
 
 ```bash
 make native
 python3 tools/abx_compare.py input.wav
+python3 tools/abx_compare.py --preset sine --rms-threshold-db -16
+python3 tools/abx_compare.py --preset sweep --rms-threshold-db -11.2 --jsfx-timeout 120
 ```
+
+Generated preset WAVs are written under the selected `--out-dir` and are not
+tracked in git.
+
+Latest native C run:
+
+- sine preset: `-15.2 dB` residual below native peak, threshold `-16.0 dB` -> FAIL
+- sweep preset: `-14.6 dB` residual below native peak, threshold `-11.2 dB` -> PASS

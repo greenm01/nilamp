@@ -193,6 +193,34 @@ def write_wav_f32(path: Path, samples: Sequence[float], sr: int) -> None:
     path.write_bytes(riff)
 
 
+def make_preset_wav(preset: str, out_dir: Path) -> Path:
+    """Create a deterministic mono float32 ABX input under out_dir."""
+    sr = 48_000
+    duration_s = 5.0
+    n = int(sr * duration_s)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / f"abx_{preset}_{sr}hz.wav"
+    samples: list[float] = []
+    if preset == "sine":
+        freq = 440.0
+        amp = 0.15
+        for i in range(n):
+            samples.append(amp * math.sin(2.0 * math.pi * freq * i / sr))
+    elif preset == "sweep":
+        f0 = 40.0
+        f1 = 12_000.0
+        amp = 0.08
+        ratio = f1 / f0
+        for i in range(n):
+            t = i / sr
+            phase = 2.0 * math.pi * f0 * duration_s / math.log(ratio) * (math.exp(t / duration_s * math.log(ratio)) - 1.0)
+            samples.append(amp * math.sin(phase))
+    else:
+        raise ValueError(f"unknown preset: {preset}")
+    write_wav_f32(path, samples, sr)
+    return path
+
+
 def scale_wav(in_path: Path, out_path: Path, scale: float) -> None:
     """Read in_path, multiply every sample by scale, write to out_path."""
     samples, sr = read_wav_f32(in_path)
@@ -446,7 +474,9 @@ def run_one(input_wav: Path, params: Params, out_dir: Path, label: str,
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("input", type=Path, help="input WAV (mono float32)")
+    ap.add_argument("input", type=Path, nargs="?", help="input WAV (mono float32)")
+    ap.add_argument("--preset", choices=["sine", "sweep"],
+                    help="Generate a deterministic ABX input instead of passing an input WAV.")
     ap.add_argument("--out-dir", type=Path, default=Path("/tmp/abx_compare"))
     ap.add_argument("--label", default="default")
     ap.add_argument("--gain", type=float, default=EQUALIZABLE_GAIN_MIN_DB,
@@ -479,11 +509,17 @@ def main() -> int:
         sag_pct=args.sag,
     )
 
-    print(f"input: {args.input}")
+    if args.input is None and args.preset is None:
+        ap.error("provide an input WAV or --preset")
+    if args.input is not None and args.preset is not None:
+        ap.error("provide either an input WAV or --preset, not both")
+    input_wav = make_preset_wav(args.preset, args.out_dir) if args.preset is not None else args.input
+
+    print(f"input: {input_wav}")
     print(f"params: {params}")
     print()
 
-    m = run_one(args.input, params, args.out_dir, args.label,
+    m = run_one(input_wav, params, args.out_dir, args.label,
                 input_scale=args.input_scale, jsfx_timeout_s=args.jsfx_timeout,
                 nilamp_renderer=args.nilamp_render,
                 use_jsfx_cache=not args.no_jsfx_cache)

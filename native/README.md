@@ -39,3 +39,8 @@ native/bin/nilamp_taps_render --input in.wav --output taps.wav
 
 `tools/abx_compare.py` defaults to `native/bin/nilamp_render` for comparison
 against the canonical Keller JSFX render.
+
+```bash
+python3 tools/abx_compare.py --preset sine
+python3 tools/abx_compare.py --preset sweep
+```

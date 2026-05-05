@@ -160,6 +160,18 @@ static const StageCfg T5 = {
     0.0f, 0.00289017341f, 0.9302325581f, 0.0f, 0.0001213872832f,
     0.18144f, 0.18f, 0.325f, 0.388f, 0.00155f, 0.0234f, 0.00675f,
 };
+#ifdef NILAMP_ENABLE_TEST_API
+static const StageCfg T2_DZ = {
+    nilamp_t2_12ax7_table_dz, 13503, 0.3970223325f, 0.00155f, 100000.0f, 0.0f,
+    0.004201680672f, 0.004201680672f, 0.3846153846f, 0.0f, 3.193277311e-06f,
+    0.01515f, 0.05f, 0.255f, 0.57f, 0.015f, 0.05f, 0.0375f,
+};
+static const StageCfg T3_DZ = {
+    nilamp_t3_cd_table_dz, 13503, 0.01054674317f, 0.0016f, 56000.0f, 57500.0f,
+    0.004201680672f, 0.004201680672f, 0.8282208589f, 0.1763803681f,
+    3.067226891e-06f, 0.0f, 0.125f, 0.272f, 0.394f, 0.00085f, 0.3872f, 0.0f,
+};
+#endif
 
 static float db_to_linear(float db)
 {
@@ -545,6 +557,156 @@ void nilamp_test_flt_ii1_hp(float f, double sample_rate, const float *input, flo
     Ii1 st = { 0 };
     for (size_t i = 0; i < n; i++) {
         output[i] = ii1_hp_process(&st, f, sample_rate, input[i]);
+    }
+}
+
+void nilamp_test_flt_sv2_tst(double sample_rate, const float *input, float *output, size_t n)
+{
+    Svf2 st = { 0 };
+    for (size_t i = 0; i < n; i++) {
+        output[i] = svf2_tst(&st, sample_rate, 0.25f, 0.25f, 0.25f, 500.0f, 0.5f, input[i]);
+    }
+}
+
+void nilamp_test_pkd(float xth, float xdiode, float k1, float k2, const float *input, float *output, size_t n)
+{
+    Pkd st = { 0 };
+    for (size_t i = 0; i < n; i++) {
+        output[i] = pkd_process(&st, xth, xdiode, k1, k2, input[i]);
+    }
+}
+
+void nilamp_test_adnl(NilampTestAdnlTable table, const float *input, float *output, size_t n)
+{
+    const float *coeffs = nilamp_t1_12ax7_table;
+    size_t len = nilamp_t1_12ax7_table_len;
+    switch (table) {
+    case NILAMP_TEST_ADNL_T1_12AX7:
+        coeffs = nilamp_t1_12ax7_table;
+        len = nilamp_t1_12ax7_table_len;
+        break;
+    case NILAMP_TEST_ADNL_T2_12AX7:
+        coeffs = nilamp_t2_12ax7_table;
+        len = nilamp_t2_12ax7_table_len;
+        break;
+    case NILAMP_TEST_ADNL_T3_CD:
+        coeffs = nilamp_t3_cd_table;
+        len = nilamp_t3_cd_table_len;
+        break;
+    case NILAMP_TEST_ADNL_T4_6V6:
+        coeffs = nilamp_t4_6v6_table;
+        len = nilamp_t4_6v6_table_len;
+        break;
+    case NILAMP_TEST_ADNL_T5_6V6:
+        coeffs = nilamp_t5_6v6_table;
+        len = nilamp_t5_6v6_table_len;
+        break;
+    }
+
+    Adnl st = { 0 };
+    for (size_t i = 0; i < n; i++) {
+        output[i] = adnl_process(&st, coeffs, len, input[i]);
+    }
+}
+
+void nilamp_test_filter_backend(double sample_rate, const float *input, float *outputs[NILAMP_TEST_NUM_BACKEND_FILTERS], size_t n)
+{
+    Ii1 hp3 = { 0 };
+    Ii1 hp4 = { 0 };
+    Svf2 peq1 = { 0 };
+    Svf1 hs1 = { 0 };
+    Svf2 peq1_hs1_peq = { 0 };
+    Svf1 peq1_hs1_hs = { 0 };
+    Ii1 t4_hp = { 0 };
+    Svf2 t4_peq = { 0 };
+    Svf1 t4_hs = { 0 };
+    Ii1 t5_hp = { 0 };
+    Svf2 t5_peq = { 0 };
+    Svf1 t5_hs = { 0 };
+
+    for (size_t i = 0; i < n; i++) {
+        outputs[0][i] = ii1_hp_process(&hp3, 5.8f, sample_rate, input[i]);
+        outputs[1][i] = ii1_hp_process(&hp4, 6.4f, sample_rate, input[i]);
+        outputs[2][i] = svf2_peq(&peq1, sample_rate, 1.1220184543f, 80.0f, 2.6685237666f, input[i]);
+        outputs[3][i] = svf1_hs(&hs1, sample_rate, 1.4125375446f, 2098.1359672f, input[i]);
+        const float peq_hs = svf2_peq(&peq1_hs1_peq, sample_rate, 1.1220184543f, 80.0f, 2.6685237666f, input[i]);
+        outputs[4][i] = svf1_hs(&peq1_hs1_hs, sample_rate, 1.4125375446f, 2098.1359672f, peq_hs);
+        float t4 = ii1_hp_process(&t4_hp, 5.8f, sample_rate, input[i] * 0.797f);
+        t4 = svf2_peq(&t4_peq, sample_rate, 1.1220184543f, 80.0f, 2.6685237666f, t4);
+        outputs[5][i] = svf1_hs(&t4_hs, sample_rate, 1.4125375446f, 2098.1359672f, t4);
+        float t5 = ii1_hp_process(&t5_hp, 6.4f, sample_rate, input[i] * 0.940f);
+        t5 = svf2_peq(&t5_peq, sample_rate, 1.1220184543f, 80.0f, 2.6685237666f, t5);
+        outputs[6][i] = svf1_hs(&t5_hs, sample_rate, 1.4125375446f, 2098.1359672f, t5);
+    }
+}
+
+static void test_tube_ck(const StageCfg *cfg, double sample_rate, const float *input, float *v_out, float *dia, size_t n)
+{
+    TubeCk st = { 0 };
+    for (size_t i = 0; i < n; i++) {
+        tube_ck_process(&st, cfg, sample_rate, input[i], 0.0f, &v_out[i], &dia[i]);
+    }
+}
+
+void nilamp_test_tube_ck_t2(double sample_rate, const float *input, float *v_out, float *dia, size_t n)
+{
+    test_tube_ck(&T2, sample_rate, input, v_out, dia, n);
+}
+
+void nilamp_test_tube_ck_t5(double sample_rate, const float *input, float *v_out, float *dia, size_t n)
+{
+    test_tube_ck(&T5, sample_rate, input, v_out, dia, n);
+}
+
+void nilamp_test_tube_ck_t2_dz(double sample_rate, const float *input, float *v_out, float *dia, size_t n)
+{
+    test_tube_ck(&T2_DZ, sample_rate, input, v_out, dia, n);
+}
+
+static void test_tube_cd(const StageCfg *cfg, double sample_rate, const float *input, float *v_out, float *vk_out, float *dia, size_t n)
+{
+    TubeCd st = { 0 };
+    for (size_t i = 0; i < n; i++) {
+        tube_cd_process(&st, cfg, sample_rate, input[i], 0.0f, &v_out[i], &vk_out[i], &dia[i]);
+    }
+}
+
+void nilamp_test_tube_cd_t3(double sample_rate, const float *input, float *v_out, float *vk_out, float *dia, size_t n)
+{
+    test_tube_cd(&T3, sample_rate, input, v_out, vk_out, dia, n);
+}
+
+void nilamp_test_tube_cd_t3_dz(double sample_rate, const float *input, float *v_out, float *vk_out, float *dia, size_t n)
+{
+    test_tube_cd(&T3_DZ, sample_rate, input, v_out, vk_out, dia, n);
+}
+
+void nilamp_test_power_pair(double sample_rate, const float *t3_v, const float *t3_vk, float *outputs[NILAMP_TEST_NUM_POWER_PAIR_OUTPUTS], size_t n)
+{
+    Ii1 hp3 = { 0 };
+    Svf2 peq_t4 = { 0 };
+    Svf1 hs_t4 = { 0 };
+    Ii1 hp4 = { 0 };
+    Svf2 peq_t5 = { 0 };
+    Svf1 hs_t5 = { 0 };
+    TubeCk t4 = { 0 };
+    TubeCk t5 = { 0 };
+
+    for (size_t i = 0; i < n; i++) {
+        float t4_in = ii1_hp_process(&hp3, 5.8f, sample_rate, t3_v[i] * 0.797f);
+        t4_in = svf2_peq(&peq_t4, sample_rate, 1.1220184543f, 80.0f, 2.6685237666f, t4_in);
+        t4_in = svf1_hs(&hs_t4, sample_rate, 1.4125375446f, 2098.1359672f, t4_in);
+
+        float t5_in = ii1_hp_process(&hp4, 6.4f, sample_rate, t3_vk[i] * 0.940f);
+        t5_in = svf2_peq(&peq_t5, sample_rate, 1.1220184543f, 80.0f, 2.6685237666f, t5_in);
+        t5_in = svf1_hs(&hs_t5, sample_rate, 1.4125375446f, 2098.1359672f, t5_in);
+
+        float t4_dia;
+        float t5_dia;
+        tube_ck_process(&t4, &T4, sample_rate, t4_in, 0.0f, &outputs[0][i], &t4_dia);
+        tube_ck_process(&t5, &T5, sample_rate, t5_in, 0.0f, &outputs[1][i], &t5_dia);
+        outputs[2][i] = outputs[0][i] - outputs[1][i];
+        outputs[3][i] = t4_dia + t5_dia;
     }
 }
 

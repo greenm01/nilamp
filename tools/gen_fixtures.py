@@ -235,81 +235,132 @@ def gen_power_pair_diag(t3_v: np.ndarray, t3_vk: np.ndarray) -> tuple[np.ndarray
 def gen_nilamp_taps(input_buf: np.ndarray) -> tuple[np.ndarray, ...]:
     """Reference for the nilamp tap-render diagnostic.
 
-    Mirrors the current top-level cascade at frozen ABX defaults:
-    gain=0 dB; volume/bass/mid/treble/sag=50%.  The feedback loop uses the
-    current T4-only ``next_dvs`` path, while also emitting a diagnostic T5
-    branch driven from the real T3 cathode tap.
+    Mirrors the current native top-level cascade at default params:
+    gain=0 dB; volume/bass/mid/treble/sag=50%.
     """
+    class Df2Lp:
+        def __init__(self, f: float, q: float, sr: int):
+            pi_t = np.pi / sr
+            k0 = f * pi_t
+            aux1 = np.sqrt(1.0 + 4.0 * q * q)
+            aux2 = (k0 / np.sin(2.0 * k0)) * np.log((aux1 + 1.0) / (aux1 - 1.0))
+            kq0 = np.exp(aux2) - np.exp(-aux2)
+            k = np.tan(f * pi_t)
+            kq = k * kq0
+            ksqr = k * k
+            kdiv = 1.0 / (1.0 + kq + ksqr)
+            self.a1 = (-2.0 + 2.0 * ksqr) * kdiv
+            self.a2 = (1.0 - kq + ksqr) * kdiv
+            self.b0 = ksqr * kdiv
+            self.b1 = 2.0 * ksqr * kdiv
+            self.b2 = self.b0
+            self.x1 = 0.0
+            self.x2 = 0.0
+            self.y1 = 0.0
+            self.y2 = 0.0
+
+        def process_sample(self, x: float) -> float:
+            y = self.b0 * x + self.b1 * self.x1 + self.b2 * self.x2 - self.a1 * self.y1 - self.a2 * self.y2
+            self.x2 = self.x1
+            self.x1 = x
+            self.y2 = self.y1
+            self.y1 = y
+            return y
+
     hp10 = ko.FltIi1Hp(10.0, SAMPLE_RATE)
     tone = ko.FltSv2Tst(0.25, 0.25, 0.25, 630.0, 0.5, 1, 1, SAMPLE_RATE)
     lp8800 = ko.FltIi1Lp(8800.0, SAMPLE_RATE)
+    hp3 = ko.FltIi1Hp(5.8, SAMPLE_RATE)
+    peq1_t4 = ko.FltSv2Peq(1.1220184543, 80.0, 2.6685237666, 1, 1, SAMPLE_RATE)
+    hs1_t4 = ko.FltSv1Hs(1.4125375446, 2098.1359672, 1, SAMPLE_RATE)
     hp4 = ko.FltIi1Hp(6.4, SAMPLE_RATE)
-    peq2 = ko.FltSv2Peq(1.1220184543, 80.0, 2.6685237666, 1, 1, SAMPLE_RATE)
-    hs2 = ko.FltSv1Hs(1.4125375446, 2098.1359672, 1, SAMPLE_RATE)
+    peq1_t5 = ko.FltSv2Peq(1.1220184543, 80.0, 2.6685237666, 1, 1, SAMPLE_RATE)
+    hs1_t5 = ko.FltSv1Hs(1.4125375446, 2098.1359672, 1, SAMPLE_RATE)
+    peq3 = ko.FltSv2Peq(1.2589254118, 80.0, 2.2440931043, 1, 1, SAMPLE_RATE)
+    hs3 = ko.FltSv1Hs(1.4125375446, 1485.8089753, 1, SAMPLE_RATE)
+    hp5 = ko.FltIi1Hp(40.0, SAMPLE_RATE)
+    lp2 = Df2Lp(10000.0, np.sqrt(0.5), SAMPLE_RATE)
 
     t1 = _ck_oracle(t5e3.T1_12AX7)
     t2 = _ck_oracle(t5e3.T2_12AX7)
     t3 = _cd_oracle(t5e3.T3_CD)
     t4 = _ck_oracle(t5e3.T4_6V6)
     t5 = _ck_oracle(t5e3.T5_6V6)
-    pss = ko.TubePss(r=11000.0, tau=0.05, sr=SAMPLE_RATE)
+    p1 = ko.TubePss(r=125.0, tau=0.008, sr=SAMPLE_RATE)
+    p2 = ko.TubePss(r=5100.0, tau=0.0816, sr=SAMPLE_RATE)
+    p3 = ko.TubePss(r=11000.0, tau=0.352, sr=SAMPLE_RATE)
 
     n = len(input_buf)
-    old_dvs_buf = np.empty(n, dtype=np.float32)
-    t3_v_buf = np.empty(n, dtype=np.float32)
-    t3_vk_buf = np.empty(n, dtype=np.float32)
-    t4_v_buf = np.empty(n, dtype=np.float32)
-    t5_v_buf = np.empty(n, dtype=np.float32)
-    post_pp_buf = np.empty(n, dtype=np.float32)
-    total_dia_current_buf = np.empty(n, dtype=np.float32)
-    total_dia_with_t5_buf = np.empty(n, dtype=np.float32)
-    next_dvs_current_buf = np.empty(n, dtype=np.float32)
+    v_out_buf = np.empty(n, dtype=np.float32)
+    res1_v_buf = np.empty(n, dtype=np.float32)
+    res3_v_buf = np.empty(n, dtype=np.float32)
+    res4_v_buf = np.empty(n, dtype=np.float32)
+    drive_t4_buf = np.empty(n, dtype=np.float32)
+    res5_v_buf = np.empty(n, dtype=np.float32)
+    res_t5_v_buf = np.empty(n, dtype=np.float32)
+    dvs2_buf = np.empty(n, dtype=np.float32)
+    dvs3_buf = np.empty(n, dtype=np.float32)
 
-    old_dvs = 0.0
+    prev_dia1 = 0.0
+    prev_dig = 0.0
+    prev_dia3 = 0.0
     for i, vin in enumerate(input_buf):
-        old_dvs_buf[i] = old_dvs
+        old_s2 = p2.s
+        old_s3 = p3.s
+        dvs1, _ = p1.process_sample(prev_dia1, old_s2, 0.0)
+        dvs2, _ = p2.process_sample(prev_dig, old_s3, dvs1)
+        dvs3, _ = p3.process_sample(prev_dia3, 0.0, dvs2)
 
-        t1_v, t1_dia = t1.process_sample(vin, old_dvs)
-        v2 = hp10.process_sample(t1_v)
+        res1_v, res1_dia = t1.process_sample(vin, dvs3)
+        v2 = hp10.process_sample(res1_v)
         v2 *= 0.25
         v2 = tone.process_sample(v2)
         v2 = lp8800.process_sample(v2)
 
-        t2_v, t2_dia = t2.process_sample(v2, old_dvs)
-        t3_v, t3_vk, t3_dia = t3.process_sample(t2_v, old_dvs)
-        t4_v, t4_dia = t4.process_sample(t3_v, old_dvs)
+        res3_v, res3_dia = t2.process_sample(v2, dvs3)
+        res4_v, res4_vk, res4_dia = t3.process_sample(res3_v, dvs3)
 
-        t5_in = hp4.process_sample(t3_vk * 0.940)
-        t5_in = peq2.process_sample(t5_in)
-        t5_in = hs2.process_sample(t5_in)
-        t5_v, t5_dia = t5.process_sample(t5_in, old_dvs)
+        drive_t4 = hp3.process_sample(res4_v * 0.797)
+        drive_t4 = peq1_t4.process_sample(drive_t4)
+        drive_t4 = hs1_t4.process_sample(drive_t4)
+        res5_v, res5_dia = t4.process_sample(drive_t4, dvs2)
 
-        post_pp = t4_v - t5_v
-        total_dia_current = t1_dia + t2_dia + t3_dia + t4_dia
-        total_dia_with_t5 = total_dia_current + t5_dia
-        next_dvs_current, _ = pss.process_sample(total_dia_current, 0.0, old_dvs)
+        aux = hp4.process_sample(res4_vk * 0.940)
+        aux = peq1_t5.process_sample(aux)
+        aux = hs1_t5.process_sample(aux)
+        res_t5_v, res_t5_dia = t5.process_sample(aux, dvs2)
 
-        t3_v_buf[i] = t3_v
-        t3_vk_buf[i] = t3_vk
-        t4_v_buf[i] = t4_v
-        t5_v_buf[i] = t5_v
-        post_pp_buf[i] = post_pp
-        total_dia_current_buf[i] = total_dia_current
-        total_dia_with_t5_buf[i] = total_dia_with_t5
-        next_dvs_current_buf[i] = next_dvs_current
+        v_out = res5_v - res_t5_v
+        v_out = peq3.process_sample(v_out)
+        v_out = hs3.process_sample(v_out)
+        v_out = hp5.process_sample(v_out)
+        v_out = lp2.process_sample(v_out)
+        v_out *= 0.5 / (t5e3.T4_6V6.rl * t5e3.T4_6V6.isat + t5e3.T5_6V6.rl * t5e3.T5_6V6.isat)
 
-        old_dvs = next_dvs_current
+        v_out_buf[i] = v_out
+        res1_v_buf[i] = res1_v
+        res3_v_buf[i] = res3_v
+        res4_v_buf[i] = res4_v
+        drive_t4_buf[i] = drive_t4
+        res5_v_buf[i] = res5_v
+        res_t5_v_buf[i] = res_t5_v
+        dvs2_buf[i] = dvs2
+        dvs3_buf[i] = dvs3
+
+        prev_dia1 = res5_dia + res_t5_dia
+        prev_dig = 0.025 * prev_dia1
+        prev_dia3 = res1_dia + res3_dia + res4_dia
 
     return (
-        old_dvs_buf,
-        t3_v_buf,
-        t3_vk_buf,
-        t4_v_buf,
-        t5_v_buf,
-        post_pp_buf,
-        total_dia_current_buf,
-        total_dia_with_t5_buf,
-        next_dvs_current_buf,
+        v_out_buf,
+        res1_v_buf,
+        res3_v_buf,
+        res4_v_buf,
+        drive_t4_buf,
+        res5_v_buf,
+        res_t5_v_buf,
+        dvs2_buf,
+        dvs3_buf,
     )
 
 
@@ -425,25 +476,25 @@ def main() -> None:
 
     # Frozen-default top-level tap diagnostic.
     (
-        tap_old_dvs,
-        tap_t3_v,
-        tap_t3_vk,
-        tap_t4_v,
-        tap_t5_v,
-        tap_post_pp,
-        tap_total_dia_current,
-        tap_total_dia_with_t5,
-        tap_next_dvs_current,
+        tap_v_out,
+        tap_res1_v,
+        tap_res3_v,
+        tap_res4_v,
+        tap_drive_t4,
+        tap_res5_v,
+        tap_res_t5_v,
+        tap_dvs2,
+        tap_dvs3,
     ) = gen_nilamp_taps(sine.copy())
-    write(FIXTURES_DIR / "nilamp_taps_old_dvs_48k.f32", tap_old_dvs)
-    write(FIXTURES_DIR / "nilamp_taps_t3_v_48k.f32", tap_t3_v)
-    write(FIXTURES_DIR / "nilamp_taps_t3_vk_48k.f32", tap_t3_vk)
-    write(FIXTURES_DIR / "nilamp_taps_t4_v_48k.f32", tap_t4_v)
-    write(FIXTURES_DIR / "nilamp_taps_t5_v_48k.f32", tap_t5_v)
-    write(FIXTURES_DIR / "nilamp_taps_post_pp_48k.f32", tap_post_pp)
-    write(FIXTURES_DIR / "nilamp_taps_total_dia_current_48k.f32", tap_total_dia_current)
-    write(FIXTURES_DIR / "nilamp_taps_total_dia_with_t5_48k.f32", tap_total_dia_with_t5)
-    write(FIXTURES_DIR / "nilamp_taps_next_dvs_current_48k.f32", tap_next_dvs_current)
+    write(FIXTURES_DIR / "nilamp_taps_v_out_48k.f32", tap_v_out)
+    write(FIXTURES_DIR / "nilamp_taps_res1_v_48k.f32", tap_res1_v)
+    write(FIXTURES_DIR / "nilamp_taps_res3_v_48k.f32", tap_res3_v)
+    write(FIXTURES_DIR / "nilamp_taps_res4_v_48k.f32", tap_res4_v)
+    write(FIXTURES_DIR / "nilamp_taps_drive_t4_48k.f32", tap_drive_t4)
+    write(FIXTURES_DIR / "nilamp_taps_res5_v_48k.f32", tap_res5_v)
+    write(FIXTURES_DIR / "nilamp_taps_res_t5_v_48k.f32", tap_res_t5_v)
+    write(FIXTURES_DIR / "nilamp_taps_dvs2_48k.f32", tap_dvs2)
+    write(FIXTURES_DIR / "nilamp_taps_dvs3_48k.f32", tap_dvs3)
 
 
 if __name__ == "__main__":
