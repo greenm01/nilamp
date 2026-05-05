@@ -1,9 +1,9 @@
-# Next session - regression is downstream of the tubes
+# Next session - divergence localized at T4 (nonlinear)
 
 ## State of the tree
 
-Public `dsp/nilamp.dsp` includes the ABX-safe T5 subtractive audio branch plus
-the JSFX post-power backend filter subset. The public output path is:
+Public `dsp/nilamp.dsp` includes the ABX-safe T5 subtractive audio branch
+plus the JSFX post-power backend filter subset. The public output path is:
 `post_pp = res5_v - res_t5_v`, `peq3 -> hs3 -> hp5 -> lp2`, then full T4+T5
 output denominator. PSS dia feedback intentionally remains on the existing
 T4-only path.
@@ -17,77 +17,130 @@ Current normal-renderer ABX baseline at `gain=+6, defaults`:
 | Sweep peak A / B | 0.4195 / 0.3698 |
 | Sweep align lag | 1 sample |
 
-## What was added this session
+## What was added / extended this session
 
-A pre-tube drive-signal probe: `dsp/diagnostics/nilamp_drive_taps.dsp` plus
-`src/bin/nilamp_drive_probe_render.rs`.  The diagnostic emits an 8-channel
-WAV per render so downstream tools can see what is going *into* T4 / T5,
-without changing `dsp/nilamp.dsp`.
+The pre-tube drive-signal probe was extended to 14 channels covering
+post-tube voltages too: `dsp/diagnostics/nilamp_drive_taps.dsp` plus
+`src/bin/nilamp_drive_probe_render.rs`.  All extra T4 / T5 instances feed
+off the same `old_dvs` and have their dia outputs discarded -- they do not
+perturb PSS, so the comparison isolates "tube response to altered drive at
+fixed PSS" from PSS-topology divergence.
 
-| Channel | Tap | Source |
-|---|---|---|
-| 0 | `res4_v_public` | Public path T3 plate |
-| 1 | `res4_vk_public` | Public path T3 cathode |
-| 2 | `res4_backend_v` | T3 plate with `hp(0.41)` pre-T3 (v6 source) |
-| 3 | `res4_backend_vk` | T3 cathode with `hp(0.41)` pre-T3 (v6 source) |
-| 4 | `t4_in_public_drive` | Public T4 drive (== ch0 by construction) |
-| 5 | `t5_in_public_drive` | Public T5 drive: `*k2 -> hp(hp4) -> peq -> hs` |
-| 6 | `t4_in_v6_drive` | v6 T4 drive: `*k1 -> hp(hp3) -> peq -> hs` of ch2 |
-| 7 | `t4_in_v10_drive` | v10 T4 drive: `*k1 -> hp(hp3) -> peq -> hs` of ch0 |
+| Channel | Tap |
+|---|---|
+| 0 | `res4_v_public` (T3 plate, public) |
+| 1 | `res4_vk_public` (T3 cathode, public) |
+| 2 | `res4_backend_v` (T3 plate with `hp(0.41)` pre-T3, v6 source) |
+| 3 | `res4_backend_vk` (T3 cathode with `hp(0.41)` pre-T3) |
+| 4 | `t4_in_public_drive` (== ch0 sanity slot) |
+| 5 | `t5_in_public_drive` (`*k2 -> hp(hp4) -> peq -> hs`) |
+| 6 | `t4_in_v6_drive` (`*k1 -> hp(hp3) -> peq -> hs` of ch2) |
+| 7 | `t4_in_v10_drive` (`*k1 -> hp(hp3) -> peq -> hs` of ch0) |
+| 8 | `t4_v_public` (T4 fed by ch4) |
+| 9 | `t5_v_public` (T5 fed by ch5) |
+| 10 | `t4_v_v6` (T4 fed by ch6) |
+| 11 | `t5_v_v6` (T5 fed by v6 T5 drive `res4_backend_vk -> *k2/hp/peq/hs`) |
+| 12 | `t4_v_v10` (T4 fed by ch7) |
+| 13 | `t5_v_v10` (== ch9 sanity slot; v10 keeps public T5 path) |
 
-`tools/compare_drive_taps.py` runs 440 Hz sine and a 5 s log sweep through
-the probe at `gain=+6, defaults`, then reconstructs channels 4-7 from the
-rendered T3 channels (0-3) using `keller_oracle.flt_*_block`, applying the
-same 100 ms warm-up trim used by `tools/abx_compare.py`.
+`tools/compare_drive_taps.py` now also runs:
+- single-bin DFT levels at `f0 / 2f0 / 3f0 / 5f0` for the 440 Hz sine, with
+  per-tap THD;
+- per-octave-bin level-ratio dB on the sweep (variant - public);
+- best least-squares scalar-fit residual after lag alignment (post-tube
+  vs the public counterpart).
 
-## Result: drive signals match the oracle to f32 precision
+## Pre-tube oracle: still PASS (regression guard intact)
 
-| Tap | sine 440 Hz max\|d\|/peak | sine RMS dB | sweep max\|d\|/peak | sweep RMS dB |
+| Tap | sine max\|d\|/peak | sine RMS dB | sweep max\|d\|/peak | sweep RMS dB |
 |---|---:|---:|---:|---:|
-| ch4 t4_in_public  | 0 | -inf | 0 | -inf |
-| ch5 t5_in_public  | 1.44e-6 | -129.6 | 9.11e-6 | -117.4 |
+| ch4 t4_in_public | 0 | -inf | 0 | -inf |
+| ch5 t5_in_public | 1.44e-6 | -129.6 | 9.11e-6 | -117.4 |
 | ch6 t4_in_v6_drive | 2.58e-6 | -126.8 | 2.73e-6 | -124.2 |
 | ch7 t4_in_v10_drive | 2.23e-6 | -128.3 | 2.63e-6 | -124.3 |
 
-Relative max errors are at the float32 precision floor (~1e-6).  Conclusion:
+## Post-tube divergence: nonlinear at T4
 
-- The pre-tube drive signals for the public path, the v6 candidate, and
-  the v10 candidate are computed correctly in Faust.  They match the
-  Python oracle (which already matches REAPER/JSFX to <= 1.2e-7) to
-  within float32 precision.
-- The public-vs-backend ABX regression is therefore *not* caused by a
-  filter-coefficient bug, smoothing artefact, or block-boundary effect
-  in the linear pre-chain.  Every linear stage upstream of T4 / T5 is
-  pinned three ways: Faust, JSFX, and the Python oracle.
+Sanity slots verify the test rig: `v10_T5 == public_T5` produces a scalar
+fit `s=1.00000` and `-inf` residual exactly, and ch4==ch0 has zero error.
 
-## Next steps - look downstream of the tubes
+Sine 440 Hz, `gain=+6, defaults` (residual dB vs public peak):
 
-The remaining candidates are nonlinear / stateful interactions that the
-drive-signal probe cannot see:
+| Tap | peak | H1 | H2 | H3 | H5 | THD% | scalar s | resid_dB |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| public_T4 | 188.9 | 163.2 | 14.27 | 52.40 | 29.99 | 38.0 | 1.000 | -inf |
+| v6_T4 | 203.5 | 181.5 | 5.26 | 58.92 | 33.91 | 37.6 | 0.851 | -17.85 |
+| v10_T4 | 203.2 | 180.8 | 7.66 | 58.42 | 33.33 | 37.4 | 0.848 | -16.85 |
+| public_T5 | 230.7 | 204.2 | 23.06 | 63.82 | 33.13 | 37.0 | 1.000 | -inf |
+| v6_T5 | 230.8 | 204.6 | 19.44 | 65.00 | 34.97 | 37.3 | 0.995 | -30.50 |
+| v10_T5 | 230.7 | 204.2 | 23.06 | 63.82 | 33.13 | 37.0 | 1.000 | -inf |
 
-1. **Tube operating point under altered drive.**  v6 / v10 push slightly
-   different DC content and sub-audio energy into T4 / T5.  Even with
-   identical pre-chain math, the tube models can land on different
-   bias points or different ADNL regions.  Probe: emit `t4_v` and
-   `t5_v` (post-tube voltages) for the public, v6, and v10 cases on the
-   same input, then compare *ratios* / spectral envelopes rather than
-   sample-wise residuals to abstract over align/scale.
-2. **PSS feedback timing.**  All variants currently share the public
-   T4-only PSS loop (per the doc rule).  Confirm by tapping
-   `next_dvs_current` for public vs. a v6-driven PSS where
-   `total_dia` includes the v6 T4 dia term, and measure the loop's
-   step response to a synthetic dia burst.
-3. **Branch mix / denominator under altered drive.**  Re-run the v0..v12
-   variants with a "linearity probe" input (small-signal sine well below
-   bias clip) and confirm whether the regression is bias-dependent or
-   structural.  If small-signal residuals also fail, the bug is purely
-   linear and lives in the post-power chain (peq3 / hs3 / hp5 / lp2)
-   ordering or in the denominator scaling.
-4. **`total_dia` composition.**  The public chain feeds T4-only dia into
-   PSS.  Once T5 reliably tracks the JSFX backend, audit whether the
-   JSFX harness folds T5 dia into PSS and at what gain.  Do not change
-   `total_dia` in nilamp during this audit; only document the JSFX
-   reference behaviour.
+Sweep 5 s, post-tube level ratio dB (variant - public, per octave bin):
+
+| Tap | 32 | 63 | 125 | 250 | 500 | 1k | 2k | 4k | 8k | 16k |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| v6_T4 | -1.86 | -0.33 | +0.97 | +0.86 | -0.12 | +1.21 | +1.27 | +1.45 | +4.03 | -2.10 |
+| v6_T5 | -0.01 | +0.05 | +0.07 | -0.02 | -0.28 | -0.04 | +0.06 | -0.14 | -0.41 | -0.45 |
+| v10_T4 | -1.84 | -0.44 | +0.87 | +0.88 | +0.03 | +1.22 | +1.33 | +1.52 | +4.98 | -1.48 |
+| v10_T5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+Worst scalar-fit residual: -16.60 dB (v10_T4 sweep). Classification:
+**NONLINEAR divergence**, located primarily at T4.
+
+Observations:
+
+- T4 v6 and v10 both fit best with `s ~ 0.85` -- the variant tubes are
+  ~1.5 dB louder than public, with non-flat envelope tilt across band.
+- **H2 changes substantially**: `public_T4 H2=14.27` vs `v6_T4 H2=5.26`
+  and `v10_T4 H2=7.66`.  THD totals are similar (37-38%) but the
+  *distribution* of harmonic energy is different.  This is a clean
+  signature of a different operating point in the tube nonlinearity
+  rather than a level-only or linear-EQ difference.
+- T4 v6 vs T4 v10 are nearly identical post-tube (residual within ~1 dB
+  of each other), even though their pre-T4 drives come from different T3
+  sources (`res4_backend_v` vs `res4_v`).  This means the divergence is
+  driven mostly by the post-T3-but-pre-T4 path (the `*k1 / hp(hp3) /
+  peq / hs` chain itself), not by the T3 source variant.
+- T5 v6 is only -30 dB different from T5 public (much smaller); T5 v10
+  matches public exactly by construction.  T5 is **not** the dominant
+  offender.
+
+## Next steps - probe T4 dia / peak detector
+
+Localizing nonlinear divergence at T4 narrows the suspects to:
+
+1. **Tube peak-detector state** (`tube_ck_simple` `pk_xth`, `pk_xdiode`,
+   `pk_k1`, `pk_k2`, `kfb`) -- shared `old_dvs` should make this state
+   identical across variants, but the tube also carries internal averager
+   state (`avg_f`).  Probe: emit `t4_dia_public`, `t4_dia_v6`,
+   `t4_dia_v10`, and the internal peak-detector output (a synthetic
+   `t4_pk_avg` exposed via a one-off diagnostic) for all three variants
+   on the same input.  Compare RMS-vs-peak ratios; an excursion in pk_avg
+   between variants would explain the operating-point shift.
+2. **T4 instance independence vs PSS-shared state.**  The current rig
+   uses three independent `tube_ck_simple` calls all consuming the same
+   `old_dvs`.  Confirm that each tube does indeed maintain its own
+   internal state (averager, peak detector); a Faust state-collision bug
+   would manifest as identical post-tube outputs across variants, which
+   is *not* what we see, so this is unlikely but worth confirming via a
+   re-render of public alone vs public-in-the-multi-tube-block.
+3. **kfb feedback path.**  `kfb` couples plate to grid; under a
+   different drive spectrum the steady-state operating point shifts.
+   This is the most likely structural cause of the H2 change.
+4. **Drive level scaling.**  Both v6 and v10 produce ~+1.5 dB more H1 at
+   T4 plate than public; under a 6V6 with mild grid-current onset that
+   alone perturbs H2/H3 ratios.  Test by feeding public a `*0.851`
+   pre-attenuated drive and checking whether public_T4 then matches
+   v6_T4 in H2 distribution.
+
+The cleanest first step is option 4: it's a no-build-required probe
+(write a Python script that renders public-only and public-attenuated
+through the existing 14-channel rig with `--gain` reduced to compensate
+the 1.5 dB gap, then compare H2 distributions).
+
+If option 4 does *not* explain the H2 shift, escalate to a t4-dia
+diagnostic (option 1) and consider a 16- or 18-channel extension of
+`nilamp_drive_taps.dsp`.
 
 ## Gates to keep
 
@@ -99,22 +152,21 @@ drive-signal probe cannot see:
 
 ## Files added or modified this session
 
-- `dsp/diagnostics/nilamp_drive_taps.dsp` (new) - 8-channel pre-tube
-  drive-signal diagnostic.
-- `src/bin/nilamp_drive_probe_render.rs` (new) - offline renderer for
-  the diagnostic, writes 8-ch float32 WAV.
-- `tools/compare_drive_taps.py` (new) - runs the probe and compares
-  channels 4-7 to a Python oracle reconstruction, with 100 ms warm-up
-  trim matching ABX.
-- `Cargo.toml` - register `nilamp_drive_probe_render` bin.
+- `dsp/diagnostics/nilamp_drive_taps.dsp` - extended from 8 to 14
+  channels (added post-tube T4/T5 voltages for public, v6, v10).
+- `src/bin/nilamp_drive_probe_render.rs` - `NUM_CHANNELS` 8 -> 14, doc.
+- `tools/compare_drive_taps.py` - added per-variant sine harmonic table,
+  scalar-fit residual, sweep level-ratio table, decision rule.
 
 ## Files to read first next session
 
-- `dsp/diagnostics/nilamp_drive_taps.dsp` - drive-tap layout.
-- `tools/compare_drive_taps.py` - oracle reconstruction logic.
-- `dsp/diagnostics/nilamp_t5_balance.dsp` - existing post-tube variants
-  (v0..v12), the obvious starting point for a *post-tube* probe.
-- `dsp/nilamp.dsp` - public audio path (T4-only PSS, branch mix).
+- `dsp/diagnostics/nilamp_drive_taps.dsp` - 14-channel layout.
+- `tools/compare_drive_taps.py` - post-tube analysis logic.
+- `dsp/hk_tube.lib` - `tube_ck_simple` peak-detector / averager state.
+- `dsp/5e3_constants.lib` - T4 6V6 `kfb`, `pk_xth`, `pk_xdiode`, `pk_k1`,
+  `pk_k2`, `avg_f`.
+- `dsp/diagnostics/nilamp_t5_balance.dsp` - if Phase 5a small-signal
+  branch becomes relevant later (currently NOT next, given nonlinear
+  classification).
 - `~/.config/REAPER/Effects/nilamp_abx/twd_dlx_ii_harness.jsfx` - JSFX
-  reference, especially the post-power chain around lines 395-434 and
-  any `dia` / PSS-equivalent logic.
+  reference (post-power chain ~lines 395-434).

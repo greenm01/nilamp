@@ -1,25 +1,35 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-"""Compare nilamp pre-tube drive signals against a Python oracle.
+"""Compare nilamp pre-tube drive signals against a Python oracle, and
+analyse post-tube voltages for v6 / v10 vs the public path.
 
-Renders an 8-channel diagnostic WAV via `nilamp_drive_probe_render`, then
-reconstructs channels 5-7 (the linear pre-chain drive signals into T4/T5)
-from rendered channels 0-3 (the T3 outputs) using the Python oracle filters
-in `keller_oracle`.  Reports per-tap max abs error and RMS error in dB
-relative to the tap's own peak, applying the same 100 ms warm-up trim used
-by `tools/abx_compare.py`.
+Renders a 14-channel diagnostic WAV via `nilamp_drive_probe_render`.
 
-Strategy:
-- Channels 0-3 (`res4_v_public`, `res4_vk_public`, `res4_backend_v`,
-  `res4_backend_vk`) come from nonlinear tube stages and are taken as-is
-  from the nilamp render -- no oracle counterpart.
-- Channels 4-7 are *linear* functions of channels 0/2 (T4 candidates) or
-  channel 1 (public T5).  These the oracle reproduces.
+Pre-tube oracle compare (regression guard, channels 4-7):
+  Reconstructs channels 5-7 from rendered channels 0-3 (the T3 outputs)
+  using `keller_oracle` filters and reports per-tap max abs error and RMS
+  error in dB relative to the tap's own peak.  Channel 4 == channel 0 by
+  construction.  If oracle vs. rendered match to <= ~1e-6, the regression
+  is downstream of the tubes.
 
-If oracle vs. rendered match to <= ~1e-6, the regression is downstream of
-the tubes (state / PSS / branch mix), and pre-chain filter coefficients are
-not the cause.  If they diverge, the divergent tap localizes the upstream
-mismatch (filter implementation, smoothing, or block-boundary effect).
+Post-tube analysis (channels 8-13):
+  For each variant (public / v6 / v10) and signal (sine, sweep), prints:
+    - peak / RMS
+    - integer-sample lag vs the public counterpart (cross-correlation,
+      +-5 ms search)
+    - best least-squares scalar fit `s = <a, b> / <b, b>` after lag align,
+      residual RMS in dB vs the public peak
+    - on sine: single-bin DFT levels at f0 / 2f0 / 3f0 / 5f0 (THD% and
+      delta-THD% vs public)
+    - on sweep: STFT power-ratio dB at fixed-octave bin centres
+      (31.5/63/125/250/500/1k/2k/4k/8k/16k Hz)
+
+Decision rule at end:
+  if max scalar-fit residual RMS over all (variant, signal) pairs
+  is <= -60 dB and STFT ratios are smooth -> linear divergence
+  (next probe: small-signal v0..v12 in nilamp_t5_balance).
+  Otherwise -> nonlinear divergence
+  (next probe: t4_dia / t5_dia taps).
 """
 
 from __future__ import annotations
@@ -63,12 +73,19 @@ CHANNEL_NAMES = [
     "res4_v_public",       # 0
     "res4_vk_public",      # 1
     "res4_backend_v",      # 2  (v6 source)
-    "res4_backend_vk",     # 3  (v6 source, currently not used by oracle taps)
+    "res4_backend_vk",     # 3  (v6 source)
     "t4_in_public_drive",  # 4  (== ch0 by construction)
     "t5_in_public_drive",  # 5  (oracle: linear chain on ch1)
     "t4_in_v6_drive",      # 6  (oracle: linear chain on ch2)
     "t4_in_v10_drive",     # 7  (oracle: linear chain on ch0)
+    "t4_v_public",         # 8
+    "t5_v_public",         # 9
+    "t4_v_v6",             # 10
+    "t5_v_v6",             # 11
+    "t4_v_v10",            # 12
+    "t5_v_v10",            # 13 (== ch9 by construction; sanity slot)
 ]
+NUM_CHANNELS = len(CHANNEL_NAMES)
 
 
 # --------------------------------------------------------------------------- #
@@ -224,7 +241,12 @@ def trim_warmup(x: np.ndarray, sr: int) -> np.ndarray:
 
 def run_signal(label: str, signal: np.ndarray, sr: int, out_dir: Path,
                gain_db: float, probe_bin: Path,
-               max_abs_rel_thresh: float, rms_db_thresh: float) -> bool:
+               max_abs_rel_thresh: float, rms_db_thresh: float
+               ) -> tuple[bool, np.ndarray]:
+    """Render the probe, run the pre-tube oracle compare, and return
+    (pre_tube_pass, trimmed_samples) where trimmed_samples has shape
+    (NUM_CHANNELS, n_frames_trimmed).
+    """
     out_dir.mkdir(parents=True, exist_ok=True)
     in_wav = out_dir / f"{label}_input.wav"
     out_wav = out_dir / f"{label}_drive_taps.wav"
@@ -236,9 +258,9 @@ def run_signal(label: str, signal: np.ndarray, sr: int, out_dir: Path,
     samples_full, sr_out = read_wav_f32_multi(out_wav)
     if sr_out != sr:
         raise RuntimeError(f"sample-rate mismatch: in={sr} out={sr_out}")
-    if samples_full.shape[0] != 8:
+    if samples_full.shape[0] != NUM_CHANNELS:
         raise RuntimeError(
-            f"expected 8 channels in {out_wav}, got {samples_full.shape[0]}"
+            f"expected {NUM_CHANNELS} channels in {out_wav}, got {samples_full.shape[0]}"
         )
 
     # Run the oracle on the *untrimmed* T3 channels so its IIR state evolves
@@ -287,7 +309,257 @@ def run_signal(label: str, signal: np.ndarray, sr: int, out_dir: Path,
         ok = rel <= max_abs_rel_thresh and r.rms_err_db <= rms_db_thresh
         all_ok = all_ok and ok
         print(r.fmt(max_abs_rel_thresh, rms_db_thresh))
-    return all_ok
+    return all_ok, samples
+
+
+# --------------------------------------------------------------------------- #
+# Post-tube analysis
+# --------------------------------------------------------------------------- #
+
+# Variants: (label, t4_ch_idx, t5_ch_idx).  Public is the reference.
+POST_TUBE_VARIANTS = [
+    ("public", 8, 9),
+    ("v6",     10, 11),
+    ("v10",    12, 13),
+]
+
+OCTAVE_BIN_HZ = (31.5, 63.0, 125.0, 250.0, 500.0,
+                 1_000.0, 2_000.0, 4_000.0, 8_000.0, 16_000.0)
+
+
+def best_lag(a: np.ndarray, b: np.ndarray, sr: int,
+             search_ms: float = 5.0) -> int:
+    """Find integer-sample lag k such that a[k:] aligns with b[:N-k] best
+    (or vice versa for negative k).  Search range +-search_ms.
+    Uses normalised cross-correlation on a centred subset for speed.
+    Returns k (b is shifted by k samples relative to a).
+    """
+    n = min(len(a), len(b))
+    if n < 1024:
+        return 0
+    # Use a window in the middle to avoid transient ends.
+    half = min(n // 4, sr)  # up to 1 s
+    mid = n // 2
+    a_w = a[mid - half: mid + half].astype(np.float64)
+    b_w = b[mid - half: mid + half].astype(np.float64)
+    a_w -= a_w.mean()
+    b_w -= b_w.mean()
+    if a_w.std() < 1e-12 or b_w.std() < 1e-12:
+        return 0
+    max_lag = int(round(search_ms * 1e-3 * sr))
+    best_k = 0
+    best_c = -math.inf
+    # Brute-force for small max_lag (~240 samples) is fine.
+    for k in range(-max_lag, max_lag + 1):
+        if k >= 0:
+            c = float(np.dot(a_w[k:], b_w[:len(a_w) - k]))
+        else:
+            c = float(np.dot(a_w[:len(a_w) + k], b_w[-k:]))
+        if c > best_c:
+            best_c = c
+            best_k = k
+    return best_k
+
+
+def scalar_fit_residual(a: np.ndarray, b: np.ndarray, sr: int
+                        ) -> tuple[float, float, int]:
+    """Best LS scalar fit a ~= s * b_shifted; return (s, residual_rms, lag).
+    `a` is the reference (public), `b` is the variant being fit.
+    """
+    lag = best_lag(a, b, sr)
+    n = min(len(a), len(b))
+    if lag >= 0:
+        a_al = a[lag:n].astype(np.float64)
+        b_al = b[:n - lag].astype(np.float64)
+    else:
+        a_al = a[:n + lag].astype(np.float64)
+        b_al = b[-lag:n].astype(np.float64)
+    bb = float(np.dot(b_al, b_al))
+    if bb < 1e-30:
+        return 0.0, float(np.sqrt(np.mean(a_al * a_al))), lag
+    s = float(np.dot(a_al, b_al)) / bb
+    resid = a_al - s * b_al
+    rms = float(np.sqrt(np.mean(resid * resid)))
+    return s, rms, lag
+
+
+def goertzel_amp(x: np.ndarray, sr: int, freq: float) -> float:
+    """Single-bin DFT magnitude at `freq` (no windowing) using full x.
+    Returns amplitude (peak), i.e. 2*|X[k]|/N for non-DC/non-Nyquist.
+    """
+    n = len(x)
+    if n == 0 or freq <= 0 or freq >= sr / 2:
+        return 0.0
+    t = np.arange(n, dtype=np.float64) / sr
+    c = np.cos(2.0 * math.pi * freq * t)
+    s = np.sin(2.0 * math.pi * freq * t)
+    re = float(np.dot(x.astype(np.float64), c))
+    im = -float(np.dot(x.astype(np.float64), s))
+    mag = math.hypot(re, im) / n
+    return 2.0 * mag
+
+
+def stft_power_ratio_db(a: np.ndarray, b: np.ndarray, sr: int,
+                        bin_freqs=OCTAVE_BIN_HZ) -> list[float]:
+    """For each frequency in bin_freqs, return 10*log10(|B(f)|^2 / |A(f)|^2)
+    over the full signal using single-bin DFT magnitudes.  Returns one dB
+    value per bin (so this is really a per-bin level ratio, not STFT, but
+    captures broadband linear-tonal divergence on a sweep just as well).
+    """
+    out: list[float] = []
+    for f in bin_freqs:
+        if f >= sr / 2:
+            out.append(float("nan"))
+            continue
+        amp_a = goertzel_amp(a, sr, f)
+        amp_b = goertzel_amp(b, sr, f)
+        if amp_a < 1e-12 or amp_b < 1e-12:
+            out.append(float("nan"))
+            continue
+        out.append(20.0 * math.log10(amp_b / amp_a))
+    return out
+
+
+def analyse_sine(label: str, sr: int, samples: np.ndarray, f0: float,
+                 out_dir: Path) -> tuple[float, dict[str, float]]:
+    """Per-variant sine-tone analysis at f0.  Returns (worst_resid_db,
+    per_variant_resid_db_dict).  `samples` is the trimmed (NUM_CHANNELS, N)
+    array.
+    """
+    # Reference (public) for residual / lag baseline -- use T4 public for
+    # T4 variants and T5 public for T5 variants.
+    public_t4 = samples[8]
+    public_t5 = samples[9]
+    pub_t4_peak = float(np.max(np.abs(public_t4)))
+    pub_t5_peak = float(np.max(np.abs(public_t5)))
+
+    print(f"[{label}] post-tube sine analysis @ {f0:.1f} Hz:")
+    print(f"    public T4 peak={pub_t4_peak:.4e}  T5 peak={pub_t5_peak:.4e}")
+
+    rows: list[tuple[str, float, float, float, float, float, float, float,
+                     float, float, int]] = []
+    # Columns: variant, tube, peak, rms, h1, h2, h3, h5, thd_pct, resid_db,
+    # lag.
+    worst_resid_db = -math.inf
+    resid_table: dict[str, float] = {}
+    for var, t4_idx, t5_idx in POST_TUBE_VARIANTS:
+        for tube_label, ch_idx, ref, ref_peak in (
+            ("T4", t4_idx, public_t4, pub_t4_peak),
+            ("T5", t5_idx, public_t5, pub_t5_peak),
+        ):
+            x = samples[ch_idx]
+            peak = float(np.max(np.abs(x)))
+            rms = float(np.sqrt(np.mean(x.astype(np.float64) ** 2)))
+            h1 = goertzel_amp(x, sr, f0)
+            h2 = goertzel_amp(x, sr, 2 * f0)
+            h3 = goertzel_amp(x, sr, 3 * f0)
+            h5 = goertzel_amp(x, sr, 5 * f0)
+            thd = (math.sqrt(h2 * h2 + h3 * h3 + h5 * h5) / h1
+                   if h1 > 0 else 0.0)
+            if var == "public":
+                s, resid_rms, lag = 1.0, 0.0, 0
+                resid_db = -math.inf
+            else:
+                s, resid_rms, lag = scalar_fit_residual(ref, x, sr)
+                resid_db = (20.0 * math.log10(resid_rms / ref_peak)
+                            if resid_rms > 0 and ref_peak > 0 else -math.inf)
+                if resid_db > worst_resid_db:
+                    worst_resid_db = resid_db
+            key = f"{var}_{tube_label}"
+            resid_table[key] = resid_db
+            rows.append((f"{var}_{tube_label}", peak, rms, h1, h2, h3, h5,
+                         thd * 100.0, s, resid_db, lag))
+
+    # Print table.
+    print(f"    {'tap':<14} {'peak':>10} {'rms':>10} "
+          f"{'H1':>10} {'H2':>10} {'H3':>10} {'H5':>10} "
+          f"{'THD%':>7} {'fit s':>8} {'resid_dB':>10} {'lag':>5}")
+    for name, peak, rms, h1, h2, h3, h5, thd_p, s, rdb, lag in rows:
+        rdb_s = f"{rdb:+.2f}" if math.isfinite(rdb) else "  -inf"
+        print(f"    {name:<14} {peak:10.4e} {rms:10.4e} "
+              f"{h1:10.4e} {h2:10.4e} {h3:10.4e} {h5:10.4e} "
+              f"{thd_p:7.3f} {s:8.5f} {rdb_s:>10} {lag:5d}")
+
+    return worst_resid_db, resid_table
+
+
+def analyse_sweep(label: str, sr: int, samples: np.ndarray,
+                  out_dir: Path) -> tuple[float, list[tuple[str, list[float]]]]:
+    """Per-variant sweep analysis: scalar-fit residual + per-bin level
+    ratio dB vs public.  Returns (worst_resid_db, [(variant_tube,
+    ratios_db_per_bin), ...]).
+    """
+    public_t4 = samples[8]
+    public_t5 = samples[9]
+    pub_t4_peak = float(np.max(np.abs(public_t4)))
+    pub_t5_peak = float(np.max(np.abs(public_t5)))
+
+    print(f"[{label}] post-tube sweep analysis:")
+    print(f"    public T4 peak={pub_t4_peak:.4e}  T5 peak={pub_t5_peak:.4e}")
+
+    # Scalar-fit residual table.
+    print(f"    {'tap':<14} {'peak':>10} {'rms':>10} "
+          f"{'fit s':>8} {'resid_dB':>10} {'lag':>5}")
+    worst_resid_db = -math.inf
+    for var, t4_idx, t5_idx in POST_TUBE_VARIANTS:
+        for tube_label, ch_idx, ref, ref_peak in (
+            ("T4", t4_idx, public_t4, pub_t4_peak),
+            ("T5", t5_idx, public_t5, pub_t5_peak),
+        ):
+            x = samples[ch_idx]
+            peak = float(np.max(np.abs(x)))
+            rms = float(np.sqrt(np.mean(x.astype(np.float64) ** 2)))
+            if var == "public":
+                s, resid_rms, lag = 1.0, 0.0, 0
+                resid_db = -math.inf
+            else:
+                s, resid_rms, lag = scalar_fit_residual(ref, x, sr)
+                resid_db = (20.0 * math.log10(resid_rms / ref_peak)
+                            if resid_rms > 0 and ref_peak > 0 else -math.inf)
+                if resid_db > worst_resid_db:
+                    worst_resid_db = resid_db
+            rdb_s = f"{rdb:+.2f}" if math.isfinite(rdb := resid_db) else "  -inf"
+            print(f"    {var}_{tube_label:<11} {peak:10.4e} {rms:10.4e} "
+                  f"{s:8.5f} {rdb_s:>10} {lag:5d}")
+
+    # Per-bin level ratio table (variant / public).
+    print(f"    Level ratio dB (variant - public), per octave bin:")
+    header = "    " + " " * 14 + "".join(f"{f:>9.0f}" for f in OCTAVE_BIN_HZ)
+    print(header)
+    ratios: list[tuple[str, list[float]]] = []
+    for var, t4_idx, t5_idx in POST_TUBE_VARIANTS:
+        if var == "public":
+            continue
+        for tube_label, ch_idx, ref in (
+            ("T4", t4_idx, public_t4),
+            ("T5", t5_idx, public_t5),
+        ):
+            x = samples[ch_idx]
+            r = stft_power_ratio_db(ref, x, sr)
+            ratios.append((f"{var}_{tube_label}", r))
+            cells = "".join(
+                (f"{v:+9.2f}" if math.isfinite(v) else "      nan")
+                for v in r
+            )
+            print(f"    {var}_{tube_label:<11}{cells}")
+
+    return worst_resid_db, ratios
+
+
+def smooth_ratios(ratios: list[tuple[str, list[float]]],
+                  variation_db_thresh: float = 1.0) -> bool:
+    """Heuristic: ratios are 'smooth' if the within-row max-min is small
+    (i.e. roughly flat across band) OR the row is monotone with small
+    second differences.  We just check max-min span here.
+    """
+    for _, row in ratios:
+        finite = [v for v in row if math.isfinite(v)]
+        if len(finite) < 2:
+            continue
+        span = max(finite) - min(finite)
+        if span > variation_db_thresh * 5:
+            return False
+    return True
 
 
 def main() -> int:
@@ -310,6 +582,10 @@ def main() -> int:
                          "(default -100 dB).")
     ap.add_argument("--skip-sine", action="store_true")
     ap.add_argument("--skip-sweep", action="store_true")
+    ap.add_argument("--linear-threshold-db", type=float, default=-60.0,
+                    help="If worst post-tube scalar-fit residual is "
+                         "<= this (dB vs public peak), classify as linear "
+                         "divergence (default -60).")
     args = ap.parse_args()
 
     if not args.probe_bin.exists():
@@ -319,24 +595,58 @@ def main() -> int:
         return 2
 
     sr = args.sample_rate
-    all_ok = True
+    pre_ok = True
+    worst_resid_db = -math.inf
+    sweep_ratios: list[tuple[str, list[float]]] = []
 
     if not args.skip_sine:
         sine = gen_sine(sr, args.sine_freq, args.sine_dur, args.sine_amp)
-        ok = run_signal("sine440", sine, sr, args.out_dir, args.gain,
-                        args.probe_bin, args.max_abs_rel, args.rms_db)
-        all_ok = all_ok and ok
+        ok, samples = run_signal("sine440", sine, sr, args.out_dir, args.gain,
+                                 args.probe_bin, args.max_abs_rel, args.rms_db)
+        pre_ok = pre_ok and ok
+        rdb, _ = analyse_sine("sine440", sr, samples, args.sine_freq,
+                              args.out_dir)
+        if rdb > worst_resid_db:
+            worst_resid_db = rdb
 
     if not args.skip_sweep:
         sweep = gen_log_sweep(sr, args.sweep_dur, amp=args.sweep_amp)
-        ok = run_signal("sweep5s", sweep, sr, args.out_dir, args.gain,
-                        args.probe_bin, args.max_abs_rel, args.rms_db)
-        all_ok = all_ok and ok
+        ok, samples = run_signal("sweep5s", sweep, sr, args.out_dir, args.gain,
+                                 args.probe_bin, args.max_abs_rel, args.rms_db)
+        pre_ok = pre_ok and ok
+        rdb, ratios = analyse_sweep("sweep5s", sr, samples, args.out_dir)
+        if rdb > worst_resid_db:
+            worst_resid_db = rdb
+        sweep_ratios = ratios
 
-    print(f"\nverdict: {'PASS' if all_ok else 'FAIL'} "
+    print(f"\nverdict (pre-tube oracle): "
+          f"{'PASS' if pre_ok else 'FAIL'} "
           f"(thresholds: max_abs_rel <= {args.max_abs_rel:.1e}, "
           f"rms_db <= {args.rms_db:+.1f})")
-    return 0 if all_ok else 1
+
+    print(f"\npost-tube divergence summary:")
+    if math.isfinite(worst_resid_db):
+        print(f"  worst scalar-fit residual vs public: "
+              f"{worst_resid_db:+.2f} dB")
+    else:
+        print(f"  worst scalar-fit residual vs public: -inf (all variants "
+              "match public exactly)")
+
+    is_linear = worst_resid_db <= args.linear_threshold_db
+    smooth = smooth_ratios(sweep_ratios) if sweep_ratios else True
+    if is_linear and smooth:
+        verdict = "LINEAR divergence"
+        next_step = ("next probe: small-signal v0..v12 in "
+                     "nilamp_t5_balance_render (post-power-chain / "
+                     "branch-mix / denominator topology error).")
+    else:
+        verdict = "NONLINEAR divergence"
+        next_step = ("next probe: t4_dia / t5_dia taps to localise "
+                     "tube-state offender (peak-detector params, kfb).")
+    print(f"  ratios smooth across band: {smooth}")
+    print(f"  classification: {verdict}")
+    print(f"  {next_step}")
+    return 0 if pre_ok else 1
 
 
 if __name__ == "__main__":

@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: MIT
 //
-// Offline renderer for dsp/diagnostics/nilamp_drive_taps.dsp.  Writes an
-// 8-channel float32 WAV containing the pre-tube drive signals (and the T3
-// outputs they derive from) for the public path plus the v6 / v10 rejected
-// backend candidates.  Used by tools/compare_drive_taps.py to verify the
-// linear pre-chains against a Python oracle.
+// Offline renderer for dsp/diagnostics/nilamp_drive_taps.dsp.  Writes a
+// 14-channel float32 WAV containing the pre-tube drive signals, the T3
+// outputs they derive from, and the post-tube voltages for the public path
+// plus the v6 / v10 rejected backend candidates.  Used by
+// tools/compare_drive_taps.py to verify linear pre-chains against a Python
+// oracle (regression guard) and to compare post-tube voltages between
+// candidates with PSS held identical.
 
 use std::env;
 use std::path::PathBuf;
@@ -27,7 +29,7 @@ mod diag {
     include!(concat!(env!("OUT_DIR"), "/nilamp_drive_taps.rs"));
 }
 
-const NUM_CHANNELS: usize = 8;
+const NUM_CHANNELS: usize = 14;
 
 #[derive(Debug)]
 struct Args {
@@ -61,15 +63,21 @@ impl Default for Args {
 const USAGE: &str = "\
 nilamp_drive_probe_render --input IN.wav --output OUT.wav [params]
 
-Writes an 8-channel float32 WAV with channels:
-  0. res4_v_public         T3 plate, public path
-  1. res4_vk_public        T3 cathode, public path
-  2. res4_backend_v        T3 plate with hp(0.41) pre-T3 (v6 source)
-  3. res4_backend_vk       T3 cathode with hp(0.41) pre-T3 (v6 source)
-  4. t4_in_public_drive    public T4 drive (== ch0)
-  5. t5_in_public_drive    public T5 drive (k2 -> hp(hp4) -> peq -> hs)
-  6. t4_in_v6_drive        v6 T4 drive (k1 -> hp(hp3) -> peq -> hs of ch2)
-  7. t4_in_v10_drive       v10 T4 drive (k1 -> hp(hp3) -> peq -> hs of ch0)
+Writes a 14-channel float32 WAV with channels:
+   0. res4_v_public         T3 plate, public path
+   1. res4_vk_public        T3 cathode, public path
+   2. res4_backend_v        T3 plate with hp(0.41) pre-T3 (v6 source)
+   3. res4_backend_vk       T3 cathode with hp(0.41) pre-T3 (v6 source)
+   4. t4_in_public_drive    public T4 drive (== ch0)
+   5. t5_in_public_drive    public T5 drive (k2 -> hp(hp4) -> peq -> hs)
+   6. t4_in_v6_drive        v6 T4 drive (k1 -> hp(hp3) -> peq -> hs of ch2)
+   7. t4_in_v10_drive       v10 T4 drive (k1 -> hp(hp3) -> peq -> hs of ch0)
+   8. t4_v_public           Post-tube T4 voltage, public drive
+   9. t5_v_public           Post-tube T5 voltage, public drive
+  10. t4_v_v6                Post-tube T4 voltage, v6 drive
+  11. t5_v_v6                Post-tube T5 voltage, v6 T5 drive
+  12. t4_v_v10               Post-tube T4 voltage, v10 drive
+  13. t5_v_v10               Post-tube T5 voltage, v10 (== ch9 sanity slot)
 
 Params:
   --gain    -24..24    Input gain (dB)

@@ -1,25 +1,37 @@
 // SPDX-License-Identifier: MIT
-// Diagnostic top-level: emit pre-tube drive signals (and the T3 outputs they
-// derive from) for the public path and selected rejected backend candidates.
-// Used by tools/compare_drive_taps.py to verify that the linear pre-chains
-// going *into* T4 / T5 match a Python oracle to <= 1e-6.  This isolates
-// whether the public-vs-rejected ABX gap lives upstream (filter-coefficient
-// or state interaction) or downstream (tube state / PSS timing) of the tubes.
+// Diagnostic top-level: emit pre-tube drive signals, the T3 outputs they
+// derive from, and post-tube voltages for the public path and the v6 / v10
+// rejected backend candidates.  Used by tools/compare_drive_taps.py to:
+//   1. verify the linear pre-chains going *into* T4 / T5 match a Python
+//      oracle to <= 1e-6 (regression guard for filter coefficients), and
+//   2. compare post-tube voltages between candidates with PSS held identical,
+//      isolating tube-state divergence from PSS-topology divergence.
 //
 // PSS feedback intentionally remains on the public T4-only sag loop, matching
-// dsp/nilamp.dsp; we are inspecting drive into the tubes only.
+// dsp/nilamp.dsp.  All extra T4/T5 instances feed off the same `old_dvs` and
+// have their dia outputs discarded -- they do not perturb PSS.
 //
-// Outputs (8 channels):
-//   0. res4_v_public         T3 plate, public path (input to public T4)
-//   1. res4_vk_public        T3 cathode, public path (input to public T5)
-//   2. res4_backend_v        T3 plate with hp(0.41) pre-T3 (v6 source)
-//   3. res4_backend_vk       T3 cathode with hp(0.41) pre-T3 (v6 source)
-//   4. t4_in_public_drive    public T4 drive = res4_v (raw, no extra filter)
-//   5. t5_in_public_drive    public T5 drive = res4_vk * k2 -> hp(hp4) -> peq -> hs
-//   6. t4_in_v6_drive        v6 T4 drive = res4_backend_v * k1 -> hp(hp3) -> peq -> hs
-//   7. t4_in_v10_drive       v10 T4 drive = res4_v * k1 -> hp(hp3) -> peq -> hs
+// Outputs (14 channels):
+//   T3 outputs:
+//     0. res4_v_public         T3 plate, public path
+//     1. res4_vk_public        T3 cathode, public path
+//     2. res4_backend_v        T3 plate with hp(0.41) pre-T3 (v6 source)
+//     3. res4_backend_vk       T3 cathode with hp(0.41) pre-T3 (v6 source)
+//   Pre-tube drive signals:
+//     4. t4_in_public_drive    public T4 drive = res4_v (raw, no extra filter)
+//     5. t5_in_public_drive    public T5 drive = res4_vk * k2 -> hp(hp4) -> peq -> hs
+//     6. t4_in_v6_drive        v6 T4 drive = res4_backend_v * k1 -> hp(hp3) -> peq -> hs
+//     7. t4_in_v10_drive       v10 T4 drive = res4_v * k1 -> hp(hp3) -> peq -> hs
+//   Post-tube voltages (PSS shared across all):
+//     8. t4_v_public           T4 fed by ch4 (== public path raw T4)
+//     9. t5_v_public           T5 fed by ch5
+//    10. t4_v_v6                T4 fed by ch6
+//    11. t5_v_v6                T5 fed by v6 T5 drive (res4_backend_vk -> k2/hp/peq/hs)
+//    12. t4_v_v10               T4 fed by ch7
+//    13. t5_v_v10               T5 fed by ch5 (== ch9 by construction; v10 keeps public T5)
 //
-// Channel 4 == channel 0 by construction; kept as a sanity slot.
+// Channel 4 == channel 0 by construction; channel 13 == channel 9 by
+// construction.  Both are kept as sanity slots.
 import("stdfaust.lib");
 tube = library("hk_tube.lib");
 flt = library("hk_filters.lib");
@@ -44,6 +56,7 @@ t1_table = tables.t1_12ax7_table;
 t2_table = tables.t2_12ax7_table;
 t3_table = tables.t3_cd_table;
 t4_table = tables.t4_6v6_table;
+t5_table = tables.t5_6v6_table;
 
 // Mode-0 power-chain constants (mirror dsp/diagnostics/nilamp_t5_balance.dsp).
 k1_mode0 = 0.797;
@@ -60,7 +73,7 @@ process = _ : *(gain1) : global_loop
 with {
     global_loop(vin) = loop_block(vin)
     with {
-        loop_block(v_in_ext) = (loop_core(v_in_ext) ~ _) : !, _, _, _, _, _, _, _, _
+        loop_block(v_in_ext) = (loop_core(v_in_ext) ~ _) : !, _, _, _, _, _, _, _, _, _, _, _, _, _, _
         with {
             loop_core(v_in_ext, old_dvs) =
                 next_dvs_current,
@@ -71,7 +84,13 @@ with {
                 ch4_t4_in_public_drive,
                 ch5_t5_in_public_drive,
                 ch6_t4_in_v6_drive,
-                ch7_t4_in_v10_drive
+                ch7_t4_in_v10_drive,
+                ch8_t4_v_public,
+                ch9_t5_v_public,
+                ch10_t4_v_v6,
+                ch11_t5_v_v6,
+                ch12_t4_v_v10,
+                ch13_t5_v_v10
             with {
                 res1 = tube.tube_ck_simple(
                     TBL_SIZE, t1_table, XMAX, DX,
@@ -123,43 +142,101 @@ with {
                 res4_backend_v_local = res4_backend : _ , ! , !;
                 res4_backend_vk_local = res4_backend : ! , _ , !;
 
-                // Public T4 (raw drive = res4_v) -- needed only for dia/PSS.
-                res_t4_raw = tube.tube_ck_simple(
+                // Pre-tube drive signals (linear pre-chains into T4 / T5).
+                drive_t4_public = res4_v;
+                drive_t5_public = res4_vk
+                    : *(k2_mode0)
+                    : flt.flt_ii1_hp(hp4_hz)
+                    : flt.flt_sv2_peq(kp1, fp_hz, qp1, 1, 1)
+                    : flt.flt_sv1_hs(ks1, fs1_hz, 1);
+                drive_t4_v6 = res4_backend_v_local
+                    : *(k1_mode0)
+                    : flt.flt_ii1_hp(hp3_hz)
+                    : flt.flt_sv2_peq(kp1, fp_hz, qp1, 1, 1)
+                    : flt.flt_sv1_hs(ks1, fs1_hz, 1);
+                drive_t4_v10 = res4_v
+                    : *(k1_mode0)
+                    : flt.flt_ii1_hp(hp3_hz)
+                    : flt.flt_sv2_peq(kp1, fp_hz, qp1, 1, 1)
+                    : flt.flt_sv1_hs(ks1, fs1_hz, 1);
+                drive_t5_v6 = res4_backend_vk_local
+                    : *(k2_mode0)
+                    : flt.flt_ii1_hp(hp4_hz)
+                    : flt.flt_sv2_peq(kp1, fp_hz, qp1, 1, 1)
+                    : flt.flt_sv1_hs(ks1, fs1_hz, 1);
+
+                // Public T4 (drive = res4_v).  Provides dia for PSS and ch8.
+                res_t4_public = tube.tube_ck_simple(
                     TBL_SIZE, t4_table, XMAX, DX,
                     c.t4_kpre, c.t4_isat, c.t4_rl, c.t4_kpk,
                     c.t4_kspre, c.t4_kspost, c.t4_ksva, c.t4_ksib, c.t4_kfb,
                     c.t4_pk_xth, c.t4_pk_xdiode, c.t4_pk_k1, c.t4_pk_k2,
                     c.t4_avg_f,
-                    res4_v, old_dvs);
-                t4_raw_dia = res_t4_raw : ! , _;
+                    drive_t4_public, old_dvs);
+                t4_v_public_local = res_t4_public : _ , !;
+                t4_dia_public = res_t4_public : ! , _;
+
+                // Public T5 (drive = drive_t5_public).  dia discarded.
+                res_t5_public = tube.tube_ck_simple(
+                    TBL_SIZE, t5_table, XMAX, DX,
+                    c.t5_kpre, c.t5_isat, c.t5_rl, c.t5_kpk,
+                    c.t5_kspre, c.t5_kspost, c.t5_ksva, c.t5_ksib, c.t5_kfb,
+                    c.t5_pk_xth, c.t5_pk_xdiode, c.t5_pk_k1, c.t5_pk_k2,
+                    c.t5_avg_f,
+                    drive_t5_public, old_dvs);
+                t5_v_public_local = res_t5_public : _ , !;
+
+                // v6 T4 (drive = drive_t4_v6).  dia discarded.
+                res_t4_v6 = tube.tube_ck_simple(
+                    TBL_SIZE, t4_table, XMAX, DX,
+                    c.t4_kpre, c.t4_isat, c.t4_rl, c.t4_kpk,
+                    c.t4_kspre, c.t4_kspost, c.t4_ksva, c.t4_ksib, c.t4_kfb,
+                    c.t4_pk_xth, c.t4_pk_xdiode, c.t4_pk_k1, c.t4_pk_k2,
+                    c.t4_avg_f,
+                    drive_t4_v6, old_dvs);
+                t4_v_v6_local = res_t4_v6 : _ , !;
+
+                // v6 T5 (drive = drive_t5_v6).  dia discarded.
+                res_t5_v6 = tube.tube_ck_simple(
+                    TBL_SIZE, t5_table, XMAX, DX,
+                    c.t5_kpre, c.t5_isat, c.t5_rl, c.t5_kpk,
+                    c.t5_kspre, c.t5_kspost, c.t5_ksva, c.t5_ksib, c.t5_kfb,
+                    c.t5_pk_xth, c.t5_pk_xdiode, c.t5_pk_k1, c.t5_pk_k2,
+                    c.t5_avg_f,
+                    drive_t5_v6, old_dvs);
+                t5_v_v6_local = res_t5_v6 : _ , !;
+
+                // v10 T4 (drive = drive_t4_v10).  dia discarded.
+                res_t4_v10 = tube.tube_ck_simple(
+                    TBL_SIZE, t4_table, XMAX, DX,
+                    c.t4_kpre, c.t4_isat, c.t4_rl, c.t4_kpk,
+                    c.t4_kspre, c.t4_kspost, c.t4_ksva, c.t4_ksib, c.t4_kfb,
+                    c.t4_pk_xth, c.t4_pk_xdiode, c.t4_pk_k1, c.t4_pk_k2,
+                    c.t4_avg_f,
+                    drive_t4_v10, old_dvs);
+                t4_v_v10_local = res_t4_v10 : _ , !;
 
                 // PSS -- public T4-only sag loop (matches dsp/nilamp.dsp).
-                total_dia_current = res1_dia + res3_dia + res4_dia + t4_raw_dia;
+                total_dia_current = res1_dia + res3_dia + res4_dia + t4_dia_public;
                 res_pss_current = tube.tube_pss(
                     r_pss, tau_pss, 0, total_dia_current, old_dvs);
                 next_dvs_current = res_pss_current : _ , !;
 
-                // Drive-tap channels.
+                // Channel taps.
                 ch0_res4_v_public = res4_v;
                 ch1_res4_vk_public = res4_vk;
                 ch2_res4_backend_v = res4_backend_v_local;
                 ch3_res4_backend_vk = res4_backend_vk_local;
-                ch4_t4_in_public_drive = res4_v;
-                ch5_t5_in_public_drive = res4_vk
-                    : *(k2_mode0)
-                    : flt.flt_ii1_hp(hp4_hz)
-                    : flt.flt_sv2_peq(kp1, fp_hz, qp1, 1, 1)
-                    : flt.flt_sv1_hs(ks1, fs1_hz, 1);
-                ch6_t4_in_v6_drive = res4_backend_v_local
-                    : *(k1_mode0)
-                    : flt.flt_ii1_hp(hp3_hz)
-                    : flt.flt_sv2_peq(kp1, fp_hz, qp1, 1, 1)
-                    : flt.flt_sv1_hs(ks1, fs1_hz, 1);
-                ch7_t4_in_v10_drive = res4_v
-                    : *(k1_mode0)
-                    : flt.flt_ii1_hp(hp3_hz)
-                    : flt.flt_sv2_peq(kp1, fp_hz, qp1, 1, 1)
-                    : flt.flt_sv1_hs(ks1, fs1_hz, 1);
+                ch4_t4_in_public_drive = drive_t4_public;
+                ch5_t5_in_public_drive = drive_t5_public;
+                ch6_t4_in_v6_drive = drive_t4_v6;
+                ch7_t4_in_v10_drive = drive_t4_v10;
+                ch8_t4_v_public = t4_v_public_local;
+                ch9_t5_v_public = t5_v_public_local;
+                ch10_t4_v_v6 = t4_v_v6_local;
+                ch11_t5_v_v6 = t5_v_v6_local;
+                ch12_t4_v_v10 = t4_v_v10_local;
+                ch13_t5_v_v10 = t5_v_public_local;
             };
         };
     };
