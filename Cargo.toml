@@ -35,6 +35,11 @@ name = "nilamp_drive_probe_render"
 path = "src/bin/nilamp_drive_probe_render.rs"
 required-features = ["dsp-diagnostics"]
 
+[[bin]]
+name = "nilamp_pss3_taps_render"
+path = "src/bin/nilamp_pss3_taps_render.rs"
+required-features = ["dsp-diagnostics"]
+
 [dependencies]
 nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", features = ["vst3"] }
 hound = "3.5"

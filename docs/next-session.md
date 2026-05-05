@@ -1,6 +1,189 @@
-# Next session — investigate Faust gain deficit before re-landing PSS-3 topology
+# Next session — apply 1-sample-lag fix to PSS feedback (high-confidence root cause)
 
 ## SESSION LOG (most recent first)
+
+### Session: PSS-3 tap harness localizes runaway → 1-sample dvs lag identified as root cause → READY TO FIX (uncommitted)
+
+**Hypothesis tested.**  PSS-3 + pre-T4 chain (re-applied to `dsp/nilamp.dsp` from
+`/tmp/opencode/pss3_chain.patch`) meets the **steady-state** target — but a
+multi-second startup transient contaminates the ABX RMS and explains the
+~5 dB sweep deficit.  Build a tap harness, identify which internal node
+runs away, find the structural difference vs JSFX.
+
+**What was done.**
+
+1. Rewrote `build.rs` to dispatch all Faust compilations in a worker
+   pool (atomic-index work-stealing, max 4 threads via `thread::scope`;
+   removed orphan `faust_compile`).  Cold build of nilamp.dsp + 3
+   diagnostics: 4 m 37 s wall (user/wall ≈ 3.7 confirms parallelism).
+   Plain nilamp-only cold build still ~4 m due to the bumped Faust
+   `-t 300` (next-feed-feedback frontend cost).
+2. Wrote `dsp/diagnostics/nilamp_pss3_taps.dsp` (1-in / 9-out:
+   `v_out, res1_v, res3_v, res4_v, drive_t4, res5_v, res_t5_v,
+   dvs2, dvs3`) — a literal clone of nilamp.dsp's signal flow with the
+   internal nodes routed to extra outputs.  Registered
+   `src/bin/nilamp_pss3_taps_render.rs` under `dsp-diagnostics`.
+   Verified `v_out` is **bit-identical** to `nilamp_render` output
+   (max |diff| = 0.0 across the full 5 s sweep).
+3. Rendered the cached ABX sweep (`/tmp/abx_compare/sweep_in.wav`) at
+   the canonical reference point (gain=6, sag=100) and analyzed
+   1-second-window RMS for both Faust v_out and the cached JSFX render
+   (`/tmp/abx_compare/jsfx_cache/dfafea…wav`).
+
+**Smoking gun.**  Faust v_out **collapses to silence** during the first
+~3 s of the sweep while JSFX tracks it cleanly:
+
+```
+window      jsfx_rms   faust_rms   ratio_dB
+[0.0,0.5]s    0.1905     0.0855     -6.95
+[0.5,1.0]s    0.2467     0.0004    -55.90
+[1.0,1.5]s    0.2852     0.0002    -61.81
+[1.5,2.0]s    0.2866     0.0007    -51.92
+[2.0,2.5]s    0.2924     0.0023    -42.13
+[2.5,3.0]s    0.3017     0.0397    -17.62
+[3.0,3.5]s    0.3086     0.2591     -1.52   ← settled
+[3.5,4.0]s    0.2683     0.2886     +0.64
+[4.0,4.5]s    0.1250     0.2360     +5.52
+[4.5,5.0]s    0.1945     0.0616     -9.98
+```
+
+The startup transient drives all internal nodes to absurd values:
+
+```
+[0.5,1.5]s window (DROPOUT):
+  res1_v   mean=833 V       (steady-state mean ≈ 0)
+  res3_v   mean=847 V       (peak 2034 V)
+  res4_v   mean=1784 V      (peak 4394 V)
+  res5_v   mean=504 V       (peak 1262 V)
+  res_t5_v mean=439 V       (peak 1246 V)
+  dvs2     mean=420 V       (peak 1221 V)
+  dvs3     mean=2104 V      (peak 5256 V)   ← B+ railed +5 kV
+  v_out    mean=0  pk=0     ← all tubes in cutoff
+```
+
+After settling (last 1 s), every node is plausible: dvs3 rms 2.9, dvs2
+rms 3.7, res5_v rms 107 (peak 203), v_out rms 0.172 / peak 0.401
+(matches production).
+
+**Root cause identified.**  Comparison of sample-by-sample call order:
+
+JSFX `twd_dlx_ii.jsfx:379-394`:
+```
+dia1 = t4.dia + t5.dia       # from PREVIOUS sample's tube_ck_process
+dia3 = t1.dia + t2.dia + t3.dia
+dvs1 = p1(0,    p2.s,  dia1)  # PSS runs FIRST in the sample
+dvs2 = p2(dvs1, p3.s,  dig)
+dvs3 = p3(dvs2, 0,     dia3)
+spl0 = t1.tube_ck_process(spl0, dvs3)   # tubes consume CURRENT-sample dvs3
+... (t2, t3, t4, t5 all consume current-sample dvs)
+```
+
+Faust `dsp/nilamp.dsp:113-240`:
+```
+loop_core(v_in, old_dvs2, old_dvs3, old_s2, old_s3) = ...
+    res1 = tube_ck(..., v_in_ext, old_dvs3)   # tubes consume PREV-sample dvs!
+    ... (all tubes use old_dvs3 or old_dvs2)
+    dia1 = res5_dia + res_t5_dia
+    dia3 = res1_dia + res3_dia + res4_dia
+    res_pss1 = tube_pss(..., 0, dia1, 0)      # PSS runs SECOND
+    res_pss2 = tube_pss(..., old_s3, dig, next_dvs1)
+    next_dvs2 = ...
+    res_pss3 = tube_pss(..., 0, dia3, next_dvs2)
+    next_dvs3 = ...
+```
+
+**The Faust `~ si.bus(4)` 1-sample feedback puts `dvs2`/`dvs3` ONE
+SAMPLE LATE entering the tubes.**  JSFX has zero such lag — within a
+single sample, PSS computes new dvs from prev-sample dia, then tubes
+consume the just-computed dvs.
+
+This 1-sample lag creates a 2-sample positive-feedback loop that doesn't
+exist in JSFX: tube(old_dvs)→dia→pss→new_dvs(next sample's old_dvs).
+The `ksib·dvs` and `ksva·dvs` terms in the tube model amplify any
+imbalance, so initial-sample dvs=0 with non-zero idle dia produces a
+runaway that takes ~2.5 s to settle (consistent with the observed
+collapse).
+
+`tube_pss` math itself is fine: Faust `flt_ii1_lp(1/(2π·tau))` and
+JSFX `flt_ii1_set_tau(tau)` produce algebraically identical `k =
+1 - exp(-1/(tau·srate))`.  Init state is also identical (zero in both).
+The bug is purely in the loop **call order** in `nilamp.dsp`, not in
+the lump model.
+
+**Verdict.** INCONCLUSIVE for ABX gate (no re-render after fix), but
+ROOT CAUSE LOCALIZED with high confidence.  No commits made this
+session — all PSS-3 + chain code is uncommitted in worktree along with
+the new diagnostic harness, build.rs parallelization, and Cargo.toml
+diagnostic bin entry.
+
+**Next step (decision deferred — user paused for documentation).**
+
+Restructure the feedback loop so PSS runs first inside `loop_core`:
+
+```faust
+loop_core(v_in, old_dia1, old_dig, old_dia3, old_s2, old_s3) =
+    next_dia1, next_dig, next_dia3, next_s2, next_s3, v_out
+with {
+    // PSS first — uses prev-sample dia/dig from feedback
+    res_pss1 = tube_pss(r_p1, tau_p1, old_s2, old_dia1, 0);
+    next_dvs1 = res_pss1 : _, !;
+    res_pss2 = tube_pss(r_p2, tau_p2, old_s3, old_dig, next_dvs1);
+    next_dvs2 = res_pss2 : _, !;
+    next_s2   = res_pss2 : !, _;
+    res_pss3 = tube_pss(r_p3, tau_p3, 0, old_dia3, next_dvs2);
+    next_dvs3 = res_pss3 : _, !;
+    next_s3   = res_pss3 : !, _;
+    // Tubes second — consume current-sample dvs2/dvs3
+    res1 = tube_ck_simple(..., v_in, next_dvs3);
+    ... (rest unchanged, just s/old_dvs3/next_dvs3/g and s/old_dvs2/next_dvs2/g)
+    next_dia1 = res5_dia + res_t5_dia;
+    next_dig  = kgrid * next_dia1;
+    next_dia3 = res1_dia + res3_dia + res4_dia;
+};
+```
+
+Feedback bus widens from 4 to 5 wires (`si.bus(5)`); cull mask grows
+from `!,!,!,!,_` to `!,!,!,!,!,_`.  `next_dia1`/`next_dig`/`next_dia3`
+go through the loop instead of `next_dvs2`/`next_dvs3`.  Because dvs is
+no longer fed back, the tubes literally see the freshly-computed dvs in
+the same sample — exactly matching JSFX semantics.
+
+After applying:
+1. `cargo build --release --bin nilamp_pss3_taps_render --features dsp-diagnostics`
+   and re-render the sweep; verify the [0.5, 3.0]s collapse window is
+   gone and per-window RMS tracks JSFX.
+2. `cargo build --release --bin nilamp_render` and re-run
+   `python3 tools/abx_compare.py`.  Expect sweep residual to land near
+   the public gate (-11.2 dB) or pass it; sine should be similar.
+3. `cargo test --features dsp-tests` — tube-stage fixtures don't exercise
+   the loop topology, so should still pass; diagnostic harness must
+   stay bit-equal to nilamp_render after the topology change.
+4. If clean: commit PSS-3 topology + pre-T4 chain + diagnostic harness +
+   build.rs parallelization + Cargo.toml diagnostic bin entry +
+   AGENTS.md (already committed) as a coherent unit, with a message
+   that explains the 1-sample-lag bug.
+
+**Risk.**  The reorder still leaves `dia1`/`dig`/`dia3` 1-sample-late
+relative to the tubes that produced them (they're fed back through the
+loop).  This matches JSFX exactly: in JSFX, `dia1 = t4.dia + t5.dia` at
+line 379 reads `instance(dia)` set by `tube_ck_process` in the
+*previous* sample.  So the dia-side 1-sample lag is intentional and
+present in both implementations; only the dvs-side lag is the bug.
+
+**Diagnostic artifacts (kept for next session).**
+
+- `/tmp/pss3_diag/sweep_taps.wav` — 9-channel Faust render of cached
+  ABX sweep.
+- `/tmp/pss3_diag/sweep_prod.wav` — 1-channel production render
+  (bit-equal to taps[0]).
+- `/tmp/abx_compare/jsfx_cache/dfafea…wav` — JSFX reference (same input).
+- `dsp/diagnostics/nilamp_pss3_taps.dsp` (uncommitted) — keep for
+  post-fix verification.
+- `src/bin/nilamp_pss3_taps_render.rs` (uncommitted).
+- Window-RMS comparison script: inline in this session's tool calls;
+  re-derivable from the three WAVs above.
+
+---
 
 ### Session: 3-stage PSS port lands cleanly but reveals upstream gain deficit → INCONCLUSIVE (worktree reverted; build.rs timeout bump kept)
 

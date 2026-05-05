@@ -2,10 +2,7 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-
-fn faust_compile(input: &Path, output: &Path, class_name: Option<&str>) {
-    faust_compile_with_timeout(input, output, class_name, None);
-}
+use std::thread;
 
 fn faust_compile_with_timeout(
     input: &Path,
@@ -33,6 +30,49 @@ fn faust_compile_with_timeout(
     }
 }
 
+/// A queued Faust compile job (input -> output, optional class rename,
+/// optional `-t` timeout).  Each job is single-threaded inside `faust`
+/// itself; running multiple jobs concurrently is the only available
+/// parallelism — see AGENTS.md "Build mechanics".
+struct FaustJob {
+    input: PathBuf,
+    output: PathBuf,
+    class_name: Option<String>,
+    timeout_s: Option<&'static str>,
+}
+
+fn run_faust_jobs_parallel(jobs: Vec<FaustJob>) {
+    if jobs.is_empty() {
+        return;
+    }
+    // Cap worker count so we don't oversubscribe RAM (each running
+    // faust instance can briefly hold several hundred MB on the larger
+    // top-level / diagnostic DSPs).  4 simultaneous compiles is a safe
+    // upper bound on a typical 8-16-thread dev box.
+    let n_workers = std::cmp::min(jobs.len(), 4);
+    let next: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let jobs: Vec<FaustJob> = jobs;
+    thread::scope(|s| {
+        for _ in 0..n_workers {
+            let jobs = &jobs;
+            let next = &next;
+            s.spawn(move || loop {
+                let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                if i >= jobs.len() {
+                    return;
+                }
+                let job = &jobs[i];
+                faust_compile_with_timeout(
+                    &job.input,
+                    &job.output,
+                    job.class_name.as_deref(),
+                    job.timeout_s,
+                );
+            });
+        }
+    });
+}
+
 fn main() {
     let out_dir: PathBuf = env::var_os("OUT_DIR").unwrap().into();
 
@@ -46,6 +86,13 @@ fn main() {
 
     // Tell rustc about the optional cfg flag.
     println!("cargo::rustc-check-cfg=cfg(nilamp_toplevel)");
+
+    // Collect every Faust compile job up front, then dispatch them in
+    // parallel via a small worker pool.  Each `faust` invocation is
+    // single-threaded internally, so this is the only knob that
+    // shortens the cold build wall-clock.  Stub writes (when a feature
+    // is disabled) stay inline — they're microseconds.
+    let mut jobs: Vec<FaustJob> = Vec::new();
 
     // The top-level 5E3 amp (`dsp/nilamp.dsp`) compiles to ~500K of Rust in
     // ~30 s on Faust 2.85.x.  Earlier in the project Faust would SIGALRM on
@@ -61,12 +108,12 @@ fn main() {
         Ok("0") | Ok("false") | Ok("off") | Ok("no")
     );
     if toplevel {
-        faust_compile_with_timeout(
-            Path::new("dsp/nilamp.dsp"),
-            &out_dir.join("dsp.rs"),
-            None,
-            Some("300"),
-        );
+        jobs.push(FaustJob {
+            input: PathBuf::from("dsp/nilamp.dsp"),
+            output: out_dir.join("dsp.rs"),
+            class_name: None,
+            timeout_s: Some("300"),
+        });
         println!("cargo:rustc-cfg=nilamp_toplevel");
     } else {
         // Emit a stub so any `include!(concat!(env!("OUT_DIR"), "/dsp.rs"))`
@@ -103,7 +150,12 @@ fn main() {
             println!("cargo:rerun-if-changed={}", path.display());
             let out_path = out_dir.join(format!("{stem}.rs"));
             if build_tests {
-                faust_compile(&path, &out_path, Some(stem));
+                jobs.push(FaustJob {
+                    input: path.clone(),
+                    output: out_path,
+                    class_name: Some(stem.to_string()),
+                    timeout_s: None,
+                });
             } else {
                 let stub = format!(
                     "// dsp/tests/{stem}.dsp skipped: feature dsp-tests not enabled.\n"
@@ -135,7 +187,12 @@ fn main() {
             println!("cargo:rerun-if-changed={}", path.display());
             let out_path = out_dir.join(format!("{stem}.rs"));
             if build_diagnostics {
-                faust_compile_with_timeout(&path, &out_path, Some(stem), Some("300"));
+                jobs.push(FaustJob {
+                    input: path.clone(),
+                    output: out_path,
+                    class_name: Some(stem.to_string()),
+                    timeout_s: Some("300"),
+                });
             } else {
                 let stub = format!(
                     "// dsp/diagnostics/{stem}.dsp skipped: feature dsp-diagnostics not enabled.\n"
@@ -144,4 +201,11 @@ fn main() {
             }
         }
     }
+
+    // Run all collected Faust jobs in parallel.  On a release-only
+    // build this is just `nilamp.dsp` (1 job, no parallelism gain).
+    // On `--features dsp-diagnostics` it's nilamp + 3 diagnostics →
+    // ~2x speedup at 4 workers.  On `--features dsp-tests` it's
+    // nilamp + 18 tests → bound by core count.
+    run_faust_jobs_parallel(jobs);
 }
