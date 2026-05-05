@@ -17,7 +17,7 @@ typedef struct NilampParams {
 } NilampParams;
 
 enum {
-    NILAMP_NUM_TAPS = 16,
+    NILAMP_NUM_TAPS = 23,
     NILAMP_TEST_NUM_BACKEND_FILTERS = 7,
     NILAMP_TEST_NUM_POWER_PAIR_OUTPUTS = 4,
 };

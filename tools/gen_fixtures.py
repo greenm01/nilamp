@@ -324,6 +324,13 @@ def gen_nilamp_taps(input_buf: np.ndarray) -> tuple[np.ndarray, ...]:
     post_peq3_buf = np.empty(n, dtype=np.float32)
     post_hs3_buf = np.empty(n, dtype=np.float32)
     post_hp5_buf = np.empty(n, dtype=np.float32)
+    t4_advk_in_buf = np.empty(n, dtype=np.float32)
+    t5_advk_in_buf = np.empty(n, dtype=np.float32)
+    t4_dia_buf = np.empty(n, dtype=np.float32)
+    t5_dia_buf = np.empty(n, dtype=np.float32)
+    t4_advk_out_buf = np.empty(n, dtype=np.float32)
+    t5_advk_out_buf = np.empty(n, dtype=np.float32)
+    dia1_next_buf = np.empty(n, dtype=np.float32)
 
     prev_dia1 = 0.0
     prev_dig = 0.0
@@ -331,6 +338,8 @@ def gen_nilamp_taps(input_buf: np.ndarray) -> tuple[np.ndarray, ...]:
     for i, vin in enumerate(input_buf):
         t4.advk = 0.5 * (t4.advk + t5.advk)
         t5.advk = t4.advk
+        t4_advk_in = t4.advk
+        t5_advk_in = t5.advk
 
         old_s2 = p2.s
         old_s3 = p3.s
@@ -354,12 +363,14 @@ def gen_nilamp_taps(input_buf: np.ndarray) -> tuple[np.ndarray, ...]:
         drive_t4 = peq1_t4.process_sample(drive_t4)
         drive_t4 = hs1_t4.process_sample(drive_t4)
         res5_v, res5_dia = t4.process_sample(drive_t4, dvs2)
+        t4_advk_out = t4.advk
 
         aux = hp4.process_sample(res4_vk * 0.940)
         aux = peq1_t5.process_sample(aux)
         aux = hs1_t5.process_sample(aux)
         drive_t5 = aux
         res_t5_v, res_t5_dia = t5.process_sample(aux, dvs2)
+        t5_advk_out = t5.advk
 
         post_pp = res5_v - res_t5_v
         post_peq3 = peq3.process_sample(post_pp)
@@ -385,9 +396,17 @@ def gen_nilamp_taps(input_buf: np.ndarray) -> tuple[np.ndarray, ...]:
         post_hs3_buf[i] = post_hs3
         post_hp5_buf[i] = post_hp5
 
-        prev_dia1 = res5_dia + res_t5_dia
+        dia1_next = res5_dia + res_t5_dia
+        prev_dia1 = dia1_next
         prev_dig = 0.025 * prev_dia1
         prev_dia3 = res1_dia + res3_dia + res4_dia
+        t4_advk_in_buf[i] = t4_advk_in
+        t5_advk_in_buf[i] = t5_advk_in
+        t4_dia_buf[i] = res5_dia
+        t5_dia_buf[i] = res_t5_dia
+        t4_advk_out_buf[i] = t4_advk_out
+        t5_advk_out_buf[i] = t5_advk_out
+        dia1_next_buf[i] = dia1_next
 
     return (
         v_out_buf,
@@ -406,6 +425,13 @@ def gen_nilamp_taps(input_buf: np.ndarray) -> tuple[np.ndarray, ...]:
         post_peq3_buf,
         post_hs3_buf,
         post_hp5_buf,
+        t4_advk_in_buf,
+        t5_advk_in_buf,
+        t4_dia_buf,
+        t5_dia_buf,
+        t4_advk_out_buf,
+        t5_advk_out_buf,
+        dia1_next_buf,
     )
 
 
@@ -537,6 +563,13 @@ def main() -> None:
         tap_post_peq3,
         tap_post_hs3,
         tap_post_hp5,
+        tap_t4_advk_in,
+        tap_t5_advk_in,
+        tap_t4_dia,
+        tap_t5_dia,
+        tap_t4_advk_out,
+        tap_t5_advk_out,
+        tap_dia1_next,
     ) = gen_nilamp_taps(sine.copy())
     write(FIXTURES_DIR / "nilamp_taps_v_out_48k.f32", tap_v_out)
     write(FIXTURES_DIR / "nilamp_taps_res1_v_48k.f32", tap_res1_v)
@@ -554,6 +587,13 @@ def main() -> None:
     write(FIXTURES_DIR / "nilamp_taps_post_peq3_48k.f32", tap_post_peq3)
     write(FIXTURES_DIR / "nilamp_taps_post_hs3_48k.f32", tap_post_hs3)
     write(FIXTURES_DIR / "nilamp_taps_post_hp5_48k.f32", tap_post_hp5)
+    write(FIXTURES_DIR / "nilamp_taps_t4_advk_in_48k.f32", tap_t4_advk_in)
+    write(FIXTURES_DIR / "nilamp_taps_t5_advk_in_48k.f32", tap_t5_advk_in)
+    write(FIXTURES_DIR / "nilamp_taps_t4_dia_48k.f32", tap_t4_dia)
+    write(FIXTURES_DIR / "nilamp_taps_t5_dia_48k.f32", tap_t5_dia)
+    write(FIXTURES_DIR / "nilamp_taps_t4_advk_out_48k.f32", tap_t4_advk_out)
+    write(FIXTURES_DIR / "nilamp_taps_t5_advk_out_48k.f32", tap_t5_advk_out)
+    write(FIXTURES_DIR / "nilamp_taps_dia1_next_48k.f32", tap_dia1_next)
 
 
 if __name__ == "__main__":

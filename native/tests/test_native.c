@@ -311,6 +311,13 @@ static int test_nilamp_taps(void)
         { "nilamp_taps_post_peq3", "tests/fixtures/nilamp_taps_post_peq3_48k.f32", 1.0f, 7.5e-2f },
         { "nilamp_taps_post_hs3", "tests/fixtures/nilamp_taps_post_hs3_48k.f32", 1.25f, 7.5e-2f },
         { "nilamp_taps_post_hp5", "tests/fixtures/nilamp_taps_post_hp5_48k.f32", 1.25f, 7.5e-2f },
+        { "nilamp_taps_t4_advk_in", "tests/fixtures/nilamp_taps_t4_advk_in_48k.f32", 0.25f, 2.5e-2f },
+        { "nilamp_taps_t5_advk_in", "tests/fixtures/nilamp_taps_t5_advk_in_48k.f32", 0.25f, 2.5e-2f },
+        { "nilamp_taps_t4_dia", "tests/fixtures/nilamp_taps_t4_dia_48k.f32", 1e-3f, 1e-4f },
+        { "nilamp_taps_t5_dia", "tests/fixtures/nilamp_taps_t5_dia_48k.f32", 1e-3f, 1e-4f },
+        { "nilamp_taps_t4_advk_out", "tests/fixtures/nilamp_taps_t4_advk_out_48k.f32", 0.25f, 2.5e-2f },
+        { "nilamp_taps_t5_advk_out", "tests/fixtures/nilamp_taps_t5_advk_out_48k.f32", 0.25f, 2.5e-2f },
+        { "nilamp_taps_dia1_next", "tests/fixtures/nilamp_taps_dia1_next_48k.f32", 2e-3f, 2e-4f },
     };
     for (size_t i = 0; i < NILAMP_NUM_TAPS; i++) {
         if (compare_fixture(specs[i].label, outputs[i], n, specs[i].fixture, specs[i].max_abs_limit, specs[i].rms_limit) != 0) rc = 1;

@@ -51,6 +51,13 @@ TAP_NAMES = [
     "post_peq3",
     "post_hs3",
     "post_hp5",
+    "t4_advk_in",
+    "t5_advk_in",
+    "t4_dia",
+    "t5_dia",
+    "t4_advk_out",
+    "t5_advk_out",
+    "dia1_next",
 ]
 
 

@@ -99,7 +99,13 @@ python3 tools/compare_taps.py --preset sweep --out-dir /tmp/nilamp_tap_compare -
 
 The native and selected-JSFX tap order is:
 `v_out, res1_v, res3_v, res4_v, drive_t4, res5_v, res_t5_v, dvs2, dvs3,
-p2_s, p3_s, drive_t5, post_pp, post_peq3, post_hs3, post_hp5`.
+p2_s, p3_s, drive_t5, post_pp, post_peq3, post_hs3, post_hp5,
+t4_advk_in, t5_advk_in, t4_dia, t5_dia, t4_advk_out, t5_advk_out,
+dia1_next`.
+
+REAPER itself is not truly headless. On a machine without an active display,
+run these harnesses under a virtual display such as `xvfb-run -a`, and keep
+renders serial because the temporary driver paths are shared.
 
 Latest native C run:
 

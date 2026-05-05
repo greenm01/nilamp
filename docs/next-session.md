@@ -2,6 +2,48 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: Power-tube current taps -> T5/DIA LOOP SUSPECT
+
+**Edit summary.**
+
+- Expanded native and JSFX selected-tap diagnostics from 16 to 23 channels.
+  The original first 16 taps are unchanged; appended taps are:
+  `t4_advk_in, t5_advk_in, t4_dia, t5_dia, t4_advk_out, t5_advk_out,
+  dia1_next`.
+- Regenerated native tap fixtures and extended native tap tests to pin the new
+  channel order.
+- No DSP correction was made; this pass is diagnostic-only.
+
+**Verification.**
+
+- `python3 -m py_compile tools/compare_taps.py tools/jsfx_render/stage_jsfx.py tools/gen_fixtures.py` passes.
+- `python3 tools/gen_fixtures.py` regenerated tap fixtures.
+- `make native-test` passes.
+- `make native` passes.
+- `python3 -m tools.jsfx_render.stage_jsfx` passes.
+- `make native-host-test` passes: `clap-validator` reports 21 tests run,
+  16 passed, 0 failed, 5 skipped; REAPER render remains finite with peak
+  `7.398350e+14`.
+- Tap/public guard passes for sine and sweep.
+- Sine 23-tap comparison: final `v_out` unchanged at `-20.9 dB`; `t4_dia`
+  best native-to-JSFX gain is `+2.03 dB`, `t5_dia` is `+7.27 dB`, and
+  `dia1_next` is badly mismatched (`+9.00 dB`, correlation `0.605951`).
+- Sweep 23-tap comparison: final `v_out` unchanged at `-19.7 dB`; `t4_dia`
+  has poor/negative correlation, `t5_dia` gain is `+5.84 dB`, and
+  `dia1_next` remains badly mismatched (`+9.90 dB`, correlation `0.591727`).
+
+**Next work.**
+
+1. Focus on the T4/T5 `dia` path and the summed `dia1_next` feedback into PSS;
+   the mismatch is not merely `v_out = -rl * dia + ksva * dvs` scaling.
+2. Verify whether JSFX current taps are affected by tap timing or field-access
+   order before changing DSP constants. A good next probe is a selected tap
+   immediately after `dia1 = t4.dia + t5.dia` at the top of the following
+   sample, compared against native `prev_dia1`.
+3. Continue running REAPER harnesses serially. For headless CI, use a virtual
+   display wrapper such as `xvfb-run -a`; REAPER is still a GUI process, not a
+   true headless engine.
+
 ### Session: Native performance hygiene -> ADNL NOTES CORRECTED
 
 **Edit summary.**

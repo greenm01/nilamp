@@ -7,7 +7,7 @@ variants of the main amp:
   - twd_dlx_ii_harness.jsfx   : with wall-clock mute disabled for deterministic
                                 offline rendering. Used by the ABX harness.
   - twd_dlx_ii_taps.jsfx      : harness variant that emits internal stage taps
-                                as nine output channels for parity debugging.
+                                as output channels for parity debugging.
   - twd_dlx_ii_tap_select.jsfx: harness variant that renders one selected tap
                                 as mono output through the public ABX path.
 
@@ -121,12 +121,25 @@ def _apply_tap_patches(src: str) -> str:
         "out_pin:post_peq3",
         "out_pin:post_hs3",
         "out_pin:post_hp5",
+        "out_pin:t4_advk_in",
+        "out_pin:t5_advk_in",
+        "out_pin:t4_dia",
+        "out_pin:t5_dia",
+        "out_pin:t4_advk_out",
+        "out_pin:t5_advk_out",
+        "out_pin:dia1_next",
     ])
     if out_pin_needle not in src:
         raise RuntimeError("expected JSFX mono output pin block not found")
     src = src.replace(out_pin_needle, out_pin_replacement, 1)
 
     replacements = [
+        (
+            "t5.advk = t4.advk;",
+            "t5.advk = t4.advk;\n"
+            "tap_t4_advk_in = t4.advk;\n"
+            "tap_t5_advk_in = t5.advk;",
+        ),
         (
             "dvs3 = p3.tube_pss_process(dvs2, 0, \tdia3);",
             "dvs3 = p3.tube_pss_process(dvs2, 0, \tdia3);\n"
@@ -160,12 +173,17 @@ def _apply_tap_patches(src: str) -> str:
         (
             "spl0 = t4.tube_ck_process(spl0, dvs2);",
             "spl0 = t4.tube_ck_process(spl0, dvs2);\n"
-            "tap_res5_v = spl0;",
+            "tap_res5_v = spl0;\n"
+            "tap_t4_dia = t4.dia;\n"
+            "tap_t4_advk_out = t4.advk;",
         ),
         (
             "aux = t5.tube_ck_process(aux, dvs2);\nspl0 -= aux;",
             "aux = t5.tube_ck_process(aux, dvs2);\n"
             "tap_res_t5_v = aux;\n"
+            "tap_t5_dia = t5.dia;\n"
+            "tap_t5_advk_out = t5.advk;\n"
+            "tap_dia1_next = t4.dia + t5.dia;\n"
             "spl0 -= aux;",
         ),
         (
@@ -221,7 +239,14 @@ def _apply_tap_patches(src: str) -> str:
             "spl12 = tap_post_pp;\n"
             "spl13 = tap_post_peq3;\n"
             "spl14 = tap_post_hs3;\n"
-            "spl15 = tap_post_hp5;",
+            "spl15 = tap_post_hp5;\n"
+            "spl16 = tap_t4_advk_in;\n"
+            "spl17 = tap_t5_advk_in;\n"
+            "spl18 = tap_t4_dia;\n"
+            "spl19 = tap_t5_dia;\n"
+            "spl20 = tap_t4_advk_out;\n"
+            "spl21 = tap_t5_advk_out;\n"
+            "spl22 = tap_dia1_next;",
         ),
     ]
     for needle, replacement in replacements:
@@ -240,13 +265,19 @@ def _apply_tap_select_patches(src: str) -> str:
     slider_replacement = "\n".join([
         slider_needle,
         "",
-        "slider19:p.tap=        0       <0, 15, 1{v_out, res1_v, res3_v, res4_v, drive_t4, res5_v, res_t5_v, dvs2, dvs3, p2_s, p3_s, drive_t5, post_pp, post_peq3, post_hs3, post_hp5}>-   Tap",
+        "slider19:p.tap=        0       <0, 22, 1{v_out, res1_v, res3_v, res4_v, drive_t4, res5_v, res_t5_v, dvs2, dvs3, p2_s, p3_s, drive_t5, post_pp, post_peq3, post_hs3, post_hp5, t4_advk_in, t5_advk_in, t4_dia, t5_dia, t4_advk_out, t5_advk_out, dia1_next}>-   Tap",
     ])
     if slider_needle not in src:
         raise RuntimeError("expected JSFX gain-comp slider declaration not found")
     src = src.replace(slider_needle, slider_replacement, 1)
 
     replacements = [
+        (
+            "t5.advk = t4.advk;",
+            "t5.advk = t4.advk;\n"
+            "tap_t4_advk_in = t4.advk;\n"
+            "tap_t5_advk_in = t5.advk;",
+        ),
         (
             "dvs3 = p3.tube_pss_process(dvs2, 0, \tdia3);",
             "dvs3 = p3.tube_pss_process(dvs2, 0, \tdia3);\n"
@@ -280,12 +311,17 @@ def _apply_tap_select_patches(src: str) -> str:
         (
             "spl0 = t4.tube_ck_process(spl0, dvs2);",
             "spl0 = t4.tube_ck_process(spl0, dvs2);\n"
-            "tap_res5_v = spl0;",
+            "tap_res5_v = spl0;\n"
+            "tap_t4_dia = t4.dia;\n"
+            "tap_t4_advk_out = t4.advk;",
         ),
         (
             "aux = t5.tube_ck_process(aux, dvs2);\nspl0 -= aux;",
             "aux = t5.tube_ck_process(aux, dvs2);\n"
             "tap_res_t5_v = aux;\n"
+            "tap_t5_dia = t5.dia;\n"
+            "tap_t5_advk_out = t5.advk;\n"
+            "tap_dia1_next = t4.dia + t5.dia;\n"
             "spl0 -= aux;",
         ),
         (
@@ -342,6 +378,13 @@ def _apply_tap_select_patches(src: str) -> str:
             "p.tap == 13 ? tap_selected = tap_post_peq3;\n"
             "p.tap == 14 ? tap_selected = tap_post_hs3;\n"
             "p.tap == 15 ? tap_selected = tap_post_hp5;\n"
+            "p.tap == 16 ? tap_selected = tap_t4_advk_in;\n"
+            "p.tap == 17 ? tap_selected = tap_t5_advk_in;\n"
+            "p.tap == 18 ? tap_selected = tap_t4_dia;\n"
+            "p.tap == 19 ? tap_selected = tap_t5_dia;\n"
+            "p.tap == 20 ? tap_selected = tap_t4_advk_out;\n"
+            "p.tap == 21 ? tap_selected = tap_t5_advk_out;\n"
+            "p.tap == 22 ? tap_selected = tap_dia1_next;\n"
             "spl0 = tap_selected;",
         ),
     ]
