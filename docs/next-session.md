@@ -2,7 +2,98 @@
 
 ## SESSION LOG (most recent first)
 
-### Session: PSS p2 values + pre-T4 EQ → still FAIL, runaway pattern reframed
+### Session: Phase 1'' Variant A (uniform kgrid scale + pre-T4 EQ) → REGRESS
+
+**Hypothesis tested.**  Phase 1'' Variant A from prior plan: keep PSS at
+baseline (r=22000, tau=0.05) and multiply `total_dia` by `kgrid=0.025`
+on the theory that JSFX's kgrid (twd_dlx_ii.jsfx:174, 380, 389) is the
+dominant scale factor missing from Faust's collapsed single-stage PSS.
+
+**Edit (since reverted, working tree clean):**
+- Added `k1_mode0=0.797`, `hp3_hz=5.8` near line 70.
+- Added `drive_t4 = res4_v : *(k1_mode0) : flt_ii1_hp(hp3_hz) :
+  flt_sv2_peq(kp1, fp_hz, qp1, 1, 1) : flt_sv1_hs(ks1, fs1_hz, 1)` and
+  fed it (not `res4_v`) into the T4 stage.
+- Replaced `total_dia = res1_dia + res3_dia + res4_dia + res5_dia;` with
+  `kgrid_pss = 0.025; total_dia = (sum) * kgrid_pss;`.
+- `r_pss = sag*22000.0` and `tau_pss = 0.05` left at baseline.
+
+**Result vs prior data points:**
+
+| run                                  | r_pss | tau    | EQ  | dia scale | sine resid | sweep peak A | sweep RMS A | verdict |
+|--------------------------------------|------:|-------:|-----|----------:|-----------:|-------------:|------------:|---------|
+| public baseline                      | 22000 | 0.05   | no  |   1.0     | -16.0 dB   | 0.42         | 0.18        | works   |
+| EQ only                              | 22000 | 0.05   | yes |   1.0     | -6.6 dB    | 32.6         | ~0.99       | runaway |
+| EQ + p2 PSS                          | 5100  | 0.0816 | yes |   1.0     | -6.8 dB    | 10.7         | 1.15 burst  | runaway |
+| **EQ + kgrid (Variant A)**           | 22000 | 0.05   | yes |   0.025   | **-8.3 dB**| **0.385**    | **0.034**   | **REGRESS** |
+
+Sweep peak no longer runs away (0.385 vs JSFX 0.472, same order of
+magnitude).  But sweep RMS A is **7.6× quieter than JSFX** (0.034 vs
+0.258) and sine residual regressed from baseline -16 dB to -8.3 dB.
+
+**Critical observation: same silence pattern as Phase 1'.**  Sweep
+50 ms RMS profile (`/tmp/abx_compare/sweep_nilamp.wav`):
+
+| t [s] | f [Hz]  | nilamp RMS | jsfx RMS | nilamp/jsfx |
+|------:|--------:|-----------:|---------:|------------:|
+| 0.000 |    20.0 |    0.1358  |  0.1687  | 0.81 (transient) |
+| 0.200-2.800 | 26-1030 | 0.0000-0.004 | 0.28-0.30 | <0.02 |
+| 3.000 |  1365.1 |    0.1160  |  0.3080  | 0.38 |
+| 3.200 |  1809.0 |    0.0991  |  0.3101  | 0.32 |
+| 3.400 |  2397.3 |    0.0657  |  0.3068  | 0.21 |
+| 3.600+ | >3 kHz |    <0.005  |  0.05-0.29 | <0.04 |
+
+Faust is essentially silent across 26-1000 Hz (all preamp/baseband)
+and >3 kHz.  Only 1-3 kHz region (where pre-T4 EQ chain's hs1 shelf
+is transitioning from flat to +3 dB at 2098 Hz) produces any
+meaningful output.  Sine 440 Hz happens to fall in a "kept alive"
+basin and produces RMS 0.155 (vs JSFX 0.291), decaying from 0.21
+at t=0 to 0.155 by t=2.5s -- bias point drifting.
+
+**Conclusion.**  The "kgrid is dominant scale" hypothesis is **wrong**.
+Phase 1' (lower r) and Phase 1'' (lower dia) both reduce dvs magnitude,
+both stop the runaway, but **neither restores normal operation**.  The
+silence pattern is identical: tubes biased far past cutoff except in a
+narrow transient band.
+
+The pre-T4 EQ chain (`*k1 : hp3 : peq1 : hs1`) does something to
+`res4_v` that drives the T4 operating point into cutoff regardless of
+PSS scaling.  Suspects:
+
+1. **`hp3` (5.8 Hz high-pass) strips T3's plate DC.**  T3 (cathodyne)
+   has a large-magnitude DC plate voltage that biases T4's grid in
+   class-AB.  Removing that DC could push T4's grid voltage out of its
+   normal operating range -- exactly what we hypothesized in commit
+   c3aa9a0 but I dismissed last session.  JSFX uses the same hp3=5.8 Hz
+   so this would be a Faust-only sensitivity, but JSFX may have a DC
+   compensation elsewhere (an offset added back, or T4's bias resistor
+   network differing).
+2. **`*k1=0.797` attenuation alone shifts the operating point.**
+   res4_v scaled by 0.797 changes the AC swing seen by T4; combined
+   with the unchanged DC bias path (in JSFX) might restore balance.
+3. **`peq1` or `hs1` filter init transient** kicks the system into a
+   bad basin from which it doesn't recover.  Less likely; sine works
+   at 440 Hz, which is in peq1's response region.
+
+**Action: revert; do not propose 3-stage PSS port until DC/operating-
+point hypothesis is investigated separately.**  Working tree is clean.
+
+**Recommended next session work:**
+1. Compare Faust's `res4_v` waveform (T3 plate output) DC level vs
+   JSFX's equivalent.  If JSFX's T3 plate DC is much smaller (or zero),
+   then JSFX has implicit DC removal Faust lacks, and porting hp3 in
+   isolation breaks Faust.  Existing diagnostic harness has `res4_v`
+   tap; just need to dump it before pre-T4 EQ on JSFX side.
+2. Test pre-T4 EQ chain **without `*k1` first**, then **without `hp3`**,
+   to isolate which element causes the cutoff shift.  Two builds,
+   each ~12 min (or more like 2-3 min if we gate the diag DSPs).
+3. Consider whether the build-time problem is worth fixing first
+   (gating `dsp/diagnostics/*.dsp` and `dsp/tests/*.dsp` behind
+   features/env vars) -- would cut iteration cost by ~5-10x.
+
+---
+
+### Session: Phase 1' (PSS p2 values + pre-T4 EQ) → FAIL
 
 **Hypothesis tested.**  Phase 1' from prior session's plan: keep Faust's
 single-stage PSS but retune to JSFX's `p2` values (r=5100, tau=0.0816,
