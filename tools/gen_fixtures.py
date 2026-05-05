@@ -270,6 +270,7 @@ def gen_nilamp_taps(input_buf: np.ndarray) -> tuple[np.ndarray, ...]:
     hp10 = ko.FltIi1Hp(10.0, SAMPLE_RATE)
     tone = ko.FltSv2Tst(0.25, 0.25, 0.25, 630.0, 0.5, 1, 1, SAMPLE_RATE)
     lp8800 = ko.FltIi1Lp(8800.0, SAMPLE_RATE)
+    hp2 = ko.FltIi1Hp(0.41, SAMPLE_RATE)
     hp3 = ko.FltIi1Hp(5.8, SAMPLE_RATE)
     peq1_t4 = ko.FltSv2Peq(1.1220184543, 80.0, 2.6685237666, 1, 1, SAMPLE_RATE)
     hs1_t4 = ko.FltSv1Hs(1.4125375446, 2098.1359672, 1, SAMPLE_RATE)
@@ -305,6 +306,9 @@ def gen_nilamp_taps(input_buf: np.ndarray) -> tuple[np.ndarray, ...]:
     prev_dig = 0.0
     prev_dia3 = 0.0
     for i, vin in enumerate(input_buf):
+        t4.advk = 0.5 * (t4.advk + t5.advk)
+        t5.advk = t4.advk
+
         old_s2 = p2.s
         old_s3 = p3.s
         dvs1, _ = p1.process_sample(prev_dia1, old_s2, 0.0)
@@ -318,7 +322,8 @@ def gen_nilamp_taps(input_buf: np.ndarray) -> tuple[np.ndarray, ...]:
         v2 = lp8800.process_sample(v2)
 
         res3_v, res3_dia = t2.process_sample(v2, dvs3)
-        res4_v, res4_vk, res4_dia = t3.process_sample(res3_v, dvs3)
+        res3_hp = hp2.process_sample(res3_v)
+        res4_v, res4_vk, res4_dia = t3.process_sample(res3_hp, dvs3)
 
         drive_t4 = hp3.process_sample(res4_v * 0.797)
         drive_t4 = peq1_t4.process_sample(drive_t4)

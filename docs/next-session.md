@@ -2,6 +2,37 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: Source-backed JSFX topology fixes -> SINE STILL SCALE-LIMITED
+
+**Edit summary.**
+
+- Added JSFX mode-0 `hp2` (`0.41 Hz`) between T2 and the cathodyne in the
+  native graph.
+- Added JSFX T4/T5 `advk` averaging at the top of each native sample.
+- Updated the Python tap oracle and regenerated tap fixtures for the new graph.
+- Made ABX JSFX slider pins explicit and added correlation / best-fit gain
+  diagnostics to `tools/abx_compare.py`.
+
+**Verification.**
+
+- `python3 tools/gen_fixtures.py` regenerated fixtures successfully.
+- `make clean-native`, `make native-test`, and `make native` pass.
+- ABX sine: `-15.1 dB` residual below native peak, threshold `-16.0 dB` -> FAIL.
+  Correlation `0.998704`; best native-to-JSFX gain `0.776263` (`-2.20 dB`).
+- ABX sweep: `-15.0 dB` residual below native peak, threshold `-11.2 dB` -> PASS.
+  Correlation `0.979004`; best native-to-JSFX gain `0.686693` (`-3.26 dB`).
+
+**Next work.**
+
+1. Do not add arbitrary output gain compensation. The sine miss is now
+   scale-dominated, but the next change should be tied to a JSFX source line or
+   verified REAPER slider/value behavior.
+2. Confirm whether `TrackFX_SetParam` is applying raw JSFX slider values by
+   logging `TrackFX_GetParam`/formatted values after each set in a temporary
+   render probe or harness update.
+3. If slider values are correct, inspect remaining gain path differences:
+   `g1/g2/g3` smoothing/init, `gcomp` mode-0 behavior, and post-power `gout`.
+
 ### Session: Native fixture parity and ABX presets -> PARTIAL SUCCESS
 
 **Edit summary.**

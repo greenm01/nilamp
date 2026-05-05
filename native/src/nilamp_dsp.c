@@ -80,6 +80,7 @@ struct NilampEngine {
     Ii1 hp1;
     Svf2 tone;
     Ii1 lp1;
+    Ii1 hp2;
 
     Ii1 hp3;
     Svf2 peq1_t4;
@@ -453,6 +454,9 @@ static NilampTapFrame nilamp_engine_process_sample(NilampEngine *engine, float i
     const float treble = engine->params.treble_pct * 0.01f;
     const float sag = engine->params.sag_pct * 0.01f;
 
+    engine->t4.advk = 0.5f * (engine->t4.advk + engine->t5.advk);
+    engine->t5.advk = engine->t4.advk;
+
     const float old_s2 = engine->p2.s;
     const float old_s3 = engine->p3.s;
 
@@ -470,9 +474,10 @@ static NilampTapFrame nilamp_engine_process_sample(NilampEngine *engine, float i
 
     float res3_v, res3_dia;
     tube_ck_process(&engine->t2, &T2, engine->sr, v2, dvs3, &res3_v, &res3_dia);
+    const float res3_hp = ii1_hp_process(&engine->hp2, 0.41f, engine->sr, res3_v);
 
     float res4_v, res4_vk, res4_dia;
-    tube_cd_process(&engine->t3, &T3, engine->sr, res3_v, dvs3, &res4_v, &res4_vk, &res4_dia);
+    tube_cd_process(&engine->t3, &T3, engine->sr, res3_hp, dvs3, &res4_v, &res4_vk, &res4_dia);
 
     float drive_t4 = res4_v * 0.797f;
     drive_t4 = ii1_hp_process(&engine->hp3, 5.8f, engine->sr, drive_t4);

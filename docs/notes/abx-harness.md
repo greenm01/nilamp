@@ -76,5 +76,5 @@ tracked in git.
 
 Latest native C run:
 
-- sine preset: `-15.2 dB` residual below native peak, threshold `-16.0 dB` -> FAIL
-- sweep preset: `-14.6 dB` residual below native peak, threshold `-11.2 dB` -> PASS
+- sine preset: `-15.1 dB` residual below native peak, threshold `-16.0 dB` -> FAIL; correlation `0.998704`, best A->B gain `-2.20 dB`
+- sweep preset: `-15.0 dB` residual below native peak, threshold `-11.2 dB` -> PASS; correlation `0.979004`, best A->B gain `-3.26 dB`

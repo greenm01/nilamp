@@ -127,6 +127,17 @@ class Params:
             # Topology pins:
             "-s", "tube1=1",   # 12AX7 path.
             "-s", "mode=0",    # CD 5E3 cathodyne.
+            "-s", "gcomp=2",
+            "-s", "fm=56",
+            "-s", "qm=-6",
+            "-s", "gp_pre=1",
+            "-s", "gp_post=2",
+            "-s", "fp=38",
+            "-s", "qp=6",
+            "-s", "gs_pre=3",
+            "-s", "gs_post=3",
+            "-s", "fs=62",
+            "-s", "gout=0",
         ]
 
 
@@ -385,6 +396,9 @@ class Metrics:
     max_abs_diff: float
     rms_residual_db: float    # dB below peak_a
     max_diff_db: float        # dB below peak_a
+    correlation: float
+    gain_a_to_b: float
+    gain_a_to_b_db: float
 
     def passed(self, rms_db_threshold: float = -60.0) -> bool:
         return self.rms_residual_db <= rms_db_threshold
@@ -397,6 +411,8 @@ class Metrics:
             f"  rms A / B:     {self.rms_a:.4f} / {self.rms_b:.4f}",
             f"  rms residual:  {self.rms_residual:.4e}  ({self.rms_residual_db:+.1f} dB below peak_a)",
             f"  max |A-B|:     {self.max_abs_diff:.4e}  ({self.max_diff_db:+.1f} dB below peak_a)",
+            f"  correlation:   {self.correlation:.6f}",
+            f"  best A->B gain:{self.gain_a_to_b:.6f}  ({self.gain_a_to_b_db:+.2f} dB)",
         ]
         return "\n".join(lines)
 
@@ -410,6 +426,11 @@ def compute_metrics(a: list[float], b: list[float], sr: int) -> Metrics:
     diff = [a2[i] - b2[i] for i in range(len(a2))]
     rms_r = _rms(diff)
     max_d = _peak(diff)
+    dot_ab = sum(a2[i] * b2[i] for i in range(len(a2)))
+    dot_aa = sum(x * x for x in a2)
+    dot_bb = sum(x * x for x in b2)
+    corr = dot_ab / math.sqrt(dot_aa * dot_bb) if dot_aa > 0 and dot_bb > 0 else 0.0
+    gain = dot_ab / dot_aa if dot_aa > 0 else 0.0
     return Metrics(
         sr=sr,
         n=len(a2),
@@ -422,6 +443,9 @@ def compute_metrics(a: list[float], b: list[float], sr: int) -> Metrics:
         max_abs_diff=max_d,
         rms_residual_db=_db(rms_r, peak_a),
         max_diff_db=_db(max_d, peak_a),
+        correlation=corr,
+        gain_a_to_b=gain,
+        gain_a_to_b_db=20.0 * math.log10(abs(gain)) if gain != 0.0 else -math.inf,
     )
 
 
