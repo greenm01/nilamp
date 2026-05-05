@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: MIT
 //
 // Offline renderer for dsp/diagnostics/nilamp_drive_taps.dsp.  Writes a
-// 14-channel float32 WAV containing the pre-tube drive signals, the T3
-// outputs they derive from, and the post-tube voltages for the public path
-// plus the v6 / v10 rejected backend candidates.  Used by
-// tools/compare_drive_taps.py to verify linear pre-chains against a Python
-// oracle (regression guard) and to compare post-tube voltages between
-// candidates with PSS held identical.
+// 20-channel float32 WAV containing the pre-tube drive signals, the T3
+// outputs they derive from, the post-tube voltages, the T4 dia signals,
+// and an averager-feedback proxy for the public path plus the v6 / v10
+// rejected backend candidates.  Used by tools/compare_drive_taps.py and
+// tools/probe_t4_dia.py to localize divergence within T4.
 
 use std::env;
 use std::path::PathBuf;
@@ -29,7 +28,7 @@ mod diag {
     include!(concat!(env!("OUT_DIR"), "/nilamp_drive_taps.rs"));
 }
 
-const NUM_CHANNELS: usize = 14;
+const NUM_CHANNELS: usize = 20;
 
 #[derive(Debug)]
 struct Args {
@@ -63,7 +62,7 @@ impl Default for Args {
 const USAGE: &str = "\
 nilamp_drive_probe_render --input IN.wav --output OUT.wav [params]
 
-Writes a 14-channel float32 WAV with channels:
+Writes a 20-channel float32 WAV with channels:
    0. res4_v_public         T3 plate, public path
    1. res4_vk_public        T3 cathode, public path
    2. res4_backend_v        T3 plate with hp(0.41) pre-T3 (v6 source)
@@ -78,6 +77,12 @@ Writes a 14-channel float32 WAV with channels:
   11. t5_v_v6                Post-tube T5 voltage, v6 T5 drive
   12. t4_v_v10               Post-tube T4 voltage, v10 drive
   13. t5_v_v10               Post-tube T5 voltage, v10 (== ch9 sanity slot)
+  14. t4_dia_public          T4 dia (cathode current), public
+  15. t4_dia_v6              T4 dia, v6
+  16. t4_dia_v10             T4 dia, v10
+  17. t4_advk_public         averager-feedback proxy (kfb*lp(t4_avg_f, v-dvs))
+  18. t4_advk_v6             averager-feedback proxy, v6
+  19. t4_advk_v10            averager-feedback proxy, v10
 
 Params:
   --gain    -24..24    Input gain (dB)

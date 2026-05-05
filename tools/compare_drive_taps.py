@@ -84,6 +84,12 @@ CHANNEL_NAMES = [
     "t5_v_v6",             # 11
     "t4_v_v10",            # 12
     "t5_v_v10",            # 13 (== ch9 by construction; sanity slot)
+    "t4_dia_public",       # 14
+    "t4_dia_v6",           # 15
+    "t4_dia_v10",          # 16
+    "t4_advk_public",      # 17
+    "t4_advk_v6",          # 18
+    "t4_advk_v10",         # 19
 ]
 NUM_CHANNELS = len(CHANNEL_NAMES)
 

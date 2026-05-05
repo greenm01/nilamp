@@ -11,7 +11,7 @@
 // dsp/nilamp.dsp.  All extra T4/T5 instances feed off the same `old_dvs` and
 // have their dia outputs discarded -- they do not perturb PSS.
 //
-// Outputs (14 channels):
+// Outputs (20 channels):
 //   T3 outputs:
 //     0. res4_v_public         T3 plate, public path
 //     1. res4_vk_public        T3 cathode, public path
@@ -29,6 +29,15 @@
 //    11. t5_v_v6                T5 fed by v6 T5 drive (res4_backend_vk -> k2/hp/peq/hs)
 //    12. t4_v_v10               T4 fed by ch7
 //    13. t5_v_v10               T5 fed by ch5 (== ch9 by construction; v10 keeps public T5)
+//   T4 dia (post-tube cathode current, fed into PSS for public only):
+//    14. t4_dia_public          T4 dia, public drive
+//    15. t4_dia_v6              T4 dia, v6 drive (not fed to PSS)
+//    16. t4_dia_v10             T4 dia, v10 drive (not fed to PSS)
+//   T4 averager-feedback proxy (mirrors `tube_ck` internal `next_advk`):
+//     proxy = lp(t4_avg_f, t4_v - dvs) * t4_kfb
+//    17. t4_advk_public         averager-feedback proxy, public
+//    18. t4_advk_v6             averager-feedback proxy, v6
+//    19. t4_advk_v10            averager-feedback proxy, v10
 //
 // Channel 4 == channel 0 by construction; channel 13 == channel 9 by
 // construction.  Both are kept as sanity slots.
@@ -73,7 +82,7 @@ process = _ : *(gain1) : global_loop
 with {
     global_loop(vin) = loop_block(vin)
     with {
-        loop_block(v_in_ext) = (loop_core(v_in_ext) ~ _) : !, _, _, _, _, _, _, _, _, _, _, _, _, _, _
+        loop_block(v_in_ext) = (loop_core(v_in_ext) ~ _) : !, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _
         with {
             loop_core(v_in_ext, old_dvs) =
                 next_dvs_current,
@@ -90,7 +99,13 @@ with {
                 ch10_t4_v_v6,
                 ch11_t5_v_v6,
                 ch12_t4_v_v10,
-                ch13_t5_v_v10
+                ch13_t5_v_v10,
+                ch14_t4_dia_public,
+                ch15_t4_dia_v6,
+                ch16_t4_dia_v10,
+                ch17_t4_advk_public,
+                ch18_t4_advk_v6,
+                ch19_t4_advk_v10
             with {
                 res1 = tube.tube_ck_simple(
                     TBL_SIZE, t1_table, XMAX, DX,
@@ -186,7 +201,7 @@ with {
                     drive_t5_public, old_dvs);
                 t5_v_public_local = res_t5_public : _ , !;
 
-                // v6 T4 (drive = drive_t4_v6).  dia discarded.
+                // v6 T4 (drive = drive_t4_v6).  dia exposed for ch15.
                 res_t4_v6 = tube.tube_ck_simple(
                     TBL_SIZE, t4_table, XMAX, DX,
                     c.t4_kpre, c.t4_isat, c.t4_rl, c.t4_kpk,
@@ -195,6 +210,7 @@ with {
                     c.t4_avg_f,
                     drive_t4_v6, old_dvs);
                 t4_v_v6_local = res_t4_v6 : _ , !;
+                t4_dia_v6_local = res_t4_v6 : ! , _;
 
                 // v6 T5 (drive = drive_t5_v6).  dia discarded.
                 res_t5_v6 = tube.tube_ck_simple(
@@ -206,7 +222,7 @@ with {
                     drive_t5_v6, old_dvs);
                 t5_v_v6_local = res_t5_v6 : _ , !;
 
-                // v10 T4 (drive = drive_t4_v10).  dia discarded.
+                // v10 T4 (drive = drive_t4_v10).  dia exposed for ch16.
                 res_t4_v10 = tube.tube_ck_simple(
                     TBL_SIZE, t4_table, XMAX, DX,
                     c.t4_kpre, c.t4_isat, c.t4_rl, c.t4_kpk,
@@ -215,6 +231,21 @@ with {
                     c.t4_avg_f,
                     drive_t4_v10, old_dvs);
                 t4_v_v10_local = res_t4_v10 : _ , !;
+                t4_dia_v10_local = res_t4_v10 : ! , _;
+
+                // Averager-feedback proxy: lp(t4_avg_f, t4_v - dvs) * t4_kfb.
+                // This mirrors `tube_ck` internal `next_advk` exactly given
+                // identical pk/avg parameters; it is *not* the actual fed-back
+                // signal inside the variant tubes (those keep their own
+                // independent state), but it lets us see whether the variants'
+                // post-tube voltages would, on this same time step, drive the
+                // tube's grid-bias loop differently from public.
+                t4_advk_public_local = (t4_v_public_local - old_dvs)
+                    : flt.flt_ii1_lp(c.t4_avg_f) : *(c.t4_kfb);
+                t4_advk_v6_local = (t4_v_v6_local - old_dvs)
+                    : flt.flt_ii1_lp(c.t4_avg_f) : *(c.t4_kfb);
+                t4_advk_v10_local = (t4_v_v10_local - old_dvs)
+                    : flt.flt_ii1_lp(c.t4_avg_f) : *(c.t4_kfb);
 
                 // PSS -- public T4-only sag loop (matches dsp/nilamp.dsp).
                 total_dia_current = res1_dia + res3_dia + res4_dia + t4_dia_public;
@@ -237,6 +268,12 @@ with {
                 ch11_t5_v_v6 = t5_v_v6_local;
                 ch12_t4_v_v10 = t4_v_v10_local;
                 ch13_t5_v_v10 = t5_v_public_local;
+                ch14_t4_dia_public = t4_dia_public;
+                ch15_t4_dia_v6 = t4_dia_v6_local;
+                ch16_t4_dia_v10 = t4_dia_v10_local;
+                ch17_t4_advk_public = t4_advk_public_local;
+                ch18_t4_advk_v6 = t4_advk_v6_local;
+                ch19_t4_advk_v10 = t4_advk_v10_local;
             };
         };
     };
