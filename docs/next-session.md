@@ -2,6 +2,77 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: Phase 0 reconciliation — Faust T4 anode chain is missing, not extra → INCONCLUSIVE (framing only)
+
+**Hypothesis tested.**  After reading Keller's PDF text export
+(`vendor/keller-jsfx/A Tube Amp Modeling Project V1.0.3.txt`, §7
+lines 1426-1432) and re-reading `dsp/nilamp.dsp` and the canonical
+JSFX `~/.config/REAPER/Effects/nilamp_abx/twd_dlx_ii.jsfx` lines
+411-432, the suspicion that Faust contained extra peq/hs blocks not
+in JSFX was wrong.
+
+**Block-for-block reconciliation (mode 0, the ABX setting):**
+
+JSFX T4 anode (jsfx:411-415):
+`spl0 *= k1; hp3.process; peq1.process; hs1.process; t4.process`
+
+Faust T4 anode (nilamp.dsp:165-171, *current* state):
+`tube_ck_simple(... res4_v ...)` — the entire `*k1 → hp3 → peq1 → hs1`
+chain is **absent**.  Phase 1' / Phase 1'' had added it; both were
+reverted.  T4 currently sees `res4_v` raw.
+
+JSFX T5 cathode (jsfx:419-427):
+`aux = k2 * t3.vk; hp4.process; peq2.process; hs2.process; t5.process`
+
+Faust T5 cathode (nilamp.dsp:175-187):
+`res4_vk : *(k2_mode0) : flt_ii1_hp(hp4_hz) : flt_sv2_peq(kp1, fp_hz, qp1, 1, 1) : flt_sv1_hs(ks1, fs1_hz, 1)`
+— matches JSFX block-for-block.
+
+JSFX post-tube (jsfx:428-432):
+`spl0 -= aux; peq3.process; hs3.process; hp5.process; lp2.process`
+
+Faust post-tube (nilamp.dsp:208-213):
+`post_pp : flt_sv2_peq(kp2, fp_hz, qp2, 1, 1) : flt_sv1_hs(ks2, fs2_hz, 1) : flt_ii1_hp(40) : flt_df2_lp(10000, sqrt(0.5), 1, 0)`
+— matches JSFX (peq3 uses kp2/qp2; hp5=40; lp2=10kHz/Q=sqrt(0.5)).
+
+**PDF context (§7 lines 1426-1432).**  Keller's PDF describes the
+post-T3 chain as `100 nF coupling cap → k1 → HP3 (5.8 Hz)`.  The peq1
+and hs1 blocks in JSFX correspond to the loudspeaker-impedance
+pre-shaping mentioned in lines 1438-1442 ("the first stage is located
+ahead of the power amp tubes"), not to the simplified §7 block diagram.
+This means JSFX is canonical and the peq1/hs1 are not bugs — they
+*are* the loudspeaker pre-shaping.
+
+**Mode 0 numerical params** (jsfx:293-299, harness slider defaults):
+- k1=0.797, k2=0.940
+- hp3=5.8 Hz, hp4=6.4 Hz
+- p.fp=38 dBHz → fp ≈ 80 Hz; p.qp=6 dB → qp ≈ 2 (then peq1 uses qp1)
+- p.gp_pre=1 dB → kp1 ≈ 1.122; p.gp_post=2 dB → kp2 ≈ 1.259
+- p.gs_pre=3 dB → ks1 ≈ 1.413; p.gs_post=3 dB → ks2 ≈ 1.413
+- p.fs=62 dBHz → fs ≈ 1259 Hz; with sqrt-scaling fs1≈2098, fs2≈1486
+- All match `nilamp.dsp:69-80` (`k2_mode0`, `hp4_hz`, `kp1`, `kp2`, `fp_hz`,
+  `qp1`, `qp2`, `ks1`, `ks2`, `fs1_hz`, `fs2_hz`).  The constants Faust
+  needs to add for the T4 path are `k1_mode0 = 0.797` and `hp3_hz = 5.8`.
+
+**Conclusion.**  The pre-T4 chain is canonical and *should* be there.
+Phase 1' / Phase 1'' added it as a textual block and produced runaway
+(sweep peak A=10.7 / 0.385).  Naively re-adding it without further
+investigation is **not** the next step.  The runaway must come from
+*how* Faust feeds the chain (input level, DC offset of `res4_v` differing
+from JSFX `t3.va`, or PSS feedback amplifying when k1+HP3 inserts a
+delay/phase shift).
+
+**Next.**  Targeted bisection:
+1. Add T4 chain elements one at a time (k1 alone → +hp3 → +peq1 → +hs1),
+   ABX gate after each.  Identifies which element triggers the runaway.
+2. If even k1=0.797 alone (a static gain < 1 reducing T4 drive) regresses,
+   that's strong evidence the bug is upstream (T3 plate DC vs JSFX, or
+   PSS coupling to T4).
+3. If runaway only appears with hp3 (the HP filter), check Faust
+   `flt_ii1_hp` impulse response vs JSFX at fc=5.8 Hz; the JSFX HP1/HP2
+   are already in production at 10 Hz / 0.41 Hz so the implementation
+   is presumably correct, but verify.
+
 ### Session: build-time reduction (feature-gate test/diagnostic DSPs) → SUCCESS
 
 **Hypothesis tested.**  Cold `cargo build --release` was ~12 minutes
