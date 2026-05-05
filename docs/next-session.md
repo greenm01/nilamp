@@ -142,6 +142,69 @@ If option 4 does *not* explain the H2 shift, escalate to a t4-dia
 diagnostic (option 1) and consider a 16- or 18-channel extension of
 `nilamp_drive_taps.dsp`.
 
+## Level-match probe result: STRUCTURAL (option 4 ruled out)
+
+`tools/probe_t4_level.py` ran two probe passes: A at `--gain +6.0`, then
+B at `--gain (6.0 - delta_db)` where `delta_db = +0.903 dB` is the
+average T4 plate H1 ratio (variants vs public).  At 440 Hz the
+level-matched public reproduces public's H2 almost exactly, **not** the
+variant H2:
+
+| Tap | H1 | H2 | H3 | H5 | H2/H1 |
+|---|---:|---:|---:|---:|---:|
+| A.public_T4 | 163.2 | 14.27 | 52.40 | 29.99 | 0.08744 |
+| A.v6_T4 | 181.5 | 5.26 | 58.92 | 33.91 | 0.02900 |
+| A.v10_T4 | 180.8 | 7.66 | 58.42 | 33.33 | 0.04236 |
+| B.public_T4_atten | 162.8 | 14.09 | 52.11 | 29.63 | 0.08655 |
+
+`B.public_T4_atten` H2 (14.09) matches `A.public_T4` (14.27) -- as
+expected for a small linear gain trim -- and is ~2.7x bigger than
+`A.v6_T4` (5.26) and ~1.8x bigger than `A.v10_T4` (7.66).  Level-matched
+sweep residuals barely move:
+
+| Comparison | v6 resid_dB | v10 resid_dB |
+|---|---:|---:|
+| variant vs A.public | -17.14 | -16.60 |
+| variant vs B.public_atten | -17.62 | -17.02 |
+
+And the +5 dB 8 kHz hump in the per-octave level-ratio survives
+level-matching (4.93 dB worst residual bin, tolerance was 0.5 dB).
+
+Conclusion: the divergence is **structural** -- the variant spectrum
+hitting T4 changes the tube operating point in a way no scalar level
+trim can compensate.  The cause must lie in:
+
+- **`kfb` feedback** redistributing grid bias under altered drive
+  spectrum;
+- **`tube_ck_simple` averager / peak-detector state** drifting
+  differently across variants because each tube maintains its own
+  state (separate Faust instances), even though `old_dvs` is shared;
+- **harmonic phase relationships** between fundamental and 2nd
+  harmonic content surviving the linear pre-chain reshaping (h(0.41)
+  on T3 grid, hp(hp3), peq, hs) and presenting the tube with a
+  drive whose *envelope shape* differs from public, even after H1
+  is matched.
+
+## Next steps - escalate to dia / state probe
+
+1. Extend `dsp/diagnostics/nilamp_drive_taps.dsp` to expose:
+   - `t4_dia_public`, `t4_dia_v6`, `t4_dia_v10` (already computed
+     internally; just route as new channels);
+   - the per-tube internal peak-detector / averager scalar (requires a
+     small instrumentation pass in `dsp/hk_tube.lib` -- add an optional
+     diagnostic output, or compute a parallel averager in the probe
+     using the `c.t4_avg_f` time constant on the post-tube voltage to
+     proxy what the tube sees internally).
+2. Compare dia RMS-vs-peak and dia spectrum across the three variants.
+   A divergence in the LF / sub-audio dia content would point to bias
+   bias-feedback ringing under the altered drive; a divergence at the
+   harmonic frequencies would point to peak-detector / averager state.
+3. If dia is identical, the offender is the tube model itself reacting
+   to a phase-/envelope-shifted drive; remediation is a pre-T4
+   *spectrum-flattening* tweak in the v6/v10 path or accepting the
+   nonlinear cost as the structural diff between public and JSFX
+   reference.
+
 ## Gates to keep
 
 - Public ABX gate unchanged: sine >= -16.0 dB and sweep >= -11.2 dB.
@@ -157,6 +220,8 @@ diagnostic (option 1) and consider a 16- or 18-channel extension of
 - `src/bin/nilamp_drive_probe_render.rs` - `NUM_CHANNELS` 8 -> 14, doc.
 - `tools/compare_drive_taps.py` - added per-variant sine harmonic table,
   scalar-fit residual, sweep level-ratio table, decision rule.
+- `tools/probe_t4_level.py` (new) - level-match probe ruling out
+  drive-level as the cause of T4 divergence.
 
 ## Files to read first next session
 
