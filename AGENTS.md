@@ -24,8 +24,8 @@ this file adds the operational details an agent needs to act safely.
   `vendor/keller-jsfx/` and the ysfx-rendered staged JSFX harness are
   canonical.
 - **Build system**: plain `make`.
-- **Current deliverable**: native offline renderer, tests, and a no-GUI C CLAP
-  plugin shell at `native/bin/nilamp.clap`.
+- **Current deliverable**: native offline renderer, tests, and a C CLAP plugin
+  with an embedded X11 GPU GUI shell at `native/bin/nilamp.clap`.
 - **Model baseline**: the current native amp is `Keller TWD DLX II`; preserve
   its behaviour unless a DSP-changing task explicitly says otherwise.
 - **Do not hand-edit staged JSFX harness files** under
@@ -40,7 +40,8 @@ this file adds the operational details an agent needs to act safely.
 native/
   src/nilamp_dsp.c        C DSP engine. Realtime-safe code lives here.
   src/nilamp_dsp.h        Public C engine API.
-  src/nilamp_clap.c       No-GUI CLAP shell around the C engine.
+  src/nilamp_clap.c       CLAP shell, parameter/state extensions, GUI routing.
+  src/nilamp_gui.c        Pugl/X11 + sokol_gfx + Nuklear GUI module.
   src/nilamp_render.c     Offline renderer; also builds the tap renderer.
   src/ysfx_render.c       Headless ysfx runner for Keller JSFX reference renders.
   generated/              Python-generated C ADNL tables. Do not hand-edit.
@@ -48,6 +49,9 @@ native/
   tests/test_clap_load.c  Minimal CLAP scan/activate/process smoke test.
 
 third_party/clap/         Vendored official CLAP C headers.
+third_party/pugl/         Vendored Pugl X11/OpenGL embedding code.
+third_party/sokol/        Vendored sokol_gfx and sokol_nuklear headers.
+third_party/nuklear/      Vendored Nuklear immediate GUI header.
 
 tools/
   keller_oracle.py        Python reference implementation of Keller blocks.
@@ -126,6 +130,15 @@ depend on legacy DSP source formats or generated build output.
 - `native/src/nilamp_clap.c` may allocate only outside `process()`
   (`create_plugin`/`activate`/`deactivate`/`destroy`). Keep `process()` free of
   allocation, locks, file I/O, Lua/Python, and host callbacks.
+- GUI code uses Pugl embedded X11 for v1, relying on XWayland under Wayland
+  compositors. Do not advertise native Wayland support until there is an
+  implemented and host-tested Wayland path.
+- Keep the GUI stack C-only: Pugl for embedding/event pump, `sokol_gfx` for GPU
+  rendering, Nuklear for widgets, and a small state/update/render boundary in
+  our code. Do not add C++, Dear ImGui/cimgui, NanoVG, or `sokol_app.h` to the
+  plugin GUI path.
+- Keep Pugl/Sokol/Nuklear calls out of `process()`. GUI-to-DSP parameter
+  exchange must go through explicit parameter state and CLAP params/flush.
 - Keep DSP state explicit in structs. Sample ordering matters; prefer a
   readable per-sample function over clever graph abstractions.
 - New amp models should be added through the native model registry, with
@@ -152,6 +165,8 @@ depend on legacy DSP source formats or generated build output.
 ## Hot zones
 
 - `native/src/nilamp_dsp.c` — production DSP and the JSFX-order PSS/tube loop.
+- `native/src/nilamp_gui.c` — embedded GPU GUI shell; keep renderer/UI changes
+  isolated from DSP and CLAP process logic.
 - `native/generated/nilamp_tables.c` — generated ADNL data; update through
   `tools/gen_5e3_tables.py`, never by hand.
 - `native/generated/nilamp_models.inc` — generated amp model data; update

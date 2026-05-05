@@ -5,13 +5,21 @@ Nim, Python, or Lua to the plugin runtime.
 
 ## Preferred GUI Stack
 
-- Use Pugl for native plugin window creation, embedding, and event handling.
-- Use Sokol headers for lightweight drawing/runtime support where useful.
-- Use NanoVG for immediate-mode 2D vector drawing.
+- Use Pugl for embedded X11 plugin window creation and event handling. Under
+  Wayland compositors, the v1 path relies on XWayland.
+- Use `sokol_gfx.h` for GPU rendering. Do not use `sokol_app.h` in the plugin;
+  the host owns the application/window lifecycle.
+- Use Nuklear with `sokol_nuklear.h` for the first custom editor. Keep Nuklear
+  vendored and unmodified.
+- Keep the UI shape Elm-like in our code: explicit state, small update
+  messages, and a render/build function that maps state to Nuklear widgets.
 - Keep the CLAP DSP/audio callback independent from the GUI layer.
 - Keep GUI allocation, file I/O, and host/UI calls out of `process()`.
-- Vendor headers under `third_party/` when the UI work begins, with upstream
-  license files kept next to the imported headers.
+- Do not add C++, Dear ImGui/cimgui, NanoVG, Lua/LuaJIT, or KDL parsing to the
+  plugin runtime.
+- LSP Plugins' renderer is useful as architecture precedent only. Its OpenGL
+  implementation is C++ and LGPL/GPL-family code, so do not copy it into this
+  MIT C codebase.
 
 ## Integration Shape
 
@@ -20,3 +28,4 @@ Nim, Python, or Lua to the plugin runtime.
 - Add GUI code as a separate module rather than growing the audio shell.
 - Let the generic host parameter surface remain the baseline even after a
   custom UI lands.
+- Keep native Wayland as a later explicit feature, not an implied promise.

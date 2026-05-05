@@ -8,8 +8,9 @@ The name is "no amp" — `nil` + `amp`.
 ## Status
 
 The active implementation is a native C DSP engine with Make-built offline
-renderers and a first-pass C CLAP plugin shell. The current milestone is
-continuing ysfx-backed JSFX parity work while hardening the plugin host surface.
+renderers and a first-pass C CLAP plugin with an embedded GPU GUI shell. The
+current milestone is continuing ysfx-backed JSFX parity work while hardening
+the plugin host and editor surfaces.
 
 ## Goals
 
@@ -23,6 +24,7 @@ continuing ysfx-backed JSFX parity work while hardening the plugin host surface.
 - **C** for realtime DSP and offline rendering
 - **ysfx** for headless Keller JSFX reference renders
 - **KDL 2** for build-time amp model data
+- **Pugl + sokol_gfx + Nuklear** for the C-only embedded plugin editor
 - **Python** with NumPy/SciPy for table generation, oracle fixtures, and ABX
   analysis, plus KDL-to-C model generation
 - **Make** as the build system

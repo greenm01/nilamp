@@ -2,6 +2,42 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: CLAP editor stack -> PUGL SOKOL NUKLEAR SHELL
+
+**Edit summary.**
+
+- Added an embedded X11 CLAP GUI extension around the existing native plugin.
+- Introduced a separate C GUI module using Pugl for host embedding/event
+  dispatch, `sokol_gfx` for GPU rendering, and Nuklear via `sokol_nuklear.h`
+  for the first parameter editor.
+- Kept GUI-to-DSP sync on explicit CLAP parameter state and host param flush;
+  no Pugl, Sokol, or Nuklear calls enter `process()`.
+- Recorded the GUI direction in AGENTS and GUI notes: C-only runtime,
+  X11/XWayland v1, no C++, no Dear ImGui/cimgui, no NanoVG, no `sokol_app.h`,
+  and no copied LSP renderer code.
+
+**Verification.**
+
+- `make native` passes.
+- `make native-test` passes.
+- `make native-host-test` passes; `clap-validator` reports 21 tests run, 16
+  passed, 0 failed, 5 skipped, 0 warnings.
+- `make native-jsfx-test` passes; sine ABX remains residual `-31.4 dB`,
+  correlation `0.998804`, best native-to-JSFX gain `+0.00 dB`, and the
+  tap/public guard remains residual `-48.5 dB`, correlation `0.999986`.
+- `ldd native/bin/nilamp.clap` shows X11/OpenGL GUI dependencies plus `libm`
+  and `libc`; no Lua, LuaJIT, KDL, Rust, or C++ runtime dependency is linked
+  directly.
+
+**Next work.**
+
+1. Manually host-test the editor in REAPER or another CLAP host after the
+   native smoke checks pass.
+2. Add a focused GUI interaction smoke only when there is a practical embedded
+   X11 host harness.
+3. Keep native Wayland support as a later explicit feature; v1 is X11 through
+   XWayland.
+
 ### Session: KDL amp specs -> GENERATED TWD MODEL DATA
 
 **Edit summary.**
@@ -312,7 +348,7 @@
 **Edit summary.**
 
 - Vendored official CLAP C headers under `third_party/clap/`.
-- Added `native/src/nilamp_clap.c`, a no-GUI CLAP audio effect exposing the
+- Added `native/src/nilamp_clap.c`, then a no-GUI CLAP audio effect exposing the
   native DSP as one stereo input/output pair.
 - Exposed six automatable host parameters: gain, volume, bass, mid, treble,
   and sag.
@@ -339,9 +375,8 @@
 
 1. Continue JSFX parity work using `native/bin/nilamp_render`; the plugin shell
    should stay thin until the DSP/parity surface stabilizes.
-2. For GUI work, follow `docs/notes/gui-dev.md`: Pugl for native plugin
-   windowing/embed, Sokol headers for lightweight runtime support, and NanoVG
-   for immediate-mode 2D drawing.
+2. Superseded GUI direction: current GUI work follows Pugl embedded X11,
+   `sokol_gfx`, and Nuklear. Do not revive the earlier NanoVG plan.
 
 ### Session: ABX harness gain mapping fix -> PUBLIC GATES PASS
 

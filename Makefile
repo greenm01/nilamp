@@ -7,15 +7,22 @@ NATIVE_BUILD := $(NATIVE_DIR)/build
 NATIVE_BIN := $(NATIVE_DIR)/bin
 NATIVE_GENERATED := $(NATIVE_DIR)/generated
 CLAP_INCLUDE := third_party/clap/include
+PUGL_INCLUDE := third_party/pugl/include
+PUGL_SRC := third_party/pugl/src
+SOKOL_INCLUDE := third_party/sokol
+NUKLEAR_INCLUDE := third_party/nuklear
 YSFX_ROOT ?= /home/niltempus/src/ysfx
 YSFX_BUILD := $(NATIVE_BUILD)/ysfx
 YSFX_LIB := $(YSFX_BUILD)/libysfx.a
 
 CFLAGS ?= -std=c11 -O3 -Wall -Wextra -Wpedantic -Werror -I$(NATIVE_DIR)/src -I$(NATIVE_GENERATED)
 CLAP_CFLAGS := $(CFLAGS) -I$(CLAP_INCLUDE)
+GUI_CFLAGS := $(CLAP_CFLAGS) -I$(PUGL_INCLUDE) -I$(PUGL_SRC) -I$(SOKOL_INCLUDE) -I$(SOKOL_INCLUDE)/util -I$(NUKLEAR_INCLUDE)
+GUI_VENDOR_CFLAGS := -std=c11 -O3 -w -fPIC -D_POSIX_C_SOURCE=200809L -I$(PUGL_INCLUDE) -I$(PUGL_SRC) -I$(SOKOL_INCLUDE) -I$(SOKOL_INCLUDE)/util -I$(NUKLEAR_INCLUDE)
 YSFX_CFLAGS := $(CFLAGS) -I$(YSFX_ROOT)/include
 LDFLAGS ?=
 LDLIBS ?= -lm
+GUI_LDLIBS := -lX11 -lXrandr -lXcursor -lXext -lGL -ldl
 YSFX_LDLIBS := -ldl -pthread -lm
 
 NATIVE_TABLES_C := $(NATIVE_GENERATED)/nilamp_tables.c
@@ -30,6 +37,16 @@ NATIVE_OBJS := \
 NATIVE_PIC_OBJS := \
 	$(NATIVE_BUILD)/nilamp_dsp.pic.o \
 	$(NATIVE_BUILD)/nilamp_tables.pic.o
+
+NATIVE_GUI_OBJS := \
+	$(NATIVE_BUILD)/nilamp_gui.pic.o \
+	$(NATIVE_BUILD)/nilamp_sokol.pic.o \
+	$(NATIVE_BUILD)/nilamp_sokol_nuklear.pic.o \
+	$(NATIVE_BUILD)/nilamp_nuklear.pic.o \
+	$(NATIVE_BUILD)/pugl_common.pic.o \
+	$(NATIVE_BUILD)/pugl_internal.pic.o \
+	$(NATIVE_BUILD)/pugl_x11.pic.o \
+	$(NATIVE_BUILD)/pugl_x11_gl.pic.o
 
 .PHONY: all native native-test native-bench native-host-test native-reaper-host-test native-jsfx-test clean-native FORCE
 
@@ -88,11 +105,35 @@ $(NATIVE_BUILD)/nilamp_taps_render.o: $(NATIVE_DIR)/src/nilamp_render.c $(NATIVE
 $(NATIVE_BIN)/nilamp_taps_render: $(NATIVE_BUILD)/nilamp_taps_render.o $(NATIVE_OBJS) | $(NATIVE_BIN)
 	$(CC) $(LDFLAGS) $^ $(LDLIBS) -o $@
 
-$(NATIVE_BUILD)/nilamp_clap.o: $(NATIVE_DIR)/src/nilamp_clap.c $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_DIR)/src/nilamp_cpu.h $(CLAP_INCLUDE)/clap/clap.h | $(NATIVE_BUILD)
-	$(CC) $(CLAP_CFLAGS) -fPIC -c $< -o $@
+$(NATIVE_BUILD)/nilamp_clap.o: $(NATIVE_DIR)/src/nilamp_clap.c $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_DIR)/src/nilamp_cpu.h $(NATIVE_DIR)/src/nilamp_gui.h $(CLAP_INCLUDE)/clap/clap.h | $(NATIVE_BUILD)
+	$(CC) $(GUI_CFLAGS) -fPIC -c $< -o $@
 
-$(NATIVE_BIN)/nilamp.clap: $(NATIVE_BUILD)/nilamp_clap.o $(NATIVE_PIC_OBJS) | $(NATIVE_BIN)
-	$(CC) $(LDFLAGS) -shared $^ $(LDLIBS) -o $@
+$(NATIVE_BUILD)/nilamp_gui.pic.o: $(NATIVE_DIR)/src/nilamp_gui.c $(NATIVE_DIR)/src/nilamp_gui.h | $(NATIVE_BUILD)
+	$(CC) $(GUI_CFLAGS) -fPIC -c $< -o $@
+
+$(NATIVE_BUILD)/nilamp_sokol.pic.o: $(NATIVE_DIR)/src/nilamp_sokol.c | $(NATIVE_BUILD)
+	$(CC) $(GUI_VENDOR_CFLAGS) -c $< -o $@
+
+$(NATIVE_BUILD)/nilamp_sokol_nuklear.pic.o: $(NATIVE_DIR)/src/nilamp_sokol_nuklear.c | $(NATIVE_BUILD)
+	$(CC) $(GUI_VENDOR_CFLAGS) -c $< -o $@
+
+$(NATIVE_BUILD)/nilamp_nuklear.pic.o: $(NATIVE_DIR)/src/nilamp_nuklear.c | $(NATIVE_BUILD)
+	$(CC) $(GUI_VENDOR_CFLAGS) -c $< -o $@
+
+$(NATIVE_BUILD)/pugl_common.pic.o: $(PUGL_SRC)/common.c | $(NATIVE_BUILD)
+	$(CC) $(GUI_VENDOR_CFLAGS) -c $< -o $@
+
+$(NATIVE_BUILD)/pugl_internal.pic.o: $(PUGL_SRC)/internal.c | $(NATIVE_BUILD)
+	$(CC) $(GUI_VENDOR_CFLAGS) -c $< -o $@
+
+$(NATIVE_BUILD)/pugl_x11.pic.o: $(PUGL_SRC)/x11.c | $(NATIVE_BUILD)
+	$(CC) $(GUI_VENDOR_CFLAGS) -c $< -o $@
+
+$(NATIVE_BUILD)/pugl_x11_gl.pic.o: $(PUGL_SRC)/x11_gl.c | $(NATIVE_BUILD)
+	$(CC) $(GUI_VENDOR_CFLAGS) -c $< -o $@
+
+$(NATIVE_BIN)/nilamp.clap: $(NATIVE_BUILD)/nilamp_clap.o $(NATIVE_PIC_OBJS) $(NATIVE_GUI_OBJS) Makefile | $(NATIVE_BIN)
+	$(CC) $(LDFLAGS) -shared $(filter-out Makefile,$^) $(LDLIBS) $(GUI_LDLIBS) -o $@
 
 $(NATIVE_BUILD)/test_native.o: $(NATIVE_DIR)/tests/test_native.c $(NATIVE_DIR)/src/nilamp_dsp.h | $(NATIVE_BUILD)
 	$(CC) $(CFLAGS) -DNILAMP_ENABLE_TEST_API -c $< -o $@

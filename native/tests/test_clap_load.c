@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 #include <clap/clap.h>
+#include <clap/ext/gui.h>
 
 #include <dlfcn.h>
 #include <math.h>
@@ -169,6 +170,22 @@ int main(int argc, char **argv)
     const clap_plugin_state_t *state =
         (const clap_plugin_state_t *)plugin->get_extension(plugin, CLAP_EXT_STATE);
     check(state != NULL, "missing state extension");
+
+    const clap_plugin_gui_t *gui =
+        (const clap_plugin_gui_t *)plugin->get_extension(plugin, CLAP_EXT_GUI);
+    check(gui != NULL, "missing gui extension");
+    check(gui->is_api_supported(plugin, CLAP_WINDOW_API_X11, false),
+          "gui does not support embedded X11");
+    check(!gui->is_api_supported(plugin, CLAP_WINDOW_API_X11, true),
+          "gui unexpectedly supports floating X11");
+    check(!gui->is_api_supported(plugin, CLAP_WINDOW_API_WAYLAND, false),
+          "gui unexpectedly supports embedded Wayland");
+    const char *preferred_api = NULL;
+    bool preferred_floating = true;
+    check(gui->get_preferred_api(plugin, &preferred_api, &preferred_floating),
+          "gui preferred api failed");
+    check(preferred_api && strcmp(preferred_api, CLAP_WINDOW_API_X11) == 0 && !preferred_floating,
+          "unexpected gui preferred api");
 
     check(plugin->activate(plugin, 48000.0, 1, 64), "activate failed");
     check(plugin->start_processing(plugin), "start processing failed");
