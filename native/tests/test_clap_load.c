@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MIT
+#include "nilamp_dsp.h"
+
 #include <clap/clap.h>
 #include <clap/ext/gui.h>
+#include <clap/ext/timer-support.h>
 
 #include <dlfcn.h>
 #include <math.h>
@@ -11,6 +14,8 @@
 #include <string.h>
 
 #define NILAMP_PLUGIN_ID "dev.niltempus.nilamp"
+#define NILAMP_HOST_OUTPUT_LIMIT 1.0f
+#define NILAMP_STRESS_SAMPLE_RATE 48000.0f
 
 typedef struct TestEvents {
     const clap_event_header_t **events;
@@ -22,6 +27,15 @@ typedef struct MemoryStream {
     uint64_t size;
     uint64_t offset;
 } MemoryStream;
+
+typedef struct TestHostData {
+    uint32_t request_callback_count;
+    uint32_t request_process_count;
+    clap_id next_timer_id;
+    clap_id active_timer_id;
+    uint32_t active_timer_period_ms;
+    bool timer_registered;
+} TestHostData;
 
 static void fail(const char *message)
 {
@@ -39,7 +53,13 @@ static void check(bool condition, const char *message)
 static const void *host_get_extension(const clap_host_t *host, const char *extension_id)
 {
     (void)host;
-    (void)extension_id;
+    if (extension_id && strcmp(extension_id, CLAP_EXT_TIMER_SUPPORT) == 0) {
+        static const clap_host_timer_support_t timer_support = {
+            .register_timer = NULL,
+            .unregister_timer = NULL,
+        };
+        return &timer_support;
+    }
     return NULL;
 }
 
@@ -50,12 +70,57 @@ static void host_request_restart(const clap_host_t *host)
 
 static void host_request_process(const clap_host_t *host)
 {
-    (void)host;
+    TestHostData *data = (TestHostData *)host->host_data;
+    if (data) {
+        data->request_process_count++;
+    }
 }
 
 static void host_request_callback(const clap_host_t *host)
 {
-    (void)host;
+    TestHostData *data = (TestHostData *)host->host_data;
+    if (data) {
+        data->request_callback_count++;
+    }
+}
+
+static bool host_register_timer(const clap_host_t *host, uint32_t period_ms,
+                                clap_id *timer_id)
+{
+    TestHostData *data = (TestHostData *)host->host_data;
+    if (!data || !timer_id || data->timer_registered) {
+        return false;
+    }
+    data->active_timer_id = data->next_timer_id++;
+    data->active_timer_period_ms = period_ms;
+    data->timer_registered = true;
+    *timer_id = data->active_timer_id;
+    return true;
+}
+
+static bool host_unregister_timer(const clap_host_t *host, clap_id timer_id)
+{
+    TestHostData *data = (TestHostData *)host->host_data;
+    if (!data || !data->timer_registered || timer_id != data->active_timer_id) {
+        return false;
+    }
+    data->timer_registered = false;
+    data->active_timer_id = CLAP_INVALID_ID;
+    data->active_timer_period_ms = 0;
+    return true;
+}
+
+static const void *host_get_extension_with_timer(const clap_host_t *host,
+                                                 const char *extension_id)
+{
+    if (extension_id && strcmp(extension_id, CLAP_EXT_TIMER_SUPPORT) == 0) {
+        static const clap_host_timer_support_t timer_support = {
+            .register_timer = host_register_timer,
+            .unregister_timer = host_unregister_timer,
+        };
+        return &timer_support;
+    }
+    return host_get_extension(host, extension_id);
 }
 
 static uint32_t events_size(const clap_input_events_t *list)
@@ -106,6 +171,281 @@ static int64_t stream_read(const clap_istream_t *stream, void *buffer, uint64_t 
     return (int64_t)count;
 }
 
+static void fill_input(float *left, float *right, uint32_t frames)
+{
+    for (uint32_t i = 0; i < frames; i++) {
+        const float t = (float)i / (float)frames;
+        left[i] = 0.06f * sinf(17.0f * t) + 0.015f * cosf(43.0f * t);
+        right[i] = 0.04f * cosf(11.0f * t) - 0.02f * sinf(29.0f * t);
+    }
+}
+
+static void compare_output(const float *actual, const float *expected, uint32_t frames,
+                           const char *label)
+{
+    for (uint32_t i = 0; i < frames; i++) {
+        const float diff = fabsf(actual[i] - expected[i]);
+        if (!isfinite(actual[i]) || diff > 0.00001f) {
+            fprintf(stderr,
+                    "test_clap_load: %s mismatch at %u: actual=%g expected=%g diff=%g\n",
+                    label, i, actual[i], expected[i], diff);
+            exit(1);
+        }
+    }
+}
+
+static void render_engine_pair(const float *in_l, const float *in_r, float *ref_l,
+                               float *ref_r, uint32_t frames, bool mono_to_stereo)
+{
+    NilampEngine *engine_l = nilamp_engine_create(48000.0);
+    NilampEngine *engine_r = nilamp_engine_create(48000.0);
+    check(engine_l && engine_r, "direct engine create failed");
+    nilamp_engine_process(engine_l, in_l, ref_l, frames);
+    nilamp_engine_process(engine_r, mono_to_stereo ? in_l : in_r, ref_r, frames);
+    nilamp_engine_destroy(engine_l);
+    nilamp_engine_destroy(engine_r);
+}
+
+static void run_process_chunks(const clap_plugin_t *plugin, clap_process_t *process,
+                               uint32_t total_frames)
+{
+    static const uint32_t chunks[] = {7u, 13u, 31u, 5u, 64u, 3u, 97u};
+    clap_audio_buffer_t *input = (clap_audio_buffer_t *)process->audio_inputs;
+    clap_audio_buffer_t *output = process->audio_outputs;
+    float *input_base[8] = {0};
+    float *output_base[8] = {0};
+    const uint32_t input_channels = input->channel_count < 8u ? input->channel_count : 8u;
+    const uint32_t output_channels = output->channel_count < 8u ? output->channel_count : 8u;
+    for (uint32_t ch = 0; ch < input_channels; ch++) {
+        input_base[ch] = input->data32[ch];
+    }
+    for (uint32_t ch = 0; ch < output_channels; ch++) {
+        output_base[ch] = output->data32[ch];
+    }
+
+    uint32_t cursor = 0;
+    uint32_t chunk_index = 0;
+    while (cursor < total_frames) {
+        uint32_t frames = chunks[chunk_index % (sizeof(chunks) / sizeof(chunks[0]))];
+        if (frames > total_frames - cursor) {
+            frames = total_frames - cursor;
+        }
+        process->frames_count = frames;
+        check(plugin->process(plugin, process) == CLAP_PROCESS_CONTINUE,
+              "chunked process returned failure");
+
+        for (uint32_t ch = 0; ch < input->channel_count; ch++) {
+            if (input->data32[ch]) {
+                input->data32[ch] += frames;
+            }
+        }
+        for (uint32_t ch = 0; ch < output->channel_count; ch++) {
+            if (output->data32 != input->data32 && output->data32[ch]) {
+                output->data32[ch] += frames;
+            }
+        }
+        cursor += frames;
+        chunk_index++;
+    }
+
+    for (uint32_t ch = 0; ch < input_channels; ch++) {
+        input->data32[ch] = input_base[ch];
+    }
+    for (uint32_t ch = 0; ch < output_channels; ch++) {
+        if (output->data32 != input->data32) {
+            output->data32[ch] = output_base[ch];
+        }
+    }
+}
+
+static void run_clap_engine_compare(const clap_plugin_t *plugin,
+                                    clap_process_t *process,
+                                    clap_input_events_t *in_events,
+                                    clap_output_events_t *out_events)
+{
+    enum { Frames = 257 };
+    float in_l[Frames];
+    float in_r[Frames];
+    float ref_l[Frames];
+    float ref_r[Frames];
+    float out_l[Frames];
+    float out_r[Frames];
+    fill_input(in_l, in_r, Frames);
+
+    plugin->reset(plugin);
+    memset(out_l, 0, sizeof(out_l));
+    memset(out_r, 0, sizeof(out_r));
+    render_engine_pair(in_l, in_r, ref_l, ref_r, Frames, false);
+    float *stereo_inputs[2] = {in_l, in_r};
+    float *stereo_outputs[2] = {out_l, out_r};
+    clap_audio_buffer_t input = {
+        .data32 = stereo_inputs,
+        .data64 = NULL,
+        .channel_count = 2,
+        .latency = 0,
+        .constant_mask = 0,
+    };
+    clap_audio_buffer_t output = {
+        .data32 = stereo_outputs,
+        .data64 = NULL,
+        .channel_count = 2,
+        .latency = 0,
+        .constant_mask = 0,
+    };
+    process->audio_inputs = &input;
+    process->audio_outputs = &output;
+    process->audio_inputs_count = 1;
+    process->audio_outputs_count = 1;
+    process->in_events = in_events;
+    process->out_events = out_events;
+    run_process_chunks(plugin, process, Frames);
+    compare_output(out_l, ref_l, Frames, "stereo left");
+    compare_output(out_r, ref_r, Frames, "stereo right");
+
+    plugin->reset(plugin);
+    float inplace_l[Frames];
+    float inplace_r[Frames];
+    memcpy(inplace_l, in_l, sizeof(inplace_l));
+    memcpy(inplace_r, in_r, sizeof(inplace_r));
+    float *stereo_inplace[2] = {inplace_l, inplace_r};
+    input.data32 = stereo_inplace;
+    output.data32 = stereo_inplace;
+    run_process_chunks(plugin, process, Frames);
+    compare_output(inplace_l, ref_l, Frames, "stereo in-place left");
+    compare_output(inplace_r, ref_r, Frames, "stereo in-place right");
+
+    plugin->reset(plugin);
+    float mono_inplace[Frames];
+    float mono_r[Frames];
+    memcpy(mono_inplace, in_l, sizeof(mono_inplace));
+    memset(mono_r, 0, sizeof(mono_r));
+    render_engine_pair(in_l, in_l, ref_l, ref_r, Frames, true);
+    float *mono_inputs[1] = {mono_inplace};
+    float *mono_outputs[2] = {mono_inplace, mono_r};
+    input.data32 = mono_inputs;
+    input.channel_count = 1;
+    output.data32 = mono_outputs;
+    output.channel_count = 2;
+    run_process_chunks(plugin, process, Frames);
+    compare_output(mono_inplace, ref_l, Frames, "mono in-place left");
+    compare_output(mono_r, ref_r, Frames, "mono in-place right");
+
+    plugin->reset(plugin);
+    float constant = 0.025f;
+    float constant_in[1] = {constant};
+    float constant_ref_input[Frames];
+    for (uint32_t i = 0; i < Frames; i++) {
+        constant_ref_input[i] = constant;
+        out_l[i] = 0.0f;
+        out_r[i] = 0.0f;
+    }
+    render_engine_pair(constant_ref_input, constant_ref_input, ref_l, ref_r, Frames, true);
+    float *constant_inputs[1] = {constant_in};
+    output.data32 = stereo_outputs;
+    output.channel_count = 2;
+    input.data32 = constant_inputs;
+    input.channel_count = 1;
+    input.constant_mask = 1u;
+    process->frames_count = Frames;
+    check(plugin->process(plugin, process) == CLAP_PROCESS_CONTINUE,
+          "constant process returned failure");
+    compare_output(out_l, ref_l, Frames, "constant left");
+    compare_output(out_r, ref_r, Frames, "constant right");
+    input.constant_mask = 0u;
+}
+
+static void init_param_event(clap_event_param_value_t *event, clap_id id, double value)
+{
+    memset(event, 0, sizeof(*event));
+    event->header.size = sizeof(*event);
+    event->header.time = 0;
+    event->header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+    event->header.type = CLAP_EVENT_PARAM_VALUE;
+    event->param_id = id;
+    event->note_id = -1;
+    event->port_index = -1;
+    event->channel = -1;
+    event->key = -1;
+    event->value = value;
+}
+
+static void run_clap_output_safety_test(const clap_plugin_t *plugin,
+                                        const clap_plugin_params_t *params,
+                                        clap_process_t *process,
+                                        clap_output_events_t *out_events)
+{
+    enum { Frames = 48000 };
+    static float in_l[Frames];
+    static float in_r[Frames];
+    static float out_l[Frames];
+    static float out_r[Frames];
+
+    clap_event_param_value_t param_events[6];
+    const double values[6] = {6.0, 80.0, 30.0, 60.0, 70.0, 100.0};
+    const clap_event_header_t *event_ptrs[6];
+    for (uint32_t i = 0; i < 6u; i++) {
+        init_param_event(&param_events[i], i, values[i]);
+        event_ptrs[i] = &param_events[i].header;
+    }
+    TestEvents parameter_events = {.events = event_ptrs, .count = 6u};
+    clap_input_events_t parameter_input = {
+        .ctx = &parameter_events,
+        .size = events_size,
+        .get = events_get,
+    };
+    params->flush(plugin, &parameter_input, out_events);
+    plugin->reset(plugin);
+
+    for (uint32_t i = 0; i < Frames; i++) {
+        const float t = (float)i / NILAMP_STRESS_SAMPLE_RATE;
+        in_l[i] = 0.15f * sinf(2.0f * 3.14159265358979323846f * 220.0f * t);
+        in_r[i] = 0.10f * sinf(2.0f * 3.14159265358979323846f * 330.0f * t);
+        out_l[i] = 0.0f;
+        out_r[i] = 0.0f;
+    }
+
+    float *input_channels[2] = {in_l, in_r};
+    float *output_channels[2] = {out_l, out_r};
+    clap_audio_buffer_t input = {
+        .data32 = input_channels,
+        .data64 = NULL,
+        .channel_count = 2,
+        .latency = 0,
+        .constant_mask = 0,
+    };
+    clap_audio_buffer_t output = {
+        .data32 = output_channels,
+        .data64 = NULL,
+        .channel_count = 2,
+        .latency = 0,
+        .constant_mask = 0,
+    };
+    TestEvents empty_events = {.events = NULL, .count = 0};
+    clap_input_events_t empty_input = {
+        .ctx = &empty_events,
+        .size = events_size,
+        .get = events_get,
+    };
+
+    process->audio_inputs = &input;
+    process->audio_outputs = &output;
+    process->audio_inputs_count = 1;
+    process->audio_outputs_count = 1;
+    process->in_events = &empty_input;
+    process->out_events = out_events;
+    run_process_chunks(plugin, process, Frames);
+
+    float peak = 0.0f;
+    for (uint32_t i = 0; i < Frames; i++) {
+        check(isfinite(out_l[i]) && isfinite(out_r[i]), "stress output is non-finite");
+        peak = fmaxf(peak, fabsf(out_l[i]));
+        peak = fmaxf(peak, fabsf(out_r[i]));
+    }
+    check(peak > 1.0e-8f, "stress output is silent");
+    check(peak <= NILAMP_HOST_OUTPUT_LIMIT + 0.000001f,
+          "stress output exceeds host safety limit");
+}
+
 int main(int argc, char **argv)
 {
     const char *plugin_path = argc > 1 ? argv[1] : "native/bin/nilamp.clap";
@@ -130,14 +470,18 @@ int main(int argc, char **argv)
     check(descriptor != NULL, "missing descriptor");
     check(strcmp(descriptor->id, NILAMP_PLUGIN_ID) == 0, "unexpected plugin id");
 
+    TestHostData host_data = {
+        .next_timer_id = 1u,
+        .active_timer_id = CLAP_INVALID_ID,
+    };
     clap_host_t host = {
         .clap_version = CLAP_VERSION_INIT,
-        .host_data = NULL,
+        .host_data = &host_data,
         .name = "nilamp smoke host",
         .vendor = "niltempus",
         .url = "",
         .version = "0.1.0",
-        .get_extension = host_get_extension,
+        .get_extension = host_get_extension_with_timer,
         .request_restart = host_request_restart,
         .request_process = host_request_process,
         .request_callback = host_request_callback,
@@ -186,6 +530,9 @@ int main(int argc, char **argv)
           "gui preferred api failed");
     check(preferred_api && strcmp(preferred_api, CLAP_WINDOW_API_X11) == 0 && !preferred_floating,
           "unexpected gui preferred api");
+    const clap_plugin_timer_support_t *timer =
+        (const clap_plugin_timer_support_t *)plugin->get_extension(plugin, CLAP_EXT_TIMER_SUPPORT);
+    check(timer && timer->on_timer, "missing timer support extension");
 
     check(plugin->activate(plugin, 48000.0, 1, 64), "activate failed");
     check(plugin->start_processing(plugin), "start processing failed");
@@ -271,6 +618,17 @@ int main(int argc, char **argv)
     input.channel_count = 2;
     output.data32 = output_channels;
     output.channel_count = 2;
+    run_clap_engine_compare(plugin, &process, &in_events, &out_events);
+    input.data32 = input_channels;
+    input.channel_count = 2;
+    input.constant_mask = 0;
+    output.data32 = output_channels;
+    output.channel_count = 2;
+    process.audio_inputs = &input;
+    process.audio_outputs = &output;
+    process.audio_inputs_count = 1;
+    process.audio_outputs_count = 1;
+    process.frames_count = Frames;
 
     clap_event_param_value_t gain_event = {
         .header = {
@@ -317,6 +675,8 @@ int main(int argc, char **argv)
     check(state->load(plugin, &istream), "state load failed");
     check(params->get_value(plugin, 0, &gain), "gain state reread failed");
     check(fabs(gain - 6.0) < 0.000001, "state did not restore gain");
+
+    run_clap_output_safety_test(plugin, params, &process, &out_events);
 
     plugin->stop_processing(plugin);
     plugin->deactivate(plugin);

@@ -2,6 +2,72 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: REAPER static report -> CLAP OUTPUT SAFETY LIMIT
+
+**Edit summary.**
+
+- Added a CLAP-only host output sanitizer after native DSP processing. Hosted
+  samples sent to REAPER are now finite, denormal-free, and bounded to
+  `[-1.0, +1.0]`; the raw DSP engine, offline renderer, tap renderer, and JSFX
+  parity path remain unchanged.
+- Extended the loaded-CLAP smoke test with a REAPER-like stress render
+  (`gain=6`, `volume=80`, `bass=30`, `mid=60`, `treble=70`, `sag=100`) and a
+  peak assertion so the old `~1.1e5` hosted-output failure cannot pass.
+- Updated the REAPER validation script with `--max-peak` so real host renders
+  fail on runaway level instead of only checking for silence.
+
+**Verification.**
+
+- `make native-test` passes.
+- `make native-host-test` passes; `clap-validator` reports 21 tests run, 16
+  passed, 0 failed, 5 skipped, 0 warnings.
+- `make native-jsfx-test` passes; sine ABX remains residual `-31.4 dB`,
+  correlation `0.998804`, best native-to-JSFX gain `+0.00 dB`; tap/public guard
+  remains residual `-48.5 dB`, correlation `0.999986`.
+- `python3 -m py_compile tools/clap_validate/validate_reaper_clap.py` passes.
+- Installed `native/bin/nilamp.clap` to `~/.clap/nilamp.clap`; both hashes are
+  `192205cc639dcd4ef2f89d64f837880c1c671f5a46af21d7d40984215251ce76`.
+- `make native-reaper-host-test` did not reach the REAPER Lua driver in this
+  run: `/tmp/nilamp_clap_validate.log` was never created and REAPER timed out.
+  Treat this as a harness launch issue, not an audio peak result.
+
+**Next work.**
+
+1. Retest the installed CLAP manually in REAPER.
+2. If static remains with the bounded host output, capture whether REAPER is
+   loading another CLAP path or whether the noise is already present at plugin
+   input/track routing.
+3. Make the REAPER harness more reliable before depending on it as a required
+   CI-style gate.
+
+### Session: REAPER static report -> CLAP GUI TIMER AND RENDER GUARD
+
+**Edit summary.**
+
+- Replaced the editor's tight `request_callback()` repaint loop with CLAP
+  timer-support pumping at roughly 30 Hz when the GUI is visible.
+- Added dirty-gated parameter application so the audio thread no longer reapplies
+  unchanged GUI/state params every process block; automation still applies at
+  its event boundary.
+- Extended the CLAP loader smoke test to compare loaded-plugin audio against
+  direct `NilampEngine` output for stereo, stereo in-place, mono-to-stereo,
+  constant input, and variable block sizes.
+
+**Verification.**
+
+- `make native-test` passes.
+- `make native-host-test` passes; `clap-validator` reports 21 tests run, 16
+  passed, 0 failed, 5 skipped, 0 warnings.
+- `make native-jsfx-test` passes; sine ABX remains residual `-31.4 dB`,
+  correlation `0.998804`, best native-to-JSFX gain `+0.00 dB`; tap/public guard
+  remains residual `-48.5 dB`, correlation `0.999986`.
+
+**Next work.**
+
+1. Retest the installed CLAP in REAPER with the editor closed and open.
+2. If static remains, capture whether it depends on editor visibility, sample
+   rate/block size, or mono/stereo track routing.
+
 ### Session: CLAP editor stack -> PUGL SOKOL NUKLEAR SHELL
 
 **Edit summary.**

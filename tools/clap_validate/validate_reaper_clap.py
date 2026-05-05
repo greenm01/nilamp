@@ -167,7 +167,8 @@ def run_optional_clap_validator(plugin: Path) -> None:
         raise RuntimeError(f"clap-validator failed with exit code {proc.returncode}")
 
 
-def run_reaper(*, reaper_bin: str, plugin: Path, output_wav: Path, timeout_s: float) -> None:
+def run_reaper(*, reaper_bin: str, plugin: Path, output_wav: Path, timeout_s: float,
+               max_peak: float) -> None:
     for path in (output_wav, DRIVER_LOG, REAPER_LOG, LUA_CFG_PATH):
         try:
             path.unlink()
@@ -229,6 +230,8 @@ def run_reaper(*, reaper_bin: str, plugin: Path, output_wav: Path, timeout_s: fl
     peak = wav_peak(output_wav)
     if peak <= 1.0e-8:
         raise RuntimeError(f"render is silent or near-silent: peak={peak:.6e}")
+    if peak > max_peak:
+        raise RuntimeError(f"render peak exceeds safety limit: peak={peak:.6e} max={max_peak:.6e}")
     print(f"REAPER CLAP render peak={peak:.6e}")
 
 
@@ -238,6 +241,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--output", default=Path("/tmp/nilamp_clap_validate/output.wav"), type=Path)
     parser.add_argument("--reaper-bin", default="reaper")
     parser.add_argument("--timeout", default=90.0, type=float)
+    parser.add_argument("--max-peak", default=1.000001, type=float)
     parser.add_argument("--skip-clap-validator", action="store_true")
     args = parser.parse_args(argv)
 
@@ -249,7 +253,8 @@ def main(argv: list[str]) -> int:
     if not args.skip_clap_validator:
         run_optional_clap_validator(plugin)
     run_reaper(reaper_bin=args.reaper_bin, plugin=plugin,
-               output_wav=args.output.resolve(), timeout_s=args.timeout)
+               output_wav=args.output.resolve(), timeout_s=args.timeout,
+               max_peak=args.max_peak)
     return 0
 
 

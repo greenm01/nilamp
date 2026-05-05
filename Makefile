@@ -147,11 +147,11 @@ $(NATIVE_BUILD)/bench_native.o: $(NATIVE_DIR)/tests/bench_native.c $(NATIVE_DIR)
 $(NATIVE_BIN)/bench_native: $(NATIVE_BUILD)/bench_native.o $(NATIVE_BUILD)/nilamp_dsp_test.o $(NATIVE_BUILD)/nilamp_tables.o | $(NATIVE_BIN)
 	$(CC) $(LDFLAGS) $^ $(LDLIBS) -o $@
 
-$(NATIVE_BUILD)/test_clap_load.o: $(NATIVE_DIR)/tests/test_clap_load.c $(CLAP_INCLUDE)/clap/clap.h | $(NATIVE_BUILD)
+$(NATIVE_BUILD)/test_clap_load.o: $(NATIVE_DIR)/tests/test_clap_load.c $(NATIVE_DIR)/src/nilamp_dsp.h $(CLAP_INCLUDE)/clap/clap.h | $(NATIVE_BUILD)
 	$(CC) $(CLAP_CFLAGS) -c $< -o $@
 
-$(NATIVE_BIN)/test_clap_load: $(NATIVE_BUILD)/test_clap_load.o | $(NATIVE_BIN)
-	$(CC) $(LDFLAGS) $^ -ldl -o $@
+$(NATIVE_BIN)/test_clap_load: $(NATIVE_BUILD)/test_clap_load.o $(NATIVE_OBJS) | $(NATIVE_BIN)
+	$(CC) $(LDFLAGS) $^ $(LDLIBS) -ldl -o $@
 
 $(YSFX_BUILD)/CMakeCache.txt: | $(NATIVE_BUILD)
 	test -f $(YSFX_ROOT)/include/ysfx.h

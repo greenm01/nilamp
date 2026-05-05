@@ -5,8 +5,10 @@
 
 #include <clap/clap.h>
 #include <clap/ext/gui.h>
+#include <clap/ext/timer-support.h>
 
 #include <errno.h>
+#include <float.h>
 #include <math.h>
 #include <stdatomic.h>
 #include <stdbool.h>
@@ -19,6 +21,7 @@
 #define NILAMP_PLUGIN_ID "dev.niltempus.nilamp"
 #define NILAMP_STATE_MAGIC 0x4e4c4150u
 #define NILAMP_STATE_VERSION 1u
+#define NILAMP_CLAP_OUTPUT_LIMIT 1.0f
 
 typedef enum NilampParamId {
     NILAMP_PARAM_GAIN_DB = 0,
@@ -45,12 +48,16 @@ typedef struct NilampClap {
     const clap_host_t *host;
     const clap_host_params_t *host_params;
     const clap_host_gui_t *host_gui;
+    const clap_host_timer_support_t *host_timer;
     NilampGui *gui;
     NilampEngine *engines[2];
     NilampParams params;
     _Atomic uint32_t param_bits[NILAMP_PARAM_COUNT];
     atomic_uint gui_dirty_mask;
+    atomic_uint params_dirty;
+    clap_id gui_timer_id;
     double sample_rate;
+    bool gui_timer_registered;
     bool active;
 } NilampClap;
 
@@ -241,8 +248,12 @@ static bool nilamp_store_param_value(NilampClap *plug, clap_id id, double value,
     const float clamped = (float)nilamp_clamp(value, spec);
     atomic_store_explicit(&plug->param_bits[index], nilamp_float_to_bits(clamped),
                           memory_order_release);
-    if (nilamp_set_param_value(&plug->params, id, clamped) && mark_gui_dirty) {
-        atomic_fetch_or_explicit(&plug->gui_dirty_mask, 1u << index, memory_order_release);
+    if (nilamp_set_param_value(&plug->params, id, clamped)) {
+        atomic_store_explicit(&plug->params_dirty, 1u, memory_order_release);
+        if (mark_gui_dirty) {
+            atomic_fetch_or_explicit(&plug->gui_dirty_mask, 1u << index,
+                                     memory_order_release);
+        }
     }
     return true;
 }
@@ -282,12 +293,25 @@ static bool nilamp_set_param_value(NilampParams *params, clap_id id, double valu
 
 static void nilamp_apply_params(NilampClap *plug)
 {
+    if (!plug) {
+        return;
+    }
     NilampParams params = nilamp_default_params();
     nilamp_load_params(plug, &params);
     for (uint32_t i = 0; i < 2; i++) {
         if (plug->engines[i]) {
             nilamp_engine_set_params(plug->engines[i], &params);
         }
+    }
+}
+
+static void nilamp_apply_params_if_dirty(NilampClap *plug)
+{
+    if (!plug) {
+        return;
+    }
+    if (atomic_exchange_explicit(&plug->params_dirty, 0u, memory_order_acquire) != 0u) {
+        nilamp_apply_params(plug);
     }
 }
 
@@ -309,7 +333,7 @@ static void nilamp_gui_set_param_cb(void *user, uint32_t param_id, float value)
     if (plug->host && plug->host->request_process) {
         plug->host->request_process(plug->host);
     }
-    if (plug->host && plug->host->request_callback) {
+    if (!plug->gui_timer_registered && plug->host && plug->host->request_callback) {
         plug->host->request_callback(plug->host);
     }
 }
@@ -341,6 +365,7 @@ static bool nilamp_create_engines(NilampClap *plug, double sample_rate)
 
     plug->sample_rate = sample_rate;
     nilamp_apply_params(plug);
+    atomic_store_explicit(&plug->params_dirty, 0u, memory_order_release);
     return true;
 }
 
@@ -368,8 +393,23 @@ static bool nilamp_init(const clap_plugin_t *plugin)
             (const clap_host_params_t *)plug->host->get_extension(plug->host, CLAP_EXT_PARAMS);
         plug->host_gui =
             (const clap_host_gui_t *)plug->host->get_extension(plug->host, CLAP_EXT_GUI);
+        plug->host_timer = (const clap_host_timer_support_t *)plug->host->get_extension(
+            plug->host, CLAP_EXT_TIMER_SUPPORT);
     }
     return true;
+}
+
+static void nilamp_unregister_gui_timer(NilampClap *plug)
+{
+    if (!plug || !plug->gui_timer_registered || !plug->host_timer ||
+        !plug->host_timer->unregister_timer) {
+        return;
+    }
+
+    if (plug->host_timer->unregister_timer(plug->host, plug->gui_timer_id)) {
+        plug->gui_timer_registered = false;
+        plug->gui_timer_id = CLAP_INVALID_ID;
+    }
 }
 
 static void nilamp_destroy(const clap_plugin_t *plugin)
@@ -378,6 +418,7 @@ static void nilamp_destroy(const clap_plugin_t *plugin)
     if (!plug) {
         return;
     }
+    nilamp_unregister_gui_timer(plug);
     nilamp_gui_destroy(plug->gui);
     plug->gui = NULL;
     nilamp_destroy_engines(plug);
@@ -437,12 +478,40 @@ static void nilamp_reset(const clap_plugin_t *plugin)
         }
     }
     nilamp_apply_params(plug);
+    atomic_store_explicit(&plug->params_dirty, 0u, memory_order_release);
 }
 
 static void nilamp_zero_channel(float *output, uint32_t offset, uint32_t nframes)
 {
     if (output && nframes > 0) {
         memset(output + offset, 0, sizeof(float) * nframes);
+    }
+}
+
+static float nilamp_sanitize_host_sample(float sample)
+{
+    if (!isfinite(sample)) {
+        return 0.0f;
+    }
+    if (sample != 0.0f && fabsf(sample) < FLT_MIN) {
+        return 0.0f;
+    }
+    if (sample > NILAMP_CLAP_OUTPUT_LIMIT) {
+        return NILAMP_CLAP_OUTPUT_LIMIT;
+    }
+    if (sample < -NILAMP_CLAP_OUTPUT_LIMIT) {
+        return -NILAMP_CLAP_OUTPUT_LIMIT;
+    }
+    return sample;
+}
+
+static void nilamp_sanitize_host_channel(float *output, uint32_t offset, uint32_t nframes)
+{
+    if (!output) {
+        return;
+    }
+    for (uint32_t i = 0; i < nframes; i++) {
+        output[offset + i] = nilamp_sanitize_host_sample(output[offset + i]);
     }
 }
 
@@ -467,6 +536,7 @@ static void nilamp_process_channel(NilampEngine *engine, const clap_audio_buffer
 
     if (has_input && !input_is_constant) {
         nilamp_engine_process(engine, input->data32[input_channel] + offset, out + offset, nframes);
+        nilamp_sanitize_host_channel(out, offset, nframes);
         return;
     }
 
@@ -474,6 +544,7 @@ static void nilamp_process_channel(NilampEngine *engine, const clap_audio_buffer
     const float *sample = has_input ? input->data32[input_channel] : &zero;
     for (uint32_t i = 0; i < nframes; i++) {
         nilamp_engine_process(engine, sample, out + offset + i, 1);
+        out[offset + i] = nilamp_sanitize_host_sample(out[offset + i]);
     }
 }
 
@@ -528,7 +599,7 @@ static void nilamp_handle_event(NilampClap *plug, const clap_event_header_t *eve
 
     const clap_event_param_value_t *param_event = (const clap_event_param_value_t *)event;
     if (nilamp_store_param_value(plug, param_event->param_id, param_event->value, false)) {
-        nilamp_apply_params(plug);
+        nilamp_apply_params_if_dirty(plug);
     }
 }
 
@@ -540,7 +611,7 @@ static clap_process_status nilamp_process(const clap_plugin_t *plugin,
     if (!plug || !process || process->frames_count == 0) {
         return CLAP_PROCESS_CONTINUE;
     }
-    nilamp_apply_params(plug);
+    nilamp_apply_params_if_dirty(plug);
 
     uint32_t cursor = 0;
     const uint32_t event_count =
@@ -572,9 +643,6 @@ static void nilamp_on_main_thread(const clap_plugin_t *plugin)
         return;
     }
     nilamp_gui_on_main_thread(plug->gui);
-    if (nilamp_gui_is_visible(plug->gui) && plug->host && plug->host->request_callback) {
-        plug->host->request_callback(plug->host);
-    }
 }
 
 static uint32_t nilamp_audio_ports_count(const clap_plugin_t *plugin, bool is_input)
@@ -822,6 +890,7 @@ static bool nilamp_state_load(const clap_plugin_t *plugin, const clap_istream_t 
     plug->params = params;
     nilamp_store_params(plug, &params);
     nilamp_apply_params(plug);
+    atomic_store_explicit(&plug->params_dirty, 0u, memory_order_release);
     if (plug->host_params && plug->host_params->rescan) {
         plug->host_params->rescan(plug->host, CLAP_PARAM_RESCAN_VALUES | CLAP_PARAM_RESCAN_TEXT);
     }
@@ -876,6 +945,7 @@ static void nilamp_gui_destroy_ext(const clap_plugin_t *plugin)
     if (!plug) {
         return;
     }
+    nilamp_unregister_gui_timer(plug);
     nilamp_gui_destroy(plug->gui);
     plug->gui = NULL;
 }
@@ -957,7 +1027,15 @@ static bool nilamp_gui_show_ext(const clap_plugin_t *plugin)
 {
     NilampClap *plug = nilamp_from_plugin(plugin);
     const bool ok = plug && plug->gui && nilamp_gui_show(plug->gui);
-    if (ok && plug->host && plug->host->request_callback) {
+    if (ok && plug->host_timer && plug->host_timer->register_timer &&
+        !plug->gui_timer_registered) {
+        clap_id timer_id = CLAP_INVALID_ID;
+        if (plug->host_timer->register_timer(plug->host, 33u, &timer_id)) {
+            plug->gui_timer_id = timer_id;
+            plug->gui_timer_registered = true;
+        }
+    }
+    if (ok && !plug->gui_timer_registered && plug->host && plug->host->request_callback) {
         plug->host->request_callback(plug->host);
     }
     return ok;
@@ -966,6 +1044,7 @@ static bool nilamp_gui_show_ext(const clap_plugin_t *plugin)
 static bool nilamp_gui_hide_ext(const clap_plugin_t *plugin)
 {
     NilampClap *plug = nilamp_from_plugin(plugin);
+    nilamp_unregister_gui_timer(plug);
     return plug && plug->gui && nilamp_gui_hide(plug->gui);
 }
 
@@ -987,6 +1066,20 @@ static const clap_plugin_gui_t nilamp_gui_ext = {
     .hide = nilamp_gui_hide_ext,
 };
 
+static void nilamp_timer_on_timer(const clap_plugin_t *plugin, clap_id timer_id)
+{
+    NilampClap *plug = nilamp_from_plugin(plugin);
+    if (!plug || !plug->gui_timer_registered || timer_id != plug->gui_timer_id ||
+        !plug->gui || !nilamp_gui_is_visible(plug->gui)) {
+        return;
+    }
+    nilamp_gui_on_main_thread(plug->gui);
+}
+
+static const clap_plugin_timer_support_t nilamp_timer_ext = {
+    .on_timer = nilamp_timer_on_timer,
+};
+
 static const void *nilamp_get_extension(const clap_plugin_t *plugin, const char *id)
 {
     (void)plugin;
@@ -1004,6 +1097,9 @@ static const void *nilamp_get_extension(const clap_plugin_t *plugin, const char 
     }
     if (strcmp(id, CLAP_EXT_GUI) == 0) {
         return &nilamp_gui_ext;
+    }
+    if (strcmp(id, CLAP_EXT_TIMER_SUPPORT) == 0) {
+        return &nilamp_timer_ext;
     }
     return NULL;
 }
@@ -1026,6 +1122,8 @@ static const clap_plugin_t *nilamp_create_plugin(const clap_plugin_factory_t *fa
     plug->params = nilamp_default_params();
     nilamp_store_params(plug, &plug->params);
     atomic_store_explicit(&plug->gui_dirty_mask, 0u, memory_order_release);
+    atomic_store_explicit(&plug->params_dirty, 1u, memory_order_release);
+    plug->gui_timer_id = CLAP_INVALID_ID;
     plug->plugin.desc = &nilamp_descriptor;
     plug->plugin.plugin_data = plug;
     plug->plugin.init = nilamp_init;
