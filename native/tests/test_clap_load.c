@@ -230,6 +230,31 @@ int main(int argc, char **argv)
         check(isfinite(out_l[i]) && isfinite(out_r[i]), "non-finite output");
     }
 
+    plugin->reset(plugin);
+    float mono_inplace[Frames];
+    float mono_out_r[Frames];
+    for (uint32_t i = 0; i < Frames; i++) {
+        mono_inplace[i] = (float)i / (float)Frames * 0.05f;
+        mono_out_r[i] = 0.0f;
+    }
+    float *mono_input_channels[1] = {mono_inplace};
+    float *mono_output_channels[2] = {mono_inplace, mono_out_r};
+    input.data32 = mono_input_channels;
+    input.channel_count = 1;
+    output.data32 = mono_output_channels;
+    output.channel_count = 2;
+    check(plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE,
+          "mono in-place process returned failure");
+    for (uint32_t i = 0; i < Frames; i++) {
+        check(isfinite(mono_inplace[i]) && isfinite(mono_out_r[i]),
+              "non-finite mono in-place output");
+    }
+
+    input.data32 = input_channels;
+    input.channel_count = 2;
+    output.data32 = output_channels;
+    output.channel_count = 2;
+
     clap_event_param_value_t gain_event = {
         .header = {
             .size = sizeof(gain_event),

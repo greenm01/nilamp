@@ -8,6 +8,8 @@ variants of the main amp:
                                 offline rendering. Used by the ABX harness.
   - twd_dlx_ii_taps.jsfx      : harness variant that emits internal stage taps
                                 as nine output channels for parity debugging.
+  - twd_dlx_ii_tap_select.jsfx: harness variant that renders one selected tap
+                                as mono output through the public ABX path.
 
 The harness variant patches one line:
 
@@ -41,6 +43,7 @@ VENDOR_AMP = "TWD DLX  II.jsfx"   # note: two spaces, as in upstream
 STAGED_AMP = "twd_dlx_ii.jsfx"
 HARNESS_AMP = "twd_dlx_ii_harness.jsfx"
 TAPS_AMP = "twd_dlx_ii_taps.jsfx"
+TAP_SELECT_AMP = "twd_dlx_ii_tap_select.jsfx"
 PROBE_SRC = REPO_ROOT / "tools" / "jsfx_render" / "filter_semantics_probe.jsfx"
 PROBE_AMP = "filter_semantics_probe.jsfx"
 
@@ -69,6 +72,7 @@ def stage(dest: Path) -> None:
     patched = _apply_harness_patches(text)
     (dest / HARNESS_AMP).write_text(patched)
     (dest / TAPS_AMP).write_text(_apply_tap_patches(patched))
+    (dest / TAP_SELECT_AMP).write_text(_apply_tap_select_patches(patched))
 
     shutil.copy2(PROBE_SRC, dest / PROBE_AMP)
 
@@ -78,8 +82,9 @@ def stage(dest: Path) -> None:
         f"amp_orig: {STAGED_AMP}",
         f"amp_harness: {HARNESS_AMP}",
         f"amp_taps: {TAPS_AMP}",
+        f"amp_tap_select: {TAP_SELECT_AMP}",
         f"filter_probe: {PROBE_AMP}",
-        "harness_patches: remove-wallclock-mute, tap-outputs",
+        "harness_patches: remove-wallclock-mute, tap-outputs, tap-select",
         "",
     ]))
 
@@ -176,6 +181,88 @@ def _apply_tap_patches(src: str) -> str:
     for needle, replacement in replacements:
         if needle not in src:
             raise RuntimeError(f"expected JSFX tap patch site not found: {needle!r}")
+        src = src.replace(needle, replacement, 1)
+    return src
+
+
+def _apply_tap_select_patches(src: str) -> str:
+    """Emit one selected stage tap as mono output for public-path checks."""
+    slider_needle = (
+        "slider18:p.gcomp=\t\t2\t\t<0, \t3,  1{Off, Tube 1, Splitter, Both}>-   "
+        "Gain Compensation"
+    )
+    slider_replacement = "\n".join([
+        slider_needle,
+        "",
+        "slider19:p.tap=        0       <0, 8, 1{v_out, res1_v, res3_v, res4_v, drive_t4, res5_v, res_t5_v, dvs2, dvs3}>-   Tap",
+    ])
+    if slider_needle not in src:
+        raise RuntimeError("expected JSFX gain-comp slider declaration not found")
+    src = src.replace(slider_needle, slider_replacement, 1)
+
+    replacements = [
+        (
+            "dvs3 = p3.tube_pss_process(dvs2, 0, \tdia3);",
+            "dvs3 = p3.tube_pss_process(dvs2, 0, \tdia3);\n"
+            "tap_dvs2 = dvs2;\n"
+            "tap_dvs3 = dvs3;",
+        ),
+        (
+            "spl0 = t1.tube_ck_process(spl0, dvs3);",
+            "spl0 = t1.tube_ck_process(spl0, dvs3);\n"
+            "tap_res1_v = spl0;",
+        ),
+        (
+            "spl0 = t2.tube_ck_process(spl0, dvs3);\nspl0 = hp2.flt_ii1_process_hp(spl0);",
+            "spl0 = t2.tube_ck_process(spl0, dvs3);\n"
+            "tap_res3_v = spl0;\n"
+            "spl0 = hp2.flt_ii1_process_hp(spl0);",
+        ),
+        (
+            "spl0 = t3.tube_cd_process(spl0, dvs3);",
+            "spl0 = t3.tube_cd_process(spl0, dvs3);\n"
+            "tap_res4_v = spl0;",
+        ),
+        (
+            "spl0 = hs1.flt_sv1_process(spl0);\nspl0 = t4.tube_ck_process(spl0, dvs2);",
+            "spl0 = hs1.flt_sv1_process(spl0);\n"
+            "tap_drive_t4 = spl0;\n"
+            "spl0 = t4.tube_ck_process(spl0, dvs2);",
+        ),
+        (
+            "spl0 = t4.tube_ck_process(spl0, dvs2);",
+            "spl0 = t4.tube_ck_process(spl0, dvs2);\n"
+            "tap_res5_v = spl0;",
+        ),
+        (
+            "aux = t5.tube_ck_process(aux, dvs2);\nspl0 -= aux;",
+            "aux = t5.tube_ck_process(aux, dvs2);\n"
+            "tap_res_t5_v = aux;\n"
+            "spl0 -= aux;",
+        ),
+        (
+            "spl0 = g3.gain_process(spl0);",
+            "spl0 = g3.gain_process(spl0);\n"
+            "tap_v_out = spl0;",
+        ),
+        (
+            "is_muted ==1 ?\n(\n\tspl0 = 0;\n\t//spl1 = 0\n);",
+            "is_muted ==1 ?\n(\n\tspl0 = 0;\n\t//spl1 = 0\n);\n\n"
+            "tap_selected = tap_v_out;\n"
+            "p.tap == 1 ? tap_selected = tap_res1_v;\n"
+            "p.tap == 2 ? tap_selected = tap_res3_v;\n"
+            "p.tap == 3 ? tap_selected = tap_res4_v;\n"
+            "p.tap == 4 ? tap_selected = tap_drive_t4;\n"
+            "p.tap == 5 ? tap_selected = tap_res5_v;\n"
+            "p.tap == 6 ? tap_selected = tap_res_t5_v;\n"
+            "p.tap == 7 ? tap_selected = tap_dvs2;\n"
+            "p.tap == 8 ? tap_selected = tap_dvs3;\n"
+            "spl0 = tap_selected;",
+        ),
+    ]
+    for needle, replacement in replacements:
+        if needle not in src:
+            raise RuntimeError(f"expected JSFX tap-select patch site not found: {needle!r}")
         src = src.replace(needle, replacement, 1)
     return src
 

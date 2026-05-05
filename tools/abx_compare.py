@@ -67,16 +67,16 @@ JSFX_WARMUP_S = 0.100
 # parameter_update() line 229:
 #     gin_eff = 10^(0.05 * (p.gin + 12)) * sqrt(1.2)
 # Native nilamp's external gain control maps to Keller's user-visible p.gin
-# after the fixed +12 dB lift. Keller's sqrt(1.2) remains part of the canonical
-# amp calibration rather than a user-gain offset; compensating it here makes the
-# native path too hot against the raw-slider JSFX render.
+# after the fixed +12 dB lift. The native DSP itself applies Keller's fixed
+# input calibration (`0.5 * sqrt(1.2)`), so the harness only translates the
+# exposed gain slider.
 JSFX_GIN_OFFSET_DB = 12.0
 
 # JSFX gin slider range, from twd_dlx_ii_harness.jsfx slider1 declaration.
 JSFX_GIN_MIN_DB = -12.0
 JSFX_GIN_MAX_DB = 12.0
-EQUALIZABLE_GAIN_MIN_DB = JSFX_GIN_MIN_DB + JSFX_GIN_OFFSET_DB  #  +0.79 dB
-EQUALIZABLE_GAIN_MAX_DB = JSFX_GIN_MAX_DB + JSFX_GIN_OFFSET_DB  # +24.79 dB
+EQUALIZABLE_GAIN_MIN_DB = JSFX_GIN_MIN_DB + JSFX_GIN_OFFSET_DB  #  +0.0 dB
+EQUALIZABLE_GAIN_MAX_DB = JSFX_GIN_MAX_DB + JSFX_GIN_OFFSET_DB  # +24.0 dB
 
 
 # --------------------------------------------------------------------------- #

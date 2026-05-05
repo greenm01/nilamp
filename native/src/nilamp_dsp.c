@@ -30,10 +30,8 @@ typedef struct {
 } Svf1;
 
 typedef struct {
-    float x1;
-    float x2;
-    float y1;
-    float y2;
+    float z1;
+    float z2;
 } Df2;
 
 typedef struct {
@@ -135,6 +133,13 @@ typedef struct {
     float dvs2;
     float dvs3;
 } NilampTapFrame;
+
+static int nilamp_tap_frame_is_finite(NilampTapFrame taps)
+{
+    return isfinite(taps.v_out) && isfinite(taps.res1_v) && isfinite(taps.res3_v) &&
+           isfinite(taps.res4_v) && isfinite(taps.drive_t4) && isfinite(taps.res5_v) &&
+           isfinite(taps.res_t5_v) && isfinite(taps.dvs2) && isfinite(taps.dvs3);
+}
 
 static const StageCfg T1 = {
     nilamp_t1_12ax7_table, 13503, 0.372960373f, 0.00165f, 100000.0f, 0.0f,
@@ -257,12 +262,70 @@ static float svf1_hs(Svf1 *st, double sr, float kgain, float fs, float x)
 
 static float df2_process(Df2 *st, float b0, float b1, float b2, float a1, float a2, float x)
 {
-    const float y = b0 * x + b1 * st->x1 + b2 * st->x2 - a1 * st->y1 - a2 * st->y2;
-    st->x2 = st->x1;
-    st->x1 = x;
-    st->y2 = st->y1;
-    st->y1 = y;
+    const float z0 = x - st->z1 * a1 - st->z2 * a2;
+    const float y = z0 * b0 + st->z1 * b1 + st->z2 * b2;
+    st->z2 = st->z1;
+    st->z1 = z0;
     return y;
+}
+
+static int adnl_eq_index(double sr)
+{
+    if (sr >= 176400.0) {
+        return 0;
+    }
+    if (sr >= 88200.0) {
+        return 1;
+    }
+    return 2;
+}
+
+static void adnl_eq_coeffs(int n, float *b0, float *b1, float *b2, float *a1, float *a2)
+{
+    switch (n) {
+    case 1:
+        *b0 = 1.056878f;
+        *b1 = -1.271531f;
+        *b2 = 0.418433f;
+        *a1 = -1.179530f;
+        *a2 = 0.383309f;
+        break;
+    case 2:
+        *b0 = 1.200445f;
+        *b1 = -0.732882f;
+        *b2 = 0.178744f;
+        *a1 = -0.468873f;
+        *a2 = 0.115181f;
+        break;
+    case 3:
+        *b0 = 1.408580f;
+        *b1 = -0.221734f;
+        *b2 = 0.069520f;
+        *a1 = 0.203224f;
+        *a2 = 0.053142f;
+        break;
+    case 4:
+        *b0 = 1.656505f;
+        *b1 = 0.357005f;
+        *b2 = 0.020442f;
+        *a1 = 0.851983f;
+        *a2 = 0.181969f;
+        break;
+    default:
+        *b0 = 1.0f;
+        *b1 = 0.0f;
+        *b2 = 0.0f;
+        *a1 = 0.0f;
+        *a2 = 0.0f;
+        break;
+    }
+}
+
+static float adnl_eq_process(Df2 *st, double sr, float x)
+{
+    float b0, b1, b2, a1, a2;
+    adnl_eq_coeffs(adnl_eq_index(sr), &b0, &b1, &b2, &a1, &a2);
+    return df2_process(st, b0, b1, b2, a1, a2, x);
 }
 
 static float df2_lp(Df2 *st, double sr, float f, float q, float x)
@@ -366,7 +429,7 @@ static void tube_ck_process(TubeCk *st, const StageCfg *cfg, double sr, float v,
     const float pk = pkd_process(&st->pkd, cfg->pk_xth, cfg->pk_xdiode, pk_k1(cfg->pk_attack, sr), pk_k2(cfg->pk_release, sr), v3);
     const float v4 = v3 - cfg->kpk * pk;
     const float v5 = adnl_process(&st->adnl, cfg->table, cfg->len, v4);
-    const float v6 = df2_process(&st->neq, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, v5);
+    const float v6 = adnl_eq_process(&st->neq, sr, v5);
     const float v7 = v6 * (1.0f + cfg->kspost * dvs);
     const float v8 = v7 * cfg->isat;
     *dia = v8 + cfg->ksib * dvs;
@@ -382,7 +445,7 @@ static void tube_cd_process(TubeCd *st, const StageCfg *cfg, double sr, float v,
     const float pk = pkd_process(&st->pkd, cfg->pk_xth, cfg->pk_xdiode, pk_k1(cfg->pk_attack, sr), pk_k2(cfg->pk_release, sr), v3);
     const float v4 = v3 - cfg->kpk * pk;
     const float v5 = adnl_process(&st->adnl, cfg->table, cfg->len, v4);
-    const float v6 = df2_process(&st->neq, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, v5);
+    const float v6 = adnl_eq_process(&st->neq, sr, v5);
     const float v7 = v6 * (1.0f + cfg->kspost * dvs);
     const float v8 = v7 * cfg->isat;
     *dia = v8 + cfg->ksib * dvs;
@@ -447,7 +510,9 @@ void nilamp_engine_set_params(NilampEngine *engine, const NilampParams *params)
 
 static NilampTapFrame nilamp_engine_process_sample(NilampEngine *engine, float input)
 {
-    const float gain = db_to_linear(engine->params.gain_db);
+    /* Keller g1 uses sqrt(1.2); REAPER's mono JSFX render path contributes
+       the 0.5 feed factor that the parity harness measures at the first tap. */
+    const float gain = db_to_linear(engine->params.gain_db) * 0.5f * sqrtf(1.2f);
     const float volume = engine->params.volume_pct * 0.01f;
     const float bass = engine->params.bass_pct * 0.01f;
     const float mid = engine->params.mid_pct * 0.01f;
@@ -525,7 +590,14 @@ void nilamp_engine_process(NilampEngine *engine, const float *input, float *outp
         return;
     }
     for (uint32_t i = 0; i < nframes; i++) {
-        output[i] = nilamp_engine_process_sample(engine, input[i]).v_out;
+        const float x = isfinite(input[i]) ? input[i] : 0.0f;
+        const NilampTapFrame taps = nilamp_engine_process_sample(engine, x);
+        if (!nilamp_tap_frame_is_finite(taps)) {
+            nilamp_engine_reset(engine);
+            output[i] = 0.0f;
+        } else {
+            output[i] = taps.v_out;
+        }
     }
 }
 
@@ -535,7 +607,12 @@ void nilamp_engine_process_taps(NilampEngine *engine, const float *input, float 
         return;
     }
     for (uint32_t i = 0; i < nframes; i++) {
-        const NilampTapFrame taps = nilamp_engine_process_sample(engine, input[i]);
+        const float x = isfinite(input[i]) ? input[i] : 0.0f;
+        NilampTapFrame taps = nilamp_engine_process_sample(engine, x);
+        if (!nilamp_tap_frame_is_finite(taps)) {
+            nilamp_engine_reset(engine);
+            taps = (NilampTapFrame) { 0 };
+        }
         outputs[0][i] = taps.v_out;
         outputs[1][i] = taps.res1_v;
         outputs[2][i] = taps.res3_v;

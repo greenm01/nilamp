@@ -180,7 +180,7 @@ T1_12AX7 = CkConfig(
     mu=100, ra=62500, isat=0.00165, ibias=0.00076,
     b=0, type_b=0.5, vs=238, rl=100000, rk=1500, kcomp=0.0,
     kpk=0.0, pk_xth=0.25, pk_xdrop=0.250,
-    tattack=0.01, trelease=0.05, neq=0.0, tck=0.0375,
+    tattack=0.01, trelease=0.05, neq=2.0, tck=0.0375,
 )
 
 T2_12AX7 = CkConfig(
@@ -189,7 +189,7 @@ T2_12AX7 = CkConfig(
     mu=100, ra=62500, isat=0.00155, ibias=0.00076,
     b=0, type_b=0.5, vs=238, rl=100000, rk=1500, kcomp=0.0,
     kpk=0.05, pk_xth=0.255, pk_xdrop=0.570,
-    tattack=0.015, trelease=0.05, neq=0.0, tck=0.0375,
+    tattack=0.015, trelease=0.05, neq=2.0, tck=0.0375,
 )
 
 T3_CD = CdConfig(
@@ -198,7 +198,7 @@ T3_CD = CdConfig(
     mu=100, ra=62500, isat=0.00160, ibias=0.00073,
     b=0, type_b=0.5, vs=238, rl=56000, rk=1500, kcomp=0.0,
     kpk=0.125, pk_xth=0.272, pk_xdrop=0.394,
-    tattack=0.00085, trelease=0.3872, neq=0.0,
+    tattack=0.00085, trelease=0.3872, neq=2.0,
 )
 
 T4_6V6 = CkConfig(
@@ -210,7 +210,7 @@ T4_6V6 = CkConfig(
     mu=125, ra=40000, isat=0.11, ibias=0.042,
     b=2, type_b=0.5, vs=346, rl=3000, rk=540, kcomp=1.0,
     kpk=0.125, pk_xth=0.309, pk_xdrop=0.437,
-    tattack=0.00575, trelease=0.0276, neq=0.0, tck=0.00675,
+    tattack=0.00575, trelease=0.0276, neq=2.0, tck=0.00675,
 )
 
 T5_6V6 = CkConfig(
@@ -219,7 +219,7 @@ T5_6V6 = CkConfig(
     mu=125, ra=40000, isat=0.12, ibias=0.042,
     b=2.5, type_b=0.5, vs=346, rl=3000, rk=540, kcomp=1.0,
     kpk=0.18, pk_xth=0.325, pk_xdrop=0.388,
-    tattack=0.00155, trelease=0.0234, neq=0.0, tck=0.00675,
+    tattack=0.00155, trelease=0.0234, neq=2.0, tck=0.00675,
 )
 
 

@@ -344,10 +344,17 @@ static bool nilamp_process_segment(NilampClap *plug, const clap_process_t *proce
     const uint32_t frames = end - start;
     const uint32_t output_channels = output->channel_count;
     const uint32_t process_channels = output_channels < 2u ? output_channels : 2u;
+    const uint32_t input_channels = input ? input->channel_count : 0u;
 
-    for (uint32_t ch = 0; ch < process_channels; ch++) {
-        const uint32_t input_channel = input && input->channel_count > 1u ? ch : 0u;
-        nilamp_process_channel(plug->engines[ch], input, input_channel, output, ch, start, frames);
+    if (process_channels >= 2u && input && input->data32 && input_channels == 1u &&
+        input->data32[0] && output->data32[0] == input->data32[0]) {
+        nilamp_process_channel(plug->engines[1], input, 0u, output, 1u, start, frames);
+        nilamp_process_channel(plug->engines[0], input, 0u, output, 0u, start, frames);
+    } else {
+        for (uint32_t ch = 0; ch < process_channels; ch++) {
+            const uint32_t input_channel = input && input_channels > 1u ? ch : 0u;
+            nilamp_process_channel(plug->engines[ch], input, input_channel, output, ch, start, frames);
+        }
     }
 
     for (uint32_t ch = 2; ch < output_channels; ch++) {

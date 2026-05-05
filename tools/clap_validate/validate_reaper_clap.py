@@ -188,7 +188,7 @@ def run_reaper(*, reaper_bin: str, plugin: Path, output_wav: Path, timeout_s: fl
 
     with REAPER_LOG.open("wb") as logf:
         proc = subprocess.Popen(
-            [reaper_bin, "-nosplash", str(project_path), str(LUA_DRIVER)],
+            [reaper_bin, "-newinst", "-nosplash", str(project_path), str(LUA_DRIVER)],
             stdout=logf,
             stderr=subprocess.STDOUT,
             env=env,

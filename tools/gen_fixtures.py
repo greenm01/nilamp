@@ -60,19 +60,34 @@ def gen_adnl(cfg, input_buf: np.ndarray) -> np.ndarray:
     return proc.process_block(input_buf.copy().astype(np.float32))
 
 
+def _neq_coeffs(n: float) -> tuple[float, float, float, float, float]:
+    """Keller flt_df2_set_adnl_eq coefficients."""
+    idx = int(n)
+    if idx == 1:
+        return 1.056878, -1.271531, 0.418433, -1.179530, 0.383309
+    if idx == 2:
+        return 1.200445, -0.732882, 0.178744, -0.468873, 0.115181
+    if idx == 3:
+        return 1.408580, -0.221734, 0.069520, 0.203224, 0.053142
+    if idx == 4:
+        return 1.656505, 0.357005, 0.020442, 0.851983, 0.181969
+    return 1.0, 0.0, 0.0, 0.0, 0.0
+
+
 def _ck_oracle(cfg) -> ko.TubeCk:
     """Build a TubeCk oracle using the native C engine's stage constants."""
     table = gen_adnl_table(cfg.kbias, cfg.b, cfg.type_b, cfg.kloop)
     pk_k1 = 1.0 - np.exp(-1.0 / (cfg.tattack * SAMPLE_RATE))
     pk_k2 = np.exp(-1.0 / (cfg.trelease * SAMPLE_RATE))
     avg_f = 1.0 / (2.0 * np.pi * cfg.tck)
+    neq_b0, neq_b1, neq_b2, neq_a1, neq_a2 = _neq_coeffs(cfg.neq)
     return ko.TubeCk(
         kpre=cfg.kpre, isat=cfg.isat, rl=cfg.rl, kpk=cfg.kpk,
         kspre=cfg.kspre, kspost=cfg.kspost, ksva=cfg.ksva,
         ksib=cfg.ksib, kfb=cfg.kfb,
         pk_xth=cfg.pk_xth, pk_xdiode=cfg.pk_xdrop,
         pk_k1=pk_k1, pk_k2=pk_k2, avg_f=avg_f,
-        neq_b0=1.0, neq_b1=0.0, neq_b2=0.0, neq_a1=0.0, neq_a2=0.0,
+        neq_b0=neq_b0, neq_b1=neq_b1, neq_b2=neq_b2, neq_a1=neq_a1, neq_a2=neq_a2,
         sr=SAMPLE_RATE, adnl_table=table,
     )
 
@@ -88,13 +103,14 @@ def _ck_oracle_dz(cfg) -> ko.TubeCk:
     pk_k1 = 1.0 - np.exp(-1.0 / (cfg.tattack * SAMPLE_RATE))
     pk_k2 = np.exp(-1.0 / (cfg.trelease * SAMPLE_RATE))
     avg_f = 1.0 / (2.0 * np.pi * cfg.tck)
+    neq_b0, neq_b1, neq_b2, neq_a1, neq_a2 = _neq_coeffs(cfg.neq)
     return ko.TubeCk(
         kpre=cfg.kpre, isat=cfg.isat, rl=cfg.rl, kpk=cfg.kpk,
         kspre=cfg.kspre, kspost=cfg.kspost, ksva=cfg.ksva,
         ksib=cfg.ksib, kfb=cfg.kfb,
         pk_xth=cfg.pk_xth, pk_xdiode=cfg.pk_xdrop,
         pk_k1=pk_k1, pk_k2=pk_k2, avg_f=avg_f,
-        neq_b0=1.0, neq_b1=0.0, neq_b2=0.0, neq_a1=0.0, neq_a2=0.0,
+        neq_b0=neq_b0, neq_b1=neq_b1, neq_b2=neq_b2, neq_a1=neq_a1, neq_a2=neq_a2,
         sr=SAMPLE_RATE, adnl_table=table,
     )
 
@@ -104,13 +120,14 @@ def _cd_oracle(cfg) -> ko.TubeCd:
     table = gen_adnl_table(cfg.kbias, cfg.b, cfg.type_b, cfg.kloop)
     pk_k1 = 1.0 - np.exp(-1.0 / (cfg.tattack * SAMPLE_RATE))
     pk_k2 = np.exp(-1.0 / (cfg.trelease * SAMPLE_RATE))
+    neq_b0, neq_b1, neq_b2, neq_a1, neq_a2 = _neq_coeffs(cfg.neq)
     return ko.TubeCd(
         kpre=cfg.kpre, isat=cfg.isat, rl=cfg.rl, rkl=(cfg.rk + cfg.rl),
         kpk=cfg.kpk, kspre=cfg.kspre, kspost=cfg.kspost,
         ksva=cfg.ksva, ksvk=cfg.ksvk, ksib=cfg.ksib,
         pk_xth=cfg.pk_xth, pk_xdiode=cfg.pk_xdrop,
         pk_k1=pk_k1, pk_k2=pk_k2,
-        neq_b0=1.0, neq_b1=0.0, neq_b2=0.0, neq_a1=0.0, neq_a2=0.0,
+        neq_b0=neq_b0, neq_b1=neq_b1, neq_b2=neq_b2, neq_a1=neq_a1, neq_a2=neq_a2,
         sr=SAMPLE_RATE, adnl_table=table,
     )
 
@@ -123,13 +140,14 @@ def _cd_oracle_dz(cfg) -> ko.TubeCd:
     )
     pk_k1 = 1.0 - np.exp(-1.0 / (cfg.tattack * SAMPLE_RATE))
     pk_k2 = np.exp(-1.0 / (cfg.trelease * SAMPLE_RATE))
+    neq_b0, neq_b1, neq_b2, neq_a1, neq_a2 = _neq_coeffs(cfg.neq)
     return ko.TubeCd(
         kpre=cfg.kpre, isat=cfg.isat, rl=cfg.rl, rkl=(cfg.rk + cfg.rl),
         kpk=cfg.kpk, kspre=cfg.kspre, kspost=cfg.kspost,
         ksva=cfg.ksva, ksvk=cfg.ksvk, ksib=cfg.ksib,
         pk_xth=cfg.pk_xth, pk_xdiode=cfg.pk_xdrop,
         pk_k1=pk_k1, pk_k2=pk_k2,
-        neq_b0=1.0, neq_b1=0.0, neq_b2=0.0, neq_a1=0.0, neq_a2=0.0,
+        neq_b0=neq_b0, neq_b1=neq_b1, neq_b2=neq_b2, neq_a1=neq_a1, neq_a2=neq_a2,
         sr=SAMPLE_RATE, adnl_table=table,
     )
 
@@ -236,7 +254,7 @@ def gen_nilamp_taps(input_buf: np.ndarray) -> tuple[np.ndarray, ...]:
     """Reference for the nilamp tap-render diagnostic.
 
     Mirrors the current native top-level cascade at default params:
-    gain=0 dB; volume/bass/mid/treble/sag=50%.
+    gain=0 dB plus Keller/REAPER mono calibration; volume/bass/mid/treble/sag=50%.
     """
     class Df2Lp:
         def __init__(self, f: float, q: float, sr: int):
@@ -254,17 +272,14 @@ def gen_nilamp_taps(input_buf: np.ndarray) -> tuple[np.ndarray, ...]:
             self.b0 = ksqr * kdiv
             self.b1 = 2.0 * ksqr * kdiv
             self.b2 = self.b0
-            self.x1 = 0.0
-            self.x2 = 0.0
-            self.y1 = 0.0
-            self.y2 = 0.0
+            self.z1 = 0.0
+            self.z2 = 0.0
 
         def process_sample(self, x: float) -> float:
-            y = self.b0 * x + self.b1 * self.x1 + self.b2 * self.x2 - self.a1 * self.y1 - self.a2 * self.y2
-            self.x2 = self.x1
-            self.x1 = x
-            self.y2 = self.y1
-            self.y1 = y
+            z0 = x - self.z1 * self.a1 - self.z2 * self.a2
+            y = z0 * self.b0 + self.z1 * self.b1 + self.z2 * self.b2
+            self.z2 = self.z1
+            self.z1 = z0
             return y
 
     hp10 = ko.FltIi1Hp(10.0, SAMPLE_RATE)
@@ -290,6 +305,7 @@ def gen_nilamp_taps(input_buf: np.ndarray) -> tuple[np.ndarray, ...]:
     p1 = ko.TubePss(r=125.0, tau=0.008, sr=SAMPLE_RATE)
     p2 = ko.TubePss(r=5100.0, tau=0.0816, sr=SAMPLE_RATE)
     p3 = ko.TubePss(r=11000.0, tau=0.352, sr=SAMPLE_RATE)
+    input_gain = 0.5 * np.sqrt(1.2)
 
     n = len(input_buf)
     v_out_buf = np.empty(n, dtype=np.float32)
@@ -315,7 +331,7 @@ def gen_nilamp_taps(input_buf: np.ndarray) -> tuple[np.ndarray, ...]:
         dvs2, _ = p2.process_sample(prev_dig, old_s3, dvs1)
         dvs3, _ = p3.process_sample(prev_dia3, 0.0, dvs2)
 
-        res1_v, res1_dia = t1.process_sample(vin, dvs3)
+        res1_v, res1_dia = t1.process_sample(vin * input_gain, dvs3)
         v2 = hp10.process_sample(res1_v)
         v2 *= 0.25
         v2 = tone.process_sample(v2)

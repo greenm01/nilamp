@@ -84,7 +84,7 @@ python3 tools/abx_compare.py --preset sweep --rms-threshold-db -11.2 --jsfx-time
 Generated preset WAVs are written under the selected `--out-dir` and are not
 tracked in git.
 
-Stage the JSFX harnesses, including the tap harness:
+Stage the JSFX harnesses, including the tap and selected-tap harnesses:
 
 ```bash
 python3 -m tools.jsfx_render.stage_jsfx
@@ -99,5 +99,5 @@ python3 tools/compare_taps.py --preset sweep --out-dir /tmp/nilamp_tap_compare -
 
 Latest native C run:
 
-- sine preset: `-16.5 dB` residual below native peak, threshold `-16.0 dB` -> PASS; correlation `0.999330`, best A->B gain `-1.88 dB`
-- sweep preset: `-16.8 dB` residual below native peak, threshold `-11.2 dB` -> PASS; correlation `0.978765`, best A->B gain `-2.70 dB`
+- sine preset: `-20.9 dB` residual below native peak, threshold `-16.0 dB` -> PASS; correlation `0.997197`, best A->B gain `+1.14 dB`
+- sweep preset: `-19.7 dB` residual below native peak, threshold `-11.2 dB` -> PASS; correlation `0.958873`, best A->B gain `+0.90 dB`

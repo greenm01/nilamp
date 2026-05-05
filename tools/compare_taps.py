@@ -19,17 +19,20 @@ from abx_compare import (
     _peak,
     _rms,
     _trim_warmup,
+    compute_metrics,
     make_preset_wav,
+    read_wav_f32,
+    render_jsfx as render_public_jsfx,
     scale_wav,
 )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 NATIVE_TAPS_RENDER = REPO_ROOT / "native" / "bin" / "nilamp_taps_render"
 JSFX_RENDER = [sys.executable, "-m", "tools.jsfx_render.render_jsfx"]
-JSFX_TAP_SOURCE = (
-    Path.home() / ".config" / "REAPER" / "Effects" / "nilamp_abx" / "twd_dlx_ii_taps.jsfx"
+JSFX_TAP_SELECT_SOURCE = (
+    Path.home() / ".config" / "REAPER" / "Effects" / "nilamp_abx" / "twd_dlx_ii_tap_select.jsfx"
 )
-JSFX_TAP_EFFECT = "nilamp_abx/twd_dlx_ii_taps"
+JSFX_TAP_SELECT_EFFECT = "nilamp_abx/twd_dlx_ii_tap_select"
 
 TAP_NAMES = [
     "v_out",
@@ -122,41 +125,53 @@ def render_native_taps(input_wav: Path, output_wav: Path, params: Params,
     subprocess.run(cmd, check=True, capture_output=True)
 
 
-def render_jsfx_taps(input_wav: Path, output_wav: Path, params: Params,
-                     timeout_s: float) -> None:
-    if not JSFX_TAP_SOURCE.is_file():
+def render_jsfx_tap(input_wav: Path, output_wav: Path, params: Params,
+                    timeout_s: float, tap_index: int) -> None:
+    if not JSFX_TAP_SELECT_SOURCE.is_file():
         raise FileNotFoundError(
-            f"staged JSFX tap harness not found: {JSFX_TAP_SOURCE}\n"
+            f"staged JSFX tap-select harness not found: {JSFX_TAP_SELECT_SOURCE}\n"
             "Run: python3 -m tools.jsfx_render.stage_jsfx"
         )
+    if tap_index < 0 or tap_index >= len(TAP_NAMES):
+        raise ValueError(f"tap_index out of range: {tap_index}")
     cmd = [
         *JSFX_RENDER,
         str(input_wav),
         str(output_wav),
         "--timeout", str(timeout_s),
-        "--effect-name", JSFX_TAP_EFFECT,
-        "--jsfx-source", str(JSFX_TAP_SOURCE),
-        "--channels", str(len(TAP_NAMES)),
-        "-s", f"gin={params.jsfx_gin()}",
-        "-s", f"vol={params.volume_pct}",
-        "-s", f"bass={params.bass_pct}",
-        "-s", f"mid={params.mid_pct}",
-        "-s", f"treble={params.treble_pct}",
-        "-s", "tube1=1",
-        "-s", "mode=0",
-        "-s", "gcomp=2",
-        "-s", "fm=56",
-        "-s", "qm=-6",
-        "-s", "gp_pre=1",
-        "-s", "gp_post=2",
-        "-s", "fp=38",
-        "-s", "qp=6",
-        "-s", "gs_pre=3",
-        "-s", "gs_post=3",
-        "-s", "fs=62",
-        "-s", "gout=0",
+        "--effect-name", JSFX_TAP_SELECT_EFFECT,
+        "--jsfx-source", str(JSFX_TAP_SELECT_SOURCE),
+        "--channels", "1",
+        *params.to_jsfx_args(),
+        "-s", f"tap={tap_index}",
     ]
     subprocess.run(cmd, check=True, capture_output=True, cwd=REPO_ROOT)
+
+
+def check_selected_vout_matches_public(input_wav: Path, out_dir: Path, label: str,
+                                       params: Params, timeout_s: float,
+                                       tap0_wav: Path) -> None:
+    public_wav = out_dir / f"{label}_jsfx_public.wav"
+    render_public_jsfx(input_wav, public_wav, params, timeout_s)
+    render_jsfx_tap(input_wav, tap0_wav, params, timeout_s, 0)
+
+    public, public_sr = read_wav_f32(public_wav)
+    tap0, tap0_sr = read_wav_f32(tap0_wav)
+    if public_sr != tap0_sr:
+        raise RuntimeError(f"sample-rate mismatch public={public_sr} tap0={tap0_sr}")
+
+    metrics = compute_metrics(_trim_warmup(public, public_sr), _trim_warmup(tap0, tap0_sr), public_sr)
+    print(
+        "tap/public v_out check: "
+        f"resid={metrics.rms_residual_db:+.1f} dB "
+        f"corr={metrics.correlation:.9f} "
+        f"gain={metrics.gain_a_to_b:.9f} ({metrics.gain_a_to_b_db:+.3f} dB)"
+    )
+    if metrics.correlation < 0.999999 or metrics.rms_residual_db > -80.0:
+        raise RuntimeError(
+            "tap-select v_out does not match the public JSFX render; "
+            "fix the diagnostic harness before trusting per-stage results"
+        )
 
 
 def compute_tap_metrics(name: str, native: Sequence[float], jsfx: Sequence[float], sr: int) -> TapMetrics:
@@ -199,31 +214,43 @@ def run(args: argparse.Namespace) -> list[TapMetrics]:
         scale_wav(input_wav, rendered_input, args.input_scale)
 
     native_wav = out_dir / f"{args.label}_native_taps.wav"
-    jsfx_wav = out_dir / f"{args.label}_jsfx_taps.wav"
+    jsfx_tap_wavs = [
+        out_dir / f"{args.label}_jsfx_tap_{idx}_{name}.wav"
+        for idx, name in enumerate(TAP_NAMES)
+    ]
     if not args.keep_outputs:
-        for path in (native_wav, jsfx_wav):
+        for path in (native_wav, out_dir / f"{args.label}_jsfx_public.wav", *jsfx_tap_wavs):
             try:
                 path.unlink()
             except FileNotFoundError:
                 pass
 
     render_native_taps(rendered_input, native_wav, params, args.native_taps_render)
-    render_jsfx_taps(rendered_input, jsfx_wav, params, args.jsfx_timeout)
+    if not args.skip_vout_check:
+        check_selected_vout_matches_public(
+            rendered_input,
+            out_dir,
+            args.label,
+            params,
+            args.jsfx_timeout,
+            jsfx_tap_wavs[0],
+        )
 
     native_channels, native_sr = read_wav_f32_channels(native_wav)
-    jsfx_channels, jsfx_sr = read_wav_f32_channels(jsfx_wav)
-    if native_sr != jsfx_sr:
-        raise RuntimeError(f"sample-rate mismatch native={native_sr} jsfx={jsfx_sr}")
-    if len(native_channels) < len(TAP_NAMES) or len(jsfx_channels) < len(TAP_NAMES):
+    if len(native_channels) < len(TAP_NAMES):
         raise RuntimeError(
-            f"tap channel mismatch native={len(native_channels)} jsfx={len(jsfx_channels)} "
-            f"expected={len(TAP_NAMES)}"
+            f"tap channel mismatch native={len(native_channels)} expected={len(TAP_NAMES)}"
         )
 
     results = []
     for idx, name in enumerate(TAP_NAMES):
+        if idx != 0 or args.skip_vout_check:
+            render_jsfx_tap(rendered_input, jsfx_tap_wavs[idx], params, args.jsfx_timeout, idx)
+        jsfx, jsfx_sr = read_wav_f32(jsfx_tap_wavs[idx])
+        if native_sr != jsfx_sr:
+            raise RuntimeError(f"sample-rate mismatch native={native_sr} jsfx={jsfx_sr}")
         native = _trim_warmup(native_channels[idx], native_sr)
-        jsfx = _trim_warmup(jsfx_channels[idx], jsfx_sr)
+        jsfx = _trim_warmup(jsfx, jsfx_sr)
         results.append(compute_tap_metrics(name, native, jsfx, native_sr))
     return results
 
@@ -244,6 +271,8 @@ def main() -> int:
     parser.add_argument("--jsfx-timeout", type=float, default=60.0)
     parser.add_argument("--native-taps-render", type=Path, default=NATIVE_TAPS_RENDER)
     parser.add_argument("--keep-outputs", action="store_true")
+    parser.add_argument("--skip-vout-check", action="store_true",
+                        help="Skip the public-JSFX vs selected-v_out harness guard.")
     args = parser.parse_args()
 
     if args.input is not None and args.preset is not None:

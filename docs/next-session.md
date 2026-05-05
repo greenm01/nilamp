@@ -2,6 +2,52 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: Source-backed input calibration -> BEST GAIN NEAR ZERO
+
+**Edit summary.**
+
+- Added a staged `twd_dlx_ii_tap_select.jsfx` harness that renders one selected
+  JSFX tap as mono output through the same public ABX path.
+- Updated `tools/compare_taps.py` to render selected taps one at a time and
+  verify selected `v_out` against the public JSFX render before reporting
+  per-stage metrics.
+- Ported Keller's `flt_df2_set_adnl_eq()` into the native tube stages and
+  switched the native DF2 helper to Keller's state form.
+- Added the source-backed native input calibration
+  `0.5 * sqrt(1.2)`: Keller's `sqrt(1.2)` g1 factor plus the REAPER mono JSFX
+  feed factor measured by the selected tap harness.
+- Regenerated native fixtures and adjusted only the affected loose tap/power
+  tolerances.
+- Fixed the CLAP wrapper's mono-input/stereo-output in-place processing order
+  and added a smoke-test case for that host layout.
+- Added a DSP output-boundary guard so non-finite host input or runaway state
+  resets the engine and emits silence for the affected frame.
+
+**Verification.**
+
+- `python3 -m py_compile tools/abx_compare.py tools/jsfx_render/render_jsfx.py tools/jsfx_render/stage_jsfx.py tools/compare_taps.py tools/gen_5e3_tables.py tools/gen_fixtures.py tools/keller_oracle.py` passes.
+- `make native-test` passes.
+- `make native-host-test` passes: `clap-validator` reports 21 tests run,
+  16 passed, 0 failed, 5 skipped; REAPER render is finite with peak
+  `7.398350e+14`.
+- Tap/public guard: selected `v_out` matches public JSFX render at about
+  `-135 dB` to `-144 dB` residual, depending on input.
+- Tap sine after calibration: early signal taps are now near unity
+  (`res1_v` best native-to-JSFX gain `-0.17 dB`, `res3_v` `-0.40 dB`);
+  final `v_out` best gain is `+1.14 dB`.
+- Tap sweep after calibration: final `v_out` best gain is `+0.90 dB`.
+- ABX sine: `-20.9 dB` residual below native peak, threshold `-16.0 dB` -> PASS.
+  Correlation `0.997197`; best native-to-JSFX gain `1.140195` (`+1.14 dB`).
+- ABX sweep: `-19.7 dB` residual below native peak, threshold `-11.2 dB` -> PASS.
+  Correlation `0.958873`; best native-to-JSFX gain `1.109749` (`+0.90 dB`).
+
+**Next work.**
+
+1. Remaining gain error is no longer the broad `-1.88/-2.70 dB` offset; look at
+   late power-stage/PSS scaling and phase/shape residuals.
+2. Do not run multiple REAPER render harnesses in parallel; they share temp
+   driver paths and can collide.
+
 ### Session: JSFX/native tap diagnostics -> SCALE-LIKE MISMATCH LOCALIZED
 
 **Edit summary.**
