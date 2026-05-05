@@ -49,6 +49,26 @@ cargo xtask bundle nilamp --release
 
 Requires [Faust](https://faust.grame.fr/) on the build machine; the DSP is compiled from `dsp/nilamp.dsp` at build time via `build.rs`.
 
+### Cargo features
+
+The Faust build step generates several megabytes of Rust per `.dsp` file. To keep the default iteration loop fast, the regression-test and diagnostic DSPs are feature-gated:
+
+| Feature | Compiles | Needed for |
+|---|---|---|
+| *(default)* | `dsp/nilamp.dsp` only | `cargo build`, `nilamp_render`, plugin bundle |
+| `dsp-tests` | `dsp/tests/*.dsp` (18 files) | `cargo test` |
+| `dsp-diagnostics` | `dsp/diagnostics/*.dsp` (2 files) | `nilamp_t5_balance_render`, `nilamp_drive_probe_render` |
+
+```bash
+cargo test --features dsp-tests
+cargo build --release --bin nilamp_drive_probe_render --features dsp-diagnostics
+```
+
+### Build profiles
+
+- `--release`: production profile (`lto=thin`, `strip=symbols`). Use this for ABX renders, plugin bundles, and any numerically-authoritative output.
+- `--profile release-fast`: iterative profile (`lto=off`, `opt-level=2`). Currently bit-identical to `--release` on the test sine and sweep; saves ~1.7 s per src-only incremental rebuild. Has no effect on cold or DSP-edit rebuilds (rustc frontend on the generated `dsp.rs` dominates).
+
 ## License
 
 MIT — see `LICENSE`.
