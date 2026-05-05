@@ -22,7 +22,7 @@ NATIVE_PIC_OBJS := \
 	$(NATIVE_BUILD)/nilamp_dsp.pic.o \
 	$(NATIVE_BUILD)/nilamp_tables.pic.o
 
-.PHONY: all native native-test native-host-test clean-native
+.PHONY: all native native-test native-bench native-host-test clean-native
 
 all: native
 
@@ -31,6 +31,9 @@ native: $(NATIVE_BIN)/nilamp_render $(NATIVE_BIN)/nilamp_taps_render $(NATIVE_BI
 native-test: $(NATIVE_BIN)/test_native $(NATIVE_BIN)/test_clap_load $(NATIVE_BIN)/nilamp.clap
 	$(NATIVE_BIN)/test_native
 	$(NATIVE_BIN)/test_clap_load $(NATIVE_BIN)/nilamp.clap
+
+native-bench: $(NATIVE_BIN)/bench_native
+	$(NATIVE_BIN)/bench_native
 
 native-host-test: $(NATIVE_BIN)/nilamp.clap
 	python3 tools/clap_validate/validate_reaper_clap.py --plugin $<
@@ -53,19 +56,19 @@ $(NATIVE_BUILD)/nilamp_dsp.pic.o: $(NATIVE_DIR)/src/nilamp_dsp.c $(NATIVE_DIR)/s
 $(NATIVE_BUILD)/nilamp_dsp_test.o: $(NATIVE_DIR)/src/nilamp_dsp.c $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_TABLES_H) | $(NATIVE_BUILD)
 	$(CC) $(CFLAGS) -DNILAMP_ENABLE_TEST_API -c $< -o $@
 
-$(NATIVE_BUILD)/nilamp_render.o: $(NATIVE_DIR)/src/nilamp_render.c $(NATIVE_DIR)/src/nilamp_dsp.h | $(NATIVE_BUILD)
+$(NATIVE_BUILD)/nilamp_render.o: $(NATIVE_DIR)/src/nilamp_render.c $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_DIR)/src/nilamp_cpu.h | $(NATIVE_BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(NATIVE_BIN)/nilamp_render: $(NATIVE_BUILD)/nilamp_render.o $(NATIVE_OBJS) | $(NATIVE_BIN)
 	$(CC) $(LDFLAGS) $^ $(LDLIBS) -o $@
 
-$(NATIVE_BUILD)/nilamp_taps_render.o: $(NATIVE_DIR)/src/nilamp_render.c $(NATIVE_DIR)/src/nilamp_dsp.h | $(NATIVE_BUILD)
+$(NATIVE_BUILD)/nilamp_taps_render.o: $(NATIVE_DIR)/src/nilamp_render.c $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_DIR)/src/nilamp_cpu.h | $(NATIVE_BUILD)
 	$(CC) $(CFLAGS) -DNILAMP_TAPS_RENDER -c $< -o $@
 
 $(NATIVE_BIN)/nilamp_taps_render: $(NATIVE_BUILD)/nilamp_taps_render.o $(NATIVE_OBJS) | $(NATIVE_BIN)
 	$(CC) $(LDFLAGS) $^ $(LDLIBS) -o $@
 
-$(NATIVE_BUILD)/nilamp_clap.o: $(NATIVE_DIR)/src/nilamp_clap.c $(NATIVE_DIR)/src/nilamp_dsp.h $(CLAP_INCLUDE)/clap/clap.h | $(NATIVE_BUILD)
+$(NATIVE_BUILD)/nilamp_clap.o: $(NATIVE_DIR)/src/nilamp_clap.c $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_DIR)/src/nilamp_cpu.h $(CLAP_INCLUDE)/clap/clap.h | $(NATIVE_BUILD)
 	$(CC) $(CLAP_CFLAGS) -fPIC -c $< -o $@
 
 $(NATIVE_BIN)/nilamp.clap: $(NATIVE_BUILD)/nilamp_clap.o $(NATIVE_PIC_OBJS) | $(NATIVE_BIN)
@@ -75,6 +78,12 @@ $(NATIVE_BUILD)/test_native.o: $(NATIVE_DIR)/tests/test_native.c $(NATIVE_DIR)/s
 	$(CC) $(CFLAGS) -DNILAMP_ENABLE_TEST_API -c $< -o $@
 
 $(NATIVE_BIN)/test_native: $(NATIVE_BUILD)/test_native.o $(NATIVE_BUILD)/nilamp_dsp_test.o $(NATIVE_BUILD)/nilamp_tables.o | $(NATIVE_BIN)
+	$(CC) $(LDFLAGS) $^ $(LDLIBS) -o $@
+
+$(NATIVE_BUILD)/bench_native.o: $(NATIVE_DIR)/tests/bench_native.c $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_DIR)/src/nilamp_cpu.h | $(NATIVE_BUILD)
+	$(CC) $(CFLAGS) -DNILAMP_ENABLE_TEST_API -c $< -o $@
+
+$(NATIVE_BIN)/bench_native: $(NATIVE_BUILD)/bench_native.o $(NATIVE_BUILD)/nilamp_dsp_test.o $(NATIVE_BUILD)/nilamp_tables.o | $(NATIVE_BIN)
 	$(CC) $(LDFLAGS) $^ $(LDLIBS) -o $@
 
 $(NATIVE_BUILD)/test_clap_load.o: $(NATIVE_DIR)/tests/test_clap_load.c $(CLAP_INCLUDE)/clap/clap.h | $(NATIVE_BUILD)

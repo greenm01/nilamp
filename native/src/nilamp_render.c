@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "nilamp_dsp.h"
+#include "nilamp_cpu.h"
 
 #include <errno.h>
 #include <math.h>
@@ -303,6 +304,8 @@ static int parse_args(int argc, char **argv, Args *args)
 
 int main(int argc, char **argv)
 {
+    nilamp_cpu_enable_realtime_float_mode();
+
     Args args;
     if (parse_args(argc, argv, &args) != 0) {
         return 2;

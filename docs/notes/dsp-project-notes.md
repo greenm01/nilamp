@@ -8,7 +8,8 @@ Status update, 2026-05-05: these notes were written before the project moved
 away from the Faust/Rust experiment. The current implementation direction is
 native C for DSP and plugin code, plain `make` for builds, Lua for REAPER host
 harness automation, and Python only for offline/reference tooling where it is
-already useful.
+already useful. The native ADNL hot path uses generated `float` polynomial
+tables, not runtime `tanhf()` or linear interpolation.
 
 ---
 
@@ -16,7 +17,7 @@ already useful.
 
 **What**: Linux-native CLAP guitar amp plugin built on Keller's architecture, extended to support multiple amps. For fun. Fills a real gap in the Linux audio ecosystem (most amp plugins are Mac/Windows-only or paid).
 
-**Foundation**: Helmut Keller's "A Tube Amp Modeling Project" 5E3 emulation (JSFX, runs in REAPER or via YSFX wrapper). Block-diagram + ADAA + lookup tables. Already sounds good and runs on a tablet. We extend, we don't replace.
+**Foundation**: Helmut Keller's "A Tube Amp Modeling Project" 5E3 emulation (JSFX, runs in REAPER or via YSFX wrapper). Block-diagram + ADAA + polynomial lookup tables. Already sounds good and runs on a tablet. We extend, we don't replace.
 
 **Tech stack**: native C DSP + native C CLAP shell, built with plain `make`.
 Lua drives REAPER validation/render harnesses. Python remains for offline
@@ -170,6 +171,8 @@ So Keller is already partly physical. What needs replacing (T2.2) is the *shape*
 Only **one function** needs replacement: `adnl_set_glf` in `HK_LIB_ADNL.jsfx-inc` (lines 27–185).
 
 That function's only job is to fill the lookup table with NL function values on a grid. Everything downstream (closed-loop resampling lines 79–117, polynomial fitting lines 119–180, ADAA runtime lines 187–257) is curve-agnostic.
+
+Native status: `tools/gen_5e3_tables.py` emits `native/generated/nilamp_tables.{c,h}` as `const float` coefficient arrays. Each 1500-segment table stores cubic coefficients for the nonlinear curve and quartic coefficients for its antiderivative, plus clamp metadata. `native/src/nilamp_dsp.c::adnl_process()` evaluates those coefficients with Horner form and uses Keller's small-delta ADAA fallback when consecutive samples are too close for a stable antiderivative difference quotient.
 
 ---
 
@@ -404,9 +407,17 @@ CPU budget at 48 kHz (~20 µs per sample, modern CPU):
 | Lambert W (Veberič rational) | ~50–100 | ~25 ns |
 | Cardano cubic | ~100–200 | ~50 ns |
 | Newton on BJT (3–5 iters) | ~600–2500 | ~600 ns |
-| Table lookup (Keller-style) | ~30–50 | ~15 ns |
+| Polynomial table lookup (Keller ADNL) | ~30–50 | ~15 ns |
 
 Plenty of headroom for multi-amp + oversampling on commodity hardware.
+
+Native performance hygiene:
+
+- Runtime tables are `float`, which keeps the ADNL coefficient working set smaller and L1-friendlier than `double`.
+- ADNL is polynomial-segment evaluation, not linear interpolation; cubic/Hermite replacement is not relevant unless the table generator changes.
+- Direct Form II biquads are used for Keller ADNL EQ and LP2; SVF filters keep compact state for tone and speaker EQ sections.
+- The native CLAP and CLI render paths enable x86 FTZ/DAZ mode through `nilamp_cpu_enable_realtime_float_mode()` so silence tails and feedback states do not pay denormal penalties.
+- Use `make native-bench` for quick local timing of ADNL and full-engine sine/silence throughput.
 
 ---
 

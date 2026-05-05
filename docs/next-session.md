@@ -2,6 +2,39 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: Native performance hygiene -> ADNL NOTES CORRECTED
+
+**Edit summary.**
+
+- Added an x86-gated FTZ/DAZ helper and enabled it in the CLAP processing path
+  and native CLI renderers.
+- Added `make native-bench` for quick local timing of the ADNL hot path and
+  full-engine sine/silence throughput.
+- Updated DSP project notes to clarify that the native ADNL runtime uses
+  generated `float` polynomial coefficient tables with a small-delta ADAA
+  fallback, not `tanhf()` or linear interpolation.
+
+**Verification.**
+
+- `make native-test` passes.
+- `make native-bench` passes locally:
+  `adnl_t4_6v6` `3.67 ns/sample`, `engine_sine` `270.40 ns/sample`
+  (`77.04x` realtime), `engine_silence` `256.31 ns/sample` (`81.28x`
+  realtime).
+- `make native-host-test` passes: `clap-validator` reports 21 tests run,
+  16 passed, 0 failed, 5 skipped; REAPER render remains finite with peak
+  `7.398350e+14`.
+- Tap/public guard and 16-channel tap comparisons are unchanged from the
+  late-stage tap baseline: sine final `v_out` residual `-20.9 dB`, sweep final
+  `v_out` residual `-19.7 dB`.
+
+**Next work.**
+
+1. Use benchmark numbers to decide whether table/cache optimization is worth
+   touching. Do not change table format without profiling evidence.
+2. Keep Keller parity work focused on the T4/T5 power-pair output mismatch
+   found by the 16-channel tap diagnostics.
+
 ### Session: Late-stage tap expansion -> POWER PAIR REMAINS FIRST USEFUL SUSPECT
 
 **Edit summary.**

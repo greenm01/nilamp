@@ -48,6 +48,15 @@ The no-GUI CLAP plugin is:
 native/bin/nilamp.clap
 ```
 
+Quick native throughput benchmark:
+
+```bash
+make native-bench
+```
+
+The CLAP and CLI render paths enable x86 FTZ/DAZ floating-point mode when
+available. Non-x86 builds compile the helper away.
+
 `make native-test` runs both the DSP fixture tests and a small CLAP loader
 smoke test that scans the plugin, activates it, processes audio, and applies
 one automation event.

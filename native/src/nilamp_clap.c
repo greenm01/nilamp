@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 #include "nilamp_dsp.h"
+#include "nilamp_cpu.h"
 
 #include <clap/clap.h>
 
@@ -239,6 +240,7 @@ static bool nilamp_activate(const clap_plugin_t *plugin, double sample_rate,
     (void)min_frames_count;
     (void)max_frames_count;
 
+    nilamp_cpu_enable_realtime_float_mode();
     NilampClap *plug = nilamp_from_plugin(plugin);
     if (!plug || !isfinite(sample_rate) || sample_rate <= 0.0) {
         return false;
@@ -263,6 +265,7 @@ static void nilamp_deactivate(const clap_plugin_t *plugin)
 
 static bool nilamp_start_processing(const clap_plugin_t *plugin)
 {
+    nilamp_cpu_enable_realtime_float_mode();
     return nilamp_from_plugin(plugin) != NULL;
 }
 
@@ -382,6 +385,7 @@ static void nilamp_handle_event(NilampClap *plug, const clap_event_header_t *eve
 static clap_process_status nilamp_process(const clap_plugin_t *plugin,
                                           const clap_process_t *process)
 {
+    nilamp_cpu_enable_realtime_float_mode();
     NilampClap *plug = nilamp_from_plugin(plugin);
     if (!plug || !process || process->frames_count == 0) {
         return CLAP_PROCESS_CONTINUE;
