@@ -17,6 +17,7 @@ should run in a future audio callback.
 ```bash
 make native
 make native-test
+make native-host-test
 ```
 
 Generated ADNL tables live under `native/generated/` and are produced by:
@@ -46,6 +47,10 @@ native/bin/nilamp.clap
 `make native-test` runs both the DSP fixture tests and a small CLAP loader
 smoke test that scans the plugin, activates it, processes audio, and applies
 one automation event.
+
+`make native-host-test` runs the no-GUI CLAP through REAPER with temporary
+`CLAP_PATH` discovery. It is intentionally separate from `make native-test`
+because it depends on a local host and graphical/audio environment.
 
 `tools/abx_compare.py` defaults to `native/bin/nilamp_render` for comparison
 against the canonical Keller JSFX render.

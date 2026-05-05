@@ -7,6 +7,7 @@ Nim, Python, or Lua to the plugin runtime.
 
 - Use Pugl for native plugin window creation, embedding, and event handling.
 - Use Sokol headers for lightweight drawing/runtime support where useful.
+- Use NanoVG for immediate-mode 2D vector drawing.
 - Keep the CLAP DSP/audio callback independent from the GUI layer.
 - Keep GUI allocation, file I/O, and host/UI calls out of `process()`.
 - Vendor headers under `third_party/` when the UI work begins, with upstream

@@ -22,7 +22,7 @@ NATIVE_PIC_OBJS := \
 	$(NATIVE_BUILD)/nilamp_dsp.pic.o \
 	$(NATIVE_BUILD)/nilamp_tables.pic.o
 
-.PHONY: all native native-test clean-native
+.PHONY: all native native-test native-host-test clean-native
 
 all: native
 
@@ -31,6 +31,9 @@ native: $(NATIVE_BIN)/nilamp_render $(NATIVE_BIN)/nilamp_taps_render $(NATIVE_BI
 native-test: $(NATIVE_BIN)/test_native $(NATIVE_BIN)/test_clap_load $(NATIVE_BIN)/nilamp.clap
 	$(NATIVE_BIN)/test_native
 	$(NATIVE_BIN)/test_clap_load $(NATIVE_BIN)/nilamp.clap
+
+native-host-test: $(NATIVE_BIN)/nilamp.clap
+	python3 tools/clap_validate/validate_reaper_clap.py --plugin $<
 
 $(NATIVE_BUILD) $(NATIVE_BIN):
 	mkdir -p $@

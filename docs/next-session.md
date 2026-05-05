@@ -2,7 +2,7 @@
 
 ## SESSION LOG (most recent first)
 
-### Session: C CLAP shell lands -> SMOKE TEST PASS
+### Session: C CLAP shell lands -> REAPER HOST TEST PASS
 
 **Edit summary.**
 
@@ -17,20 +17,26 @@
   automation event.
 - Updated `make native` to build `native/bin/nilamp.clap`; updated
   `make native-test` to run the CLAP smoke test.
+- Added `make native-host-test`, a REAPER-dependent CLAP host validation that
+  uses temporary `CLAP_PATH` discovery, verifies host-visible parameters, and
+  renders a short test WAV.
+- The host test opens and saves a temporary `/tmp` project before quitting so
+  REAPER does not prompt to save the validation project.
 
 **Verification.**
 
 - `make native-test` passes.
+- `make native-host-test` passes. `clap-validator` was not found on PATH, so
+  external CLAP validation was skipped; REAPER rendered finite non-silent
+  output with peak `1.136228e+05`.
 
 **Next work.**
 
-1. Run an external CLAP validator when one is available locally.
-2. Try `native/bin/nilamp.clap` in REAPER and confirm generic host controls
-   expose all six parameters.
-3. Continue JSFX parity work using `native/bin/nilamp_render`; the plugin shell
+1. Continue JSFX parity work using `native/bin/nilamp_render`; the plugin shell
    should stay thin until the DSP/parity surface stabilizes.
-4. For GUI work, follow `docs/notes/gui-dev.md`: Pugl for native plugin
-   windowing/embed and Sokol headers for lightweight drawing/runtime support.
+2. For GUI work, follow `docs/notes/gui-dev.md`: Pugl for native plugin
+   windowing/embed, Sokol headers for lightweight runtime support, and NanoVG
+   for immediate-mode 2D drawing.
 
 ### Session: ABX harness gain mapping fix -> PUBLIC GATES PASS
 

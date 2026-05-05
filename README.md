@@ -46,6 +46,7 @@ docs/                 Current notes, research references, ABX notes
 ```bash
 make native
 make native-test
+make native-host-test
 ```
 
 This builds:
@@ -75,6 +76,10 @@ python3 tools/abx_compare.py input.wav
 python3 tools/abx_compare.py --preset sine
 python3 tools/abx_compare.py --preset sweep
 ```
+
+`make native-host-test` is REAPER-dependent. It validates the CLAP plugin
+through a real host using temporary `CLAP_PATH` discovery and does not install
+or symlink the plugin into `~/.clap`.
 
 ## License
 

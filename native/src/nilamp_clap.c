@@ -39,6 +39,7 @@ typedef struct NilampParamSpec {
 typedef struct NilampClap {
     clap_plugin_t plugin;
     const clap_host_t *host;
+    const clap_host_params_t *host_params;
     NilampEngine *engines[2];
     NilampParams params;
     double sample_rate;
@@ -210,7 +211,16 @@ static void nilamp_copy_text(char *dst, size_t dst_size, const char *src)
 
 static bool nilamp_init(const clap_plugin_t *plugin)
 {
-    return nilamp_from_plugin(plugin) != NULL;
+    NilampClap *plug = nilamp_from_plugin(plugin);
+    if (!plug || !plug->host || !clap_version_is_compatible(plug->host->clap_version)) {
+        return false;
+    }
+
+    if (plug->host->get_extension) {
+        plug->host_params =
+            (const clap_host_params_t *)plug->host->get_extension(plug->host, CLAP_EXT_PARAMS);
+    }
+    return true;
 }
 
 static void nilamp_destroy(const clap_plugin_t *plugin)
@@ -600,6 +610,9 @@ static bool nilamp_state_load(const clap_plugin_t *plugin, const clap_istream_t 
         return false;
     }
     nilamp_apply_params(plug);
+    if (plug->host_params && plug->host_params->rescan) {
+        plug->host_params->rescan(plug->host, CLAP_PARAM_RESCAN_VALUES | CLAP_PARAM_RESCAN_TEXT);
+    }
     return true;
 }
 
