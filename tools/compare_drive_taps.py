@@ -90,6 +90,10 @@ CHANNEL_NAMES = [
     "t4_advk_public",      # 17
     "t4_advk_v6",          # 18
     "t4_advk_v10",         # 19
+    "t4_in_v13_drive",     # 20
+    "t4_v_v13",            # 21
+    "t4_in_v15_drive",     # 22
+    "t4_v_v15",            # 23
 ]
 NUM_CHANNELS = len(CHANNEL_NAMES)
 

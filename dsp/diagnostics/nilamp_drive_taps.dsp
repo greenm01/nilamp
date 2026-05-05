@@ -11,7 +11,7 @@
 // dsp/nilamp.dsp.  All extra T4/T5 instances feed off the same `old_dvs` and
 // have their dia outputs discarded -- they do not perturb PSS.
 //
-// Outputs (20 channels):
+// Outputs (24 channels):
 //   T3 outputs:
 //     0. res4_v_public         T3 plate, public path
 //     1. res4_vk_public        T3 cathode, public path
@@ -38,6 +38,11 @@
 //    17. t4_advk_public         averager-feedback proxy, public
 //    18. t4_advk_v6             averager-feedback proxy, v6
 //    19. t4_advk_v10            averager-feedback proxy, v10
+//   DC-preserving variants (test fix for v6/v10 bias-loop divergence):
+//    20. t4_in_v13_drive        v13 T4 drive = res4_v * k1 -> peq -> hs (no hp)
+//    21. t4_v_v13               post-tube T4 voltage, v13 drive
+//    22. t4_in_v15_drive        v15 T4 drive = DC-bypass + (AC * k1 -> peq -> hs)
+//    23. t4_v_v15               post-tube T4 voltage, v15 drive
 //
 // Channel 4 == channel 0 by construction; channel 13 == channel 9 by
 // construction.  Both are kept as sanity slots.
@@ -82,7 +87,7 @@ process = _ : *(gain1) : global_loop
 with {
     global_loop(vin) = loop_block(vin)
     with {
-        loop_block(v_in_ext) = (loop_core(v_in_ext) ~ _) : !, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _
+        loop_block(v_in_ext) = (loop_core(v_in_ext) ~ _) : !, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _
         with {
             loop_core(v_in_ext, old_dvs) =
                 next_dvs_current,
@@ -105,7 +110,11 @@ with {
                 ch16_t4_dia_v10,
                 ch17_t4_advk_public,
                 ch18_t4_advk_v6,
-                ch19_t4_advk_v10
+                ch19_t4_advk_v10,
+                ch20_t4_in_v13_drive,
+                ch21_t4_v_v13,
+                ch22_t4_in_v15_drive,
+                ch23_t4_v_v15
             with {
                 res1 = tube.tube_ck_simple(
                     TBL_SIZE, t1_table, XMAX, DX,
@@ -180,6 +189,30 @@ with {
                     : flt.flt_sv2_peq(kp1, fp_hz, qp1, 1, 1)
                     : flt.flt_sv1_hs(ks1, fs1_hz, 1);
 
+                // v13: peq + hs only on res4_v.  No high-pass.
+                // Tests whether removing hp(hp3) preserves T3 plate's DC
+                // operating point through the EQ chain into T4.  k1 still
+                // attenuates DC by ~20%, so a residual ~-4 V drive-DC delta
+                // vs public is expected.
+                drive_t4_v13 = res4_v
+                    : *(k1_mode0)
+                    : flt.flt_sv2_peq(kp1, fp_hz, qp1, 1, 1)
+                    : flt.flt_sv1_hs(ks1, fs1_hz, 1);
+
+                // v15: DC-bypass variant.  Splits res4_v into DC (lp at 1 Hz,
+                // well below t4_avg_f=23.58 Hz) and AC; runs *k1 -> peq -> hs
+                // on AC only and re-adds DC.  Result: at DC the chain is
+                // unity gain (matches public exactly); in audio band it
+                // matches v13.  Tests whether k1's 0.797 DC attenuation
+                // contributes a non-zero residual on top of v13.
+                res4_v_dc = res4_v : flt.flt_ii1_lp(1.0);
+                res4_v_ac = res4_v - res4_v_dc;
+                drive_t4_v15 = res4_v_ac
+                    : *(k1_mode0)
+                    : flt.flt_sv2_peq(kp1, fp_hz, qp1, 1, 1)
+                    : flt.flt_sv1_hs(ks1, fs1_hz, 1)
+                    : +(res4_v_dc);
+
                 // Public T4 (drive = res4_v).  Provides dia for PSS and ch8.
                 res_t4_public = tube.tube_ck_simple(
                     TBL_SIZE, t4_table, XMAX, DX,
@@ -233,6 +266,27 @@ with {
                 t4_v_v10_local = res_t4_v10 : _ , !;
                 t4_dia_v10_local = res_t4_v10 : ! , _;
 
+                // v13 T4 (drive = drive_t4_v13).  dia discarded; advk
+                // would also be informative but kept minimal here.
+                res_t4_v13 = tube.tube_ck_simple(
+                    TBL_SIZE, t4_table, XMAX, DX,
+                    c.t4_kpre, c.t4_isat, c.t4_rl, c.t4_kpk,
+                    c.t4_kspre, c.t4_kspost, c.t4_ksva, c.t4_ksib, c.t4_kfb,
+                    c.t4_pk_xth, c.t4_pk_xdiode, c.t4_pk_k1, c.t4_pk_k2,
+                    c.t4_avg_f,
+                    drive_t4_v13, old_dvs);
+                t4_v_v13_local = res_t4_v13 : _ , !;
+
+                // v15 T4 (drive = drive_t4_v15).  dia discarded.
+                res_t4_v15 = tube.tube_ck_simple(
+                    TBL_SIZE, t4_table, XMAX, DX,
+                    c.t4_kpre, c.t4_isat, c.t4_rl, c.t4_kpk,
+                    c.t4_kspre, c.t4_kspost, c.t4_ksva, c.t4_ksib, c.t4_kfb,
+                    c.t4_pk_xth, c.t4_pk_xdiode, c.t4_pk_k1, c.t4_pk_k2,
+                    c.t4_avg_f,
+                    drive_t4_v15, old_dvs);
+                t4_v_v15_local = res_t4_v15 : _ , !;
+
                 // Averager-feedback proxy: lp(t4_avg_f, t4_v - dvs) * t4_kfb.
                 // This mirrors `tube_ck` internal `next_advk` exactly given
                 // identical pk/avg parameters; it is *not* the actual fed-back
@@ -274,6 +328,10 @@ with {
                 ch17_t4_advk_public = t4_advk_public_local;
                 ch18_t4_advk_v6 = t4_advk_v6_local;
                 ch19_t4_advk_v10 = t4_advk_v10_local;
+                ch20_t4_in_v13_drive = drive_t4_v13;
+                ch21_t4_v_v13 = t4_v_v13_local;
+                ch22_t4_in_v15_drive = drive_t4_v15;
+                ch23_t4_v_v15 = t4_v_v15_local;
             };
         };
     };

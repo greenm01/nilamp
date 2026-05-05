@@ -72,6 +72,8 @@ VARIANTS = (
     ("public", CH_DRV_PUBLIC, CH_T4_PUBLIC),
     ("v6",     CH_DRV_V6,     CH_T4_V6),
     ("v10",    CH_DRV_V10,    CH_T4_V10),
+    ("v13",    20,            21),
+    ("v15",    22,            23),
 )
 
 

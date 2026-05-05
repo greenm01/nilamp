@@ -28,7 +28,7 @@ mod diag {
     include!(concat!(env!("OUT_DIR"), "/nilamp_drive_taps.rs"));
 }
 
-const NUM_CHANNELS: usize = 20;
+const NUM_CHANNELS: usize = 24;
 
 #[derive(Debug)]
 struct Args {
@@ -62,7 +62,7 @@ impl Default for Args {
 const USAGE: &str = "\
 nilamp_drive_probe_render --input IN.wav --output OUT.wav [params]
 
-Writes a 20-channel float32 WAV with channels:
+Writes a 24-channel float32 WAV with channels:
    0. res4_v_public         T3 plate, public path
    1. res4_vk_public        T3 cathode, public path
    2. res4_backend_v        T3 plate with hp(0.41) pre-T3 (v6 source)
@@ -83,6 +83,10 @@ Writes a 20-channel float32 WAV with channels:
   17. t4_advk_public         averager-feedback proxy (kfb*lp(t4_avg_f, v-dvs))
   18. t4_advk_v6             averager-feedback proxy, v6
   19. t4_advk_v10            averager-feedback proxy, v10
+  20. t4_in_v13_drive        v13 T4 drive (no hp; *k1 -> peq -> hs of res4_v)
+  21. t4_v_v13               Post-tube T4 voltage, v13 drive
+  22. t4_in_v15_drive        v15 T4 drive (DC-bypass: AC -> *k1 -> peq -> hs +DC)
+  23. t4_v_v15               Post-tube T4 voltage, v15 drive
 
 Params:
   --gain    -24..24    Input gain (dB)
