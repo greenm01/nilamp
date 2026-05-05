@@ -2,6 +2,37 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: ABX harness gain mapping fix -> PUBLIC GATES PASS
+
+**Edit summary.**
+
+- Confirmed `TrackFX_SetParam` writes raw JSFX slider values by logging
+  `TrackFX_GetParam` readbacks after every harness slider set.
+- Moved REAPER project/render sample-rate setup before media insertion and
+  JSFX instantiation so Keller's `srate`-derived coefficients initialize at
+  the intended render rate.
+- Fixed the ABX input gain mapping to compensate only Keller's explicit
+  `+12 dB` `p.gin` lift. The old `sqrt(1.2)` compensation made the native path
+  too hot and caused the sine gate miss.
+- Bumped the JSFX cache key and included the Lua render driver plus staged
+  JSFX source in the key so harness changes cannot reuse stale reference WAVs.
+
+**Verification.**
+
+- `python3 -m py_compile tools/abx_compare.py tools/jsfx_render/render_jsfx.py`
+  passes.
+- `make native` and `make native-test` pass.
+- ABX sine: `-16.5 dB` residual below native peak, threshold `-16.0 dB` -> PASS.
+  Correlation `0.999330`; best native-to-JSFX gain `0.805336` (`-1.88 dB`).
+- ABX sweep: `-16.8 dB` residual below native peak, threshold `-11.2 dB` -> PASS.
+  Correlation `0.978765`; best native-to-JSFX gain `0.732585` (`-2.70 dB`).
+
+**Next work.**
+
+1. Keep the ABX harness gain mapping at `p.gin = gain_db - 12`.
+2. Remaining parity work should target shape/phase residuals, not global output
+   gain; the public gates now pass.
+
 ### Session: Source-backed JSFX topology fixes -> SINE STILL SCALE-LIMITED
 
 **Edit summary.**

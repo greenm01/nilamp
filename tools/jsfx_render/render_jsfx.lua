@@ -12,16 +12,17 @@
 --
 -- Strategy:
 --   1. Start from an empty project (REAPER opens with one when given a script).
---   2. Insert input wav as media on a new track.
---   3. Add JSFX, set slider params via TrackFX_SetParam (param index 0-based,
+--   2. Force project/render sample rate before JSFX @init/@slider runs.
+--   3. Insert input wav as media on a new track.
+--   4. Add JSFX, set slider params via TrackFX_SetParam (param index 0-based,
 --      JSFX exposes sliders in order — REAPER param index = slider index - 1).
---   4. Configure render: bounds = entire project, format = 32-bit float WAV,
+--   5. Configure render: bounds = entire project, format = 32-bit float WAV,
 --      channels = 1, sample rate = sr, output filename pattern.
---   5. Render synchronously via Main_OnCommand(42230) (File: Render project,
+--   6. Render synchronously via Main_OnCommand(42230) (File: Render project,
 --      using the most recent render settings, auto-close render dialog).
 --      Fallback: 41824 = "File: Render project, using the most recent render
 --      settings" — opens dialog. We want non-interactive: 42230.
---   6. Quit REAPER.
+--   7. Quit REAPER.
 
 local cfg_path = "/tmp/render_jsfx_cfg.lua"
 local ok, cfg = pcall(dofile, cfg_path)
@@ -45,7 +46,17 @@ log("effect=" .. tostring(cfg.effect))
 -- 1. Use the project REAPER opened for us; just ensure it's empty.
 -- (Skipping close-project to avoid leaving REAPER without an active project.)
 
--- 2. Add a track and insert input media.
+-- 2. Force sample rate before inserting media or instantiating JSFX. Keller's
+-- JSFX computes filter and smoothing coefficients from srate during @init and
+-- @slider, so setting this later can leave the reference render initialized at
+-- the device/default rate.
+local sr = cfg.sr or 48000
+reaper.GetSetProjectInfo(0, "PROJECT_SRATE", sr, true)
+reaper.GetSetProjectInfo(0, "PROJECT_SRATE_USE", 1, true)
+reaper.GetSetProjectInfo(0, "RENDER_SRATE", sr, true)
+log("sample rate forced before FX init: " .. tostring(sr))
+
+-- 3. Add a track and insert input media.
 reaper.InsertTrackAtIndex(0, true)
 local track = reaper.GetTrack(0, 0)
 reaper.SetOnlyTrackSelected(track)
@@ -54,7 +65,7 @@ reaper.SetEditCurPos(0, false, false)
 local insret = reaper.InsertMedia(cfg.input, 0)
 log("InsertMedia ret=" .. tostring(insret))
 
--- 3. Add JSFX. AddByName flag bits: 1 = add (not just query).
+-- 4. Add JSFX. AddByName flag bits: 1 = add (not just query).
 local effect_name = cfg.effect or "nilamp_abx/twd_dlx_ii_harness"
 local fx_idx = reaper.TrackFX_AddByName(track, effect_name, false, -1)
 log("TrackFX_AddByName ret=" .. tostring(fx_idx))
@@ -69,22 +80,18 @@ log("n_params=" .. tostring(n_params))
 for _, sl in ipairs(cfg.sliders or {}) do
   local pidx = sl.index - 1
   if pidx >= 0 and pidx < n_params then
-    -- TrackFX_SetParam expects normalized [0,1]? No: for JSFX, the value is
-    -- the raw slider value (REAPER maps it via min/max). Use SetParamNormalized
-    -- only when we have a normalized value. Use TrackFX_SetParam for raw.
-    -- However TrackFX_SetParam in REAPER actually wants normalized for most
-    -- plugins but for JSFX it accepts raw within slider range. Try raw first.
     local set_ok = reaper.TrackFX_SetParam(track, fx_idx, pidx, sl.value)
-    log(string.format("slider %d (param %d) <- %s : ok=%s",
-      sl.index, pidx, tostring(sl.value), tostring(set_ok)))
+    local actual, minval, maxval = reaper.TrackFX_GetParam(track, fx_idx, pidx)
+    log(string.format("slider %d (param %d) requested=%s ok=%s readback=%s range=[%s,%s]",
+      sl.index, pidx, tostring(sl.value), tostring(set_ok), tostring(actual),
+      tostring(minval), tostring(maxval)))
+  else
+    log(string.format("slider %d skipped: param index %d outside [0,%d)",
+      sl.index, pidx, n_params - 1))
   end
 end
 
--- 4. Configure render settings via project info.
-local sr = cfg.sr or 48000
-reaper.GetSetProjectInfo(0, "PROJECT_SRATE", sr, true)
-reaper.GetSetProjectInfo(0, "PROJECT_SRATE_USE", 1, true)
-
+-- 5. Configure render settings via project info.
 -- Render bounds: 1 = entire project
 reaper.GetSetProjectInfo(0, "RENDER_BOUNDSFLAG", 1, true)
 -- Render channels: 1 = mono
@@ -123,10 +130,10 @@ reaper.GetSetProjectInfo_String(0, "RENDER_FORMAT", fmt_blob, true)
 
 log("render config set; out_dir=" .. out_dir .. " out_name=" .. out_name)
 
--- 5. Render. 42230 = "File: Render project, using the most recent render
+-- 6. Render. 42230 = "File: Render project, using the most recent render
 -- settings (auto-close render dialog)".
 reaper.Main_OnCommand(42230, 0)
 log("render command issued")
 
--- 6. Quit. Use 40004 = "File: Quit REAPER".
+-- 7. Quit. Use 40004 = "File: Quit REAPER".
 reaper.Main_OnCommand(40004, 0)

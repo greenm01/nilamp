@@ -14,11 +14,10 @@ Pipeline per test point:
   6. Pass/fail vs configurable thresholds.
 
 Slider mapping (nilamp params <-> JSFX sliders), native units:
-    gain    (-12..12 dB)  ->   gin     (-12..12 dB)  with -12.79 dB offset
-                               (JSFX applies an internal +12 dB plus a
-                                sqrt(1.2) factor; the harness translates
-                                p.gin = gain_db - 12.79 to equalize.
-                                nilamp gain_db must be in [+0.79, +24.79] dB.)
+    gain    (-12..12 dB)  ->   gin     (-12..12 dB)  with -12 dB offset
+                               (JSFX applies an internal +12 dB lift; the
+                                harness translates p.gin = gain_db - 12.
+                                nilamp gain_db must be in [0, +24] dB.)
     volume  (0..100 %)    <->  vol     (0..100 %)    identity
     bass    (0..100 %)    <->  bass    (0..100 %)    identity
     mid     (0..100 %)    <->  mid     (0..100 %)    identity
@@ -56,6 +55,10 @@ from typing import Sequence
 REPO_ROOT = Path(__file__).resolve().parent.parent
 NILAMP_RENDER = REPO_ROOT / "native" / "bin" / "nilamp_render"
 JSFX_RENDER = [sys.executable, "-m", "tools.jsfx_render.render_jsfx"]
+JSFX_RENDER_DRIVER = REPO_ROOT / "tools" / "jsfx_render" / "render_jsfx.lua"
+JSFX_SOURCE = (
+    Path.home() / ".config" / "REAPER" / "Effects" / "nilamp_abx" / "twd_dlx_ii_harness.jsfx"
+)
 
 # JSFX warm-up window (see module docstring).
 JSFX_WARMUP_S = 0.100
@@ -63,11 +66,11 @@ JSFX_WARMUP_S = 0.100
 # JSFX input-gain offset, derived from twd_dlx_ii_harness.jsfx
 # parameter_update() line 229:
 #     gin_eff = 10^(0.05 * (p.gin + 12)) * sqrt(1.2)
-# Native nilamp applies plain db2linear(p.gain). Equating effective gains:
-# p.gin = p.gain - 12 - 20*log10(sqrt(1.2)) = p.gain - 12.79.
-# We translate at the harness boundary so identical nilamp gain_db produces
-# identical actual signal gain into T1.
-JSFX_GIN_OFFSET_DB = 12.0 + 20.0 * math.log10(math.sqrt(1.2))  # = 12.7918
+# Native nilamp's external gain control maps to Keller's user-visible p.gin
+# after the fixed +12 dB lift. Keller's sqrt(1.2) remains part of the canonical
+# amp calibration rather than a user-gain offset; compensating it here makes the
+# native path too hot against the raw-slider JSFX render.
+JSFX_GIN_OFFSET_DB = 12.0
 
 # JSFX gin slider range, from twd_dlx_ii_harness.jsfx slider1 declaration.
 JSFX_GIN_MIN_DB = -12.0
@@ -268,9 +271,14 @@ def render_jsfx(input_wav: Path, output_wav: Path, params: Params, timeout_s: fl
 
 def jsfx_cache_key(input_wav: Path, params: Params) -> str:
     h = hashlib.sha256()
-    h.update(b"nilamp-jsfx-cache-v1\0")
+    h.update(b"nilamp-jsfx-cache-v3\0")
     h.update(input_wav.read_bytes())
     h.update(b"\0")
+    for path in (JSFX_RENDER_DRIVER, JSFX_SOURCE):
+        h.update(str(path).encode("utf-8"))
+        h.update(b"\0")
+        h.update(path.read_bytes())
+        h.update(b"\0")
     for arg in params.to_jsfx_args():
         h.update(arg.encode("utf-8"))
         h.update(b"\0")

@@ -35,7 +35,7 @@ The native renderer exposes:
 
 | nilamp param | Range | JSFX slider | Mapping |
 |---|---:|---|---|
-| `gain` | dB | `gin` | `gin = gain - 12.7918 dB` |
+| `gain` | dB | `gin` | `gin = gain - 12 dB` |
 | `volume` | 0..100 % | `vol` | identity |
 | `bass` | 0..100 % | `bass` | identity |
 | `mid` | 0..100 % | `mid` | identity |
@@ -48,6 +48,15 @@ Pinned JSFX sliders:
 |---|---:|---|
 | `tube1` | `1` | 12AX7 path |
 | `mode` | `0` | CD 5E3 cathodyne |
+| `gcomp` | `2` | TWD DLX II default compensation mode |
+| `gp_pre` / `gp_post` | `1` / `2` | TWD DLX II speaker-resonance defaults |
+| `fp` / `qp` | `38` / `6` | TWD DLX II speaker-resonance defaults |
+| `gs_pre` / `gs_post` | `3` / `3` | TWD DLX II speaker-inductor defaults |
+| `fm` / `qm` / `fs` / `gout` | `56` / `-6` / `62` / `0` | TWD DLX II defaults |
+
+The REAPER driver forces the project/render sample rate before inserting media
+or instantiating JSFX, so Keller's `srate`-derived coefficients initialize at
+the same rate used by the native renderer.
 
 ## Warm-up Trim
 
@@ -76,5 +85,5 @@ tracked in git.
 
 Latest native C run:
 
-- sine preset: `-15.1 dB` residual below native peak, threshold `-16.0 dB` -> FAIL; correlation `0.998704`, best A->B gain `-2.20 dB`
-- sweep preset: `-15.0 dB` residual below native peak, threshold `-11.2 dB` -> PASS; correlation `0.979004`, best A->B gain `-3.26 dB`
+- sine preset: `-16.5 dB` residual below native peak, threshold `-16.0 dB` -> PASS; correlation `0.999330`, best A->B gain `-1.88 dB`
+- sweep preset: `-16.8 dB` residual below native peak, threshold `-11.2 dB` -> PASS; correlation `0.978765`, best A->B gain `-2.70 dB`
