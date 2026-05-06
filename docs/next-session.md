@@ -2,6 +2,79 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: amp-panel editor skin
+
+**Context.** Replaced the temporary vertical slider editor with an amp-panel
+layout inspired by the HK Audio screenshot, while keeping the current six CLAP
+parameters and DSP behavior unchanged.
+
+**Edit summary.**
+
+- `native/src/nilamp_gui.c`
+  - Added a custom Nuklear-drawn rotary knob control using canvas primitives
+    and vertical drag.
+  - Reworked the editor into dark blue/gold framed modules:
+    `Input` gain, center `nilamp` model label, `Power` sag, `Pre Amp` volume /
+    bass / mid / treble, and static tube/cab context labels.
+  - Preserved the existing GUI message/callback path for parameter changes.
+
+**Verification.**
+
+- `make native` passes.
+- `make native-test` passes.
+- `make native-host-test` passes (`clap-validator` absent, skipped).
+- `make native-jsfx-test` passes:
+  - sine ABX residual `-40.8 dB`, correlation `0.999919`;
+  - tap/public guard residual `-48.5 dB`, correlation `0.999986`;
+  - low-input regression: zero / `1e-6` / `1e-4` cases all pass.
+
+### Session: macOS Cocoa CLAP editor enabled
+
+**Context.** Continued from the macOS native build session. The plugin could
+build and process on macOS, but intentionally omitted `CLAP_EXT_GUI` because
+the vendored Pugl source drop only had X11 backend files.
+
+**Edit summary.**
+
+- Vendored Pugl Cocoa/OpenGL backend files into `third_party/pugl/src/`.
+- `Makefile`
+  - Enables `NILAMP_ENABLE_CLAP_GUI=1` on both Linux and Darwin.
+  - Keeps Linux GUI objects on Pugl X11/X11-GL.
+  - Adds Darwin GUI objects for Pugl Cocoa/Cocoa-GL and links Cocoa,
+    CoreVideo, and OpenGL frameworks.
+  - Adds `OBJC` and Objective-C vendor flags for the Pugl `.m` files.
+- `native/src/nilamp_gui.{c,h}`
+  - Replaced the X11-specific parent setter with a platform-neutral
+    `NilampGuiApi` / `NilampGuiParent` boundary.
+  - Keeps the shared Nuklear/Sokol editor implementation unchanged.
+- `native/src/nilamp_clap.c`
+  - Maps CLAP GUI support to the platform API:
+    `CLAP_WINDOW_API_X11` on Linux, `CLAP_WINDOW_API_COCOA` on macOS, and a
+    reserved Win32 path for later.
+- `native/tests/test_clap_load.c`
+  - Expects the platform-native GUI API when GUI support is enabled.
+
+**Verification.**
+
+- `make clean-native && make native` passes on macOS.
+- `make native-test` passes on macOS.
+- `make native-host-test` passes on macOS (`clap-validator` absent, skipped).
+- `make native-jsfx-test` passes on macOS:
+  - sine ABX residual `-40.8 dB`, correlation `0.999919`;
+  - tap/public guard residual `-48.5 dB`, correlation `0.999986`;
+  - low-input regression: zero / `1e-6` / `1e-4` cases all pass.
+
+**Next work.**
+
+1. Install `native/bin/nilamp.clap` into
+   `~/Library/Audio/Plug-Ins/CLAP/nilamp.clap`.
+2. In REAPER on macOS, rescan CLAP plugins and manually verify:
+   editor open/close, parameter moves, host automation reflection, and
+   save/reload state with the editor present.
+3. If Cocoa/OpenGL works in REAPER, preserve this path and defer Metal.
+   If it fails because of host/OpenGL behavior, investigate Sokol Metal as the
+   macOS renderer backend behind the same GUI boundary.
+
 ### Session: macOS native build and dev-chain enablement
 
 **Context.** Portability work to get the current native toolchain running on

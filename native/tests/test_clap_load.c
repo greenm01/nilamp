@@ -17,6 +17,16 @@
 #define NILAMP_EXPECT_CLAP_GUI 1
 #endif
 
+#if NILAMP_EXPECT_CLAP_GUI
+#if defined(__APPLE__)
+#define NILAMP_EXPECT_CLAP_WINDOW_API CLAP_WINDOW_API_COCOA
+#elif defined(_WIN32)
+#define NILAMP_EXPECT_CLAP_WINDOW_API CLAP_WINDOW_API_WIN32
+#else
+#define NILAMP_EXPECT_CLAP_WINDOW_API CLAP_WINDOW_API_X11
+#endif
+#endif
+
 #define NILAMP_PLUGIN_ID "dev.niltempus.nilamp"
 #define NILAMP_HOST_OUTPUT_LIMIT 1.0f
 #define NILAMP_STRESS_SAMPLE_RATE 48000.0f
@@ -562,17 +572,18 @@ int main(int argc, char **argv)
         (const clap_plugin_timer_support_t *)plugin->get_extension(plugin, CLAP_EXT_TIMER_SUPPORT);
 #if NILAMP_EXPECT_CLAP_GUI
     check(gui != NULL, "missing gui extension");
-    check(gui->is_api_supported(plugin, CLAP_WINDOW_API_X11, false),
-          "gui does not support embedded X11");
-    check(!gui->is_api_supported(plugin, CLAP_WINDOW_API_X11, true),
-          "gui unexpectedly supports floating X11");
+    check(gui->is_api_supported(plugin, NILAMP_EXPECT_CLAP_WINDOW_API, false),
+          "gui does not support expected embedded api");
+    check(!gui->is_api_supported(plugin, NILAMP_EXPECT_CLAP_WINDOW_API, true),
+          "gui unexpectedly supports floating expected api");
     check(!gui->is_api_supported(plugin, CLAP_WINDOW_API_WAYLAND, false),
           "gui unexpectedly supports embedded Wayland");
     const char *preferred_api = NULL;
     bool preferred_floating = true;
     check(gui->get_preferred_api(plugin, &preferred_api, &preferred_floating),
           "gui preferred api failed");
-    check(preferred_api && strcmp(preferred_api, CLAP_WINDOW_API_X11) == 0 && !preferred_floating,
+    check(preferred_api && strcmp(preferred_api, NILAMP_EXPECT_CLAP_WINDOW_API) == 0 &&
+              !preferred_floating,
           "unexpected gui preferred api");
     check(timer && timer->on_timer, "missing timer support extension");
 #else

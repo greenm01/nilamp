@@ -1,5 +1,6 @@
 CC ?= cc
 CXX ?= c++
+OBJC ?= $(CC)
 CMAKE ?= $(or $(shell command -v cmake 2>/dev/null),/opt/homebrew/bin/cmake)
 PYTHON_BOOTSTRAP ?= $(or $(wildcard /opt/homebrew/bin/python3.13),$(shell command -v python3 2>/dev/null),python3)
 PYTHON ?= $(or $(wildcard .venv/bin/python3),$(shell command -v python3 2>/dev/null),/opt/homebrew/bin/python3.13)
@@ -22,13 +23,14 @@ CFLAGS ?= -std=c11 -O3 -Wall -Wextra -Wpedantic -Werror -I$(NATIVE_DIR)/src -I$(
 CLAP_CFLAGS := $(CFLAGS) -I$(CLAP_INCLUDE)
 GUI_CFLAGS := $(CLAP_CFLAGS) -I$(PUGL_INCLUDE) -I$(PUGL_SRC) -I$(SOKOL_INCLUDE) -I$(SOKOL_INCLUDE)/util -I$(NUKLEAR_INCLUDE)
 GUI_VENDOR_CFLAGS := -std=c11 -O3 -w -fPIC -D_POSIX_C_SOURCE=200809L -I$(PUGL_INCLUDE) -I$(PUGL_SRC) -I$(SOKOL_INCLUDE) -I$(SOKOL_INCLUDE)/util -I$(NUKLEAR_INCLUDE)
+GUI_VENDOR_OBJCFLAGS := -O3 -w -fPIC -I$(PUGL_INCLUDE) -I$(PUGL_SRC) -I$(SOKOL_INCLUDE) -I$(SOKOL_INCLUDE)/util -I$(NUKLEAR_INCLUDE)
 YSFX_CFLAGS := $(CFLAGS) -isystem $(YSFX_ROOT)/include
 LDFLAGS ?=
 LDLIBS ?= -lm
 DL_LDLIBS :=
 PLUGIN_LDFLAGS := -shared
 GUI_LDLIBS :=
-NILAMP_ENABLE_CLAP_GUI ?= $(if $(filter Linux,$(UNAME_S)),1,0)
+NILAMP_ENABLE_CLAP_GUI ?= $(if $(filter Linux Darwin,$(UNAME_S)),1,0)
 
 ifeq ($(UNAME_S),Linux)
 DL_LDLIBS := -ldl
@@ -37,6 +39,7 @@ endif
 
 ifeq ($(UNAME_S),Darwin)
 PLUGIN_LDFLAGS := -dynamiclib
+GUI_LDLIBS := -framework Cocoa -framework CoreVideo -framework OpenGL
 endif
 
 CLAP_PLUGIN_CFLAGS := $(CLAP_CFLAGS) -DNILAMP_ENABLE_CLAP_GUI=$(NILAMP_ENABLE_CLAP_GUI)
@@ -67,9 +70,19 @@ NATIVE_GUI_OBJS := \
 	$(NATIVE_BUILD)/nilamp_sokol_nuklear.pic.o \
 	$(NATIVE_BUILD)/nilamp_nuklear.pic.o \
 	$(NATIVE_BUILD)/pugl_common.pic.o \
-	$(NATIVE_BUILD)/pugl_internal.pic.o \
+	$(NATIVE_BUILD)/pugl_internal.pic.o
+
+ifeq ($(UNAME_S),Linux)
+NATIVE_GUI_OBJS += \
 	$(NATIVE_BUILD)/pugl_x11.pic.o \
 	$(NATIVE_BUILD)/pugl_x11_gl.pic.o
+endif
+
+ifeq ($(UNAME_S),Darwin)
+NATIVE_GUI_OBJS += \
+	$(NATIVE_BUILD)/pugl_mac.pic.o \
+	$(NATIVE_BUILD)/pugl_mac_gl.pic.o
+endif
 
 ifeq ($(NILAMP_ENABLE_CLAP_GUI),0)
 NATIVE_GUI_OBJS :=
@@ -178,6 +191,12 @@ $(NATIVE_BUILD)/pugl_x11.pic.o: $(PUGL_SRC)/x11.c | $(NATIVE_BUILD)
 
 $(NATIVE_BUILD)/pugl_x11_gl.pic.o: $(PUGL_SRC)/x11_gl.c | $(NATIVE_BUILD)
 	$(CC) $(GUI_VENDOR_CFLAGS) -c $< -o $@
+
+$(NATIVE_BUILD)/pugl_mac.pic.o: $(PUGL_SRC)/mac.m $(PUGL_SRC)/mac.h | $(NATIVE_BUILD)
+	$(OBJC) $(GUI_VENDOR_OBJCFLAGS) -c $< -o $@
+
+$(NATIVE_BUILD)/pugl_mac_gl.pic.o: $(PUGL_SRC)/mac_gl.m $(PUGL_SRC)/mac.h | $(NATIVE_BUILD)
+	$(OBJC) $(GUI_VENDOR_OBJCFLAGS) -c $< -o $@
 
 $(NATIVE_BIN)/nilamp.clap: $(NATIVE_BUILD)/nilamp_clap.o $(NATIVE_PIC_OBJS) $(NATIVE_GUI_OBJS) Makefile | $(NATIVE_BIN)
 	$(CC) $(LDFLAGS) $(PLUGIN_LDFLAGS) $(filter-out Makefile,$^) $(LDLIBS) $(GUI_LDLIBS) -o $@

@@ -25,8 +25,8 @@ this file adds the operational details an agent needs to act safely.
   canonical.
 - **Build system**: plain `make`.
 - **Current deliverable**: native offline renderer, tests, and a C CLAP plugin
-  at `native/bin/nilamp.clap`. The embedded GPU GUI shell is currently
-  Linux/X11-only; macOS builds omit `CLAP_EXT_GUI`.
+  at `native/bin/nilamp.clap`. The embedded GPU GUI shell supports Linux/X11
+  and macOS/Cocoa; Windows is planned but not implemented.
 - **Model baseline**: the current native amp is `Keller TWD DLX II`; preserve
   its behaviour unless a DSP-changing task explicitly says otherwise.
 - **Do not hand-edit staged JSFX harness files** under
@@ -42,7 +42,7 @@ native/
   src/nilamp_dsp.c        C DSP engine. Realtime-safe code lives here.
   src/nilamp_dsp.h        Public C engine API.
   src/nilamp_clap.c       CLAP shell, parameter/state extensions, GUI routing.
-  src/nilamp_gui.c        Pugl/X11 + sokol_gfx + Nuklear GUI module.
+  src/nilamp_gui.c        Pugl + sokol_gfx + Nuklear GUI module.
   src/nilamp_render.c     Offline renderer; also builds the tap renderer.
   src/ysfx_render.c       Headless ysfx runner for Keller JSFX reference renders.
   generated/              Python-generated C ADNL tables. Do not hand-edit.
@@ -50,7 +50,7 @@ native/
   tests/test_clap_load.c  Minimal CLAP scan/activate/process smoke test.
 
 third_party/clap/         Vendored official CLAP C headers.
-third_party/pugl/         Vendored Pugl X11/OpenGL embedding code.
+third_party/pugl/         Vendored Pugl X11/Cocoa/OpenGL embedding code.
 third_party/sokol/        Vendored sokol_gfx and sokol_nuklear headers.
 third_party/nuklear/      Vendored Nuklear immediate GUI header.
 
@@ -136,11 +136,9 @@ depend on legacy DSP source formats or generated build output.
 - `native/src/nilamp_clap.c` may allocate only outside `process()`
   (`create_plugin`/`activate`/`deactivate`/`destroy`). Keep `process()` free of
   allocation, locks, file I/O, Lua/Python, and host callbacks.
-- GUI code uses Pugl embedded X11 for v1, relying on XWayland under Wayland
-  compositors. Do not advertise native Wayland support until there is an
-  implemented and host-tested Wayland path.
-- macOS builds intentionally omit the CLAP GUI extension until a Cocoa-capable
-  embedded backend is vendored and host-tested.
+- GUI code uses Pugl embedded X11 on Linux, relying on XWayland under Wayland
+  compositors, and Pugl Cocoa on macOS. Do not advertise native Wayland or
+  Windows editor support until those paths are implemented and host-tested.
 - Keep the GUI stack C-only: Pugl for embedding/event pump, `sokol_gfx` for GPU
   rendering, Nuklear for widgets, and a small state/update/render boundary in
   our code. Do not add C++, Dear ImGui/cimgui, NanoVG, or `sokol_app.h` to the

@@ -7,6 +7,17 @@
 
 typedef struct NilampGui NilampGui;
 
+typedef enum NilampGuiApi {
+    NILAMP_GUI_API_X11 = 0,
+    NILAMP_GUI_API_COCOA = 1,
+    NILAMP_GUI_API_WIN32 = 2,
+} NilampGuiApi;
+
+typedef struct NilampGuiParent {
+    NilampGuiApi api;
+    uintptr_t handle;
+} NilampGuiParent;
+
 typedef struct NilampGuiParamSpec {
     uint32_t id;
     const char *name;
@@ -24,10 +35,11 @@ typedef struct NilampGuiCallbacks {
 
 NilampGui *nilamp_gui_create(const NilampGuiCallbacks *callbacks,
                              const NilampGuiParamSpec *params,
-                             uint32_t param_count);
+                             uint32_t param_count,
+                             NilampGuiApi api);
 void nilamp_gui_destroy(NilampGui *gui);
 
-bool nilamp_gui_set_parent_x11(NilampGui *gui, unsigned long parent);
+bool nilamp_gui_set_parent(NilampGui *gui, NilampGuiParent parent);
 bool nilamp_gui_show(NilampGui *gui);
 bool nilamp_gui_hide(NilampGui *gui);
 bool nilamp_gui_set_scale(NilampGui *gui, double scale);

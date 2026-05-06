@@ -86,9 +86,8 @@ make setup-python
 
 - `make native`, `make native-test`, `make native-host-test`, and
   `make native-jsfx-test` work on macOS.
-- The current embedded CLAP editor remains Linux/X11-only because the vendored
-  Pugl backend set only includes X11 sources. macOS builds produce a CLAP plugin
-  without the `CLAP_EXT_GUI` editor extension for now.
+- The embedded CLAP editor supports Cocoa on macOS and X11/XWayland on Linux.
+  Native Wayland and Windows editor support are future work.
 
 Regenerate generated native tables after table-generator changes:
 

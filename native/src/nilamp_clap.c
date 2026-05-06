@@ -22,6 +22,19 @@
 #define NILAMP_ENABLE_CLAP_GUI 1
 #endif
 
+#if NILAMP_ENABLE_CLAP_GUI
+#if defined(__APPLE__)
+#define NILAMP_CLAP_WINDOW_API CLAP_WINDOW_API_COCOA
+#define NILAMP_GUI_NATIVE_API NILAMP_GUI_API_COCOA
+#elif defined(_WIN32)
+#define NILAMP_CLAP_WINDOW_API CLAP_WINDOW_API_WIN32
+#define NILAMP_GUI_NATIVE_API NILAMP_GUI_API_WIN32
+#else
+#define NILAMP_CLAP_WINDOW_API CLAP_WINDOW_API_X11
+#define NILAMP_GUI_NATIVE_API NILAMP_GUI_API_X11
+#endif
+#endif
+
 #define NILAMP_PLUGIN_ID "dev.niltempus.nilamp"
 #define NILAMP_STATE_MAGIC 0x4e4c4150u
 #define NILAMP_STATE_VERSION 1u
@@ -974,7 +987,7 @@ static bool nilamp_gui_is_api_supported(const clap_plugin_t *plugin, const char 
                                         bool is_floating)
 {
     (void)plugin;
-    return api && strcmp(api, CLAP_WINDOW_API_X11) == 0 && !is_floating;
+    return api && strcmp(api, NILAMP_CLAP_WINDOW_API) == 0 && !is_floating;
 }
 
 static bool nilamp_gui_get_preferred_api(const clap_plugin_t *plugin, const char **api,
@@ -984,7 +997,7 @@ static bool nilamp_gui_get_preferred_api(const clap_plugin_t *plugin, const char
     if (!api || !is_floating) {
         return false;
     }
-    *api = CLAP_WINDOW_API_X11;
+    *api = NILAMP_CLAP_WINDOW_API;
     *is_floating = false;
     return true;
 }
@@ -1003,7 +1016,8 @@ static bool nilamp_gui_create_ext(const clap_plugin_t *plugin, const char *api,
         .set_param = nilamp_gui_set_param_cb,
         .model_name = nilamp_gui_model_name_cb,
     };
-    plug->gui = nilamp_gui_create(&callbacks, nilamp_gui_param_specs, NILAMP_PARAM_COUNT);
+    plug->gui = nilamp_gui_create(&callbacks, nilamp_gui_param_specs, NILAMP_PARAM_COUNT,
+                                  NILAMP_GUI_NATIVE_API);
     return plug->gui != NULL;
 }
 
@@ -1071,10 +1085,23 @@ static bool nilamp_gui_set_parent_ext(const clap_plugin_t *plugin,
 {
     NilampClap *plug = nilamp_from_plugin(plugin);
     if (!plug || !plug->gui || !window || !window->api ||
-        strcmp(window->api, CLAP_WINDOW_API_X11) != 0) {
+        strcmp(window->api, NILAMP_CLAP_WINDOW_API) != 0) {
         return false;
     }
-    return nilamp_gui_set_parent_x11(plug->gui, window->x11);
+    uintptr_t handle = 0u;
+#if defined(__APPLE__)
+    handle = (uintptr_t)window->cocoa;
+#elif defined(_WIN32)
+    handle = (uintptr_t)window->win32;
+#else
+    handle = (uintptr_t)window->x11;
+#endif
+    return nilamp_gui_set_parent(
+        plug->gui,
+        (NilampGuiParent){
+            .api = NILAMP_GUI_NATIVE_API,
+            .handle = handle,
+        });
 }
 
 static bool nilamp_gui_set_transient_ext(const clap_plugin_t *plugin,
