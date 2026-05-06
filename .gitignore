@@ -30,6 +30,9 @@ venv/
 *.a
 *.rlib
 
+# Release artifacts
+/dist/
+
 # Editor / OS
 .DS_Store
 .idea/
