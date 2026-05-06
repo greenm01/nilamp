@@ -31,6 +31,10 @@
 #define NILAMP_GUI_MAX_PARAMS 24u
 #define NILAMP_GUI_EDIT_TEXT_LEN 32u
 #define NILAMP_GUI_TEXT_INPUT_LEN 64u
+#define NILAMP_GUI_MAX_VERTICES 32768u
+#define NILAMP_GUI_DOUBLE_CLICK_SECONDS 0.35
+#define NILAMP_GUI_DOUBLE_CLICK_DISTANCE 6.0
+#define NILAMP_GUI_DEG_TO_RAD 0.017453292519943295f
 
 typedef enum NilampGuiScreen {
     NILAMP_GUI_SCREEN_MAIN = 0,
@@ -77,6 +81,11 @@ struct NilampGui {
     bool mouse_down[3];
     bool mouse_up[3];
     bool mouse_motion;
+    bool mouse_double_click;
+    double last_click_time;
+    int last_click_x;
+    int last_click_y;
+    uint32_t last_click_button;
     bool key_down[NK_KEY_MAX];
     char text_input[NILAMP_GUI_TEXT_INPUT_LEN];
     uint32_t text_input_len;
@@ -405,6 +414,7 @@ static void nilamp_gui_clear_transient_input(NilampGui *gui)
         return;
     }
     gui->text_input_len = 0u;
+    gui->mouse_double_click = false;
     gui->key_enter = false;
     gui->key_escape = false;
     gui->key_backspace = false;
@@ -595,6 +605,20 @@ static void nilamp_gui_unit_text(struct nk_context *ctx, struct nk_command_buffe
     nilamp_gui_draw_text(ctx, canvas, bounds, unit, color, false);
 }
 
+static float nilamp_gui_knob_noon_value(const NilampGuiParamSpec *param,
+                                        NilampGuiKnobStyle knob_style)
+{
+    if (!param) {
+        return 0.0f;
+    }
+    if (knob_style == NILAMP_GUI_KNOB_GAIN_UNIPOLAR ||
+        knob_style == NILAMP_GUI_KNOB_GAIN_BIPOLAR) {
+        return nilamp_gui_quantize(param, 0.0f);
+    }
+    return nilamp_gui_quantize(param, param->min_value +
+                                      (param->max_value - param->min_value) * 0.5f);
+}
+
 static bool nilamp_gui_knob(NilampGui *gui, struct nk_context *ctx,
                             struct nk_command_buffer *canvas, uint32_t index,
                             struct nk_rect bounds, NilampGuiMsg *outbox,
@@ -614,7 +638,19 @@ static bool nilamp_gui_knob(NilampGui *gui, struct nk_context *ctx,
 
     float value = gui->model.param_values[index];
     const bool hovered = nk_input_is_mouse_hovering_rect(&ctx->input, bounds);
-    if (hovered && nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT)) {
+    const bool pressed = hovered && nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT);
+    if (pressed && gui->mouse_double_click) {
+        value = nilamp_gui_knob_noon_value(param, knob_style);
+        gui->active_knob = -1;
+        if (value != gui->model.param_values[index]) {
+            nilamp_gui_emit(outbox, outbox_count, NILAMP_GUI_MAX_PARAMS,
+                            (NilampGuiMsg){
+                                .type = NILAMP_GUI_MSG_PARAM_CHANGED,
+                                .param_id = param->id,
+                                .value = value,
+                            });
+        }
+    } else if (pressed) {
         gui->active_knob = (int)index;
     }
     if (nk_input_is_mouse_released(&ctx->input, NK_BUTTON_LEFT) &&
@@ -658,11 +694,11 @@ static bool nilamp_gui_knob(NilampGui *gui, struct nk_context *ctx,
     nk_fill_circle(canvas, circle, gui->active_knob == (int)index ? knob_hi : knob);
     nk_stroke_circle(canvas, circle, 1.0f, edge);
     if (knob_style == NILAMP_GUI_KNOB_PERCENT) {
-        const float bubble_angle = 135.0f * 0.017453292519943295f;
+        const float bubble_angle = 135.0f * NILAMP_GUI_DEG_TO_RAD;
         nk_fill_circle(canvas,
-                       nk_rect(cx + cosf(bubble_angle) * radius * 0.50f - radius * 0.16f,
-                               cy + sinf(bubble_angle) * radius * 0.50f - radius * 0.16f,
-                               radius * 0.36f, radius * 0.28f),
+                       nk_rect(cx + cosf(bubble_angle) * radius * 0.78f - radius * 0.12f,
+                               cy + sinf(bubble_angle) * radius * 0.78f - radius * 0.12f,
+                               radius * 0.24f, radius * 0.24f),
                        nk_rgba(126, 158, 185, 65));
     }
 
@@ -674,14 +710,14 @@ static bool nilamp_gui_knob(NilampGui *gui, struct nk_context *ctx,
         const float center = nilamp_gui_clampf((0.0f - param->min_value) / range, 0.0f, 1.0f);
         angle_deg = -90.0f + ((normalized - center) / fmaxf(center, 1.0f - center)) * 135.0f;
     }
-    const float notch_angle = -90.0f * 0.017453292519943295f;
+    const float notch_angle = -90.0f * NILAMP_GUI_DEG_TO_RAD;
     nk_stroke_line(canvas,
                    cx + cosf(notch_angle) * radius * 0.76f,
                    cy + sinf(notch_angle) * radius * 0.76f,
                    cx + cosf(notch_angle) * radius * 0.95f,
                    cy + sinf(notch_angle) * radius * 0.95f,
                    1.0f, nk_rgba(255, 205, 32, 115));
-    const float angle = angle_deg * 0.017453292519943295f;
+    const float angle = angle_deg * NILAMP_GUI_DEG_TO_RAD;
     const float needle_len = radius * 0.78f;
     const float x1 = cx + cosf(angle) * radius * 0.18f;
     const float y1 = cy + sinf(angle) * radius * 0.18f;
@@ -1046,7 +1082,7 @@ static bool nilamp_gui_init_gpu(NilampGui *gui)
     }
 
     snk_setup(&(snk_desc_t){
-        .max_vertices = 8192,
+        .max_vertices = NILAMP_GUI_MAX_VERTICES,
         .image_pool_size = 8,
         .color_format = SG_PIXELFORMAT_RGBA8,
         .depth_format = SG_PIXELFORMAT_NONE,
@@ -1129,6 +1165,18 @@ static PuglStatus nilamp_gui_event(PuglView *view, const PuglEvent *event)
         break;
     case PUGL_BUTTON_PRESS:
         if (event->button.button < 3u) {
+            const double dx = event->button.x - (double)gui->last_click_x;
+            const double dy = event->button.y - (double)gui->last_click_y;
+            const double dist = sqrt(dx * dx + dy * dy);
+            gui->mouse_double_click =
+                event->button.button == gui->last_click_button &&
+                gui->last_click_time > 0.0 &&
+                event->button.time - gui->last_click_time <= NILAMP_GUI_DOUBLE_CLICK_SECONDS &&
+                dist <= NILAMP_GUI_DOUBLE_CLICK_DISTANCE;
+            gui->last_click_time = event->button.time;
+            gui->last_click_x = (int)event->button.x;
+            gui->last_click_y = (int)event->button.y;
+            gui->last_click_button = event->button.button;
             gui->mouse_x = (int)event->button.x;
             gui->mouse_y = (int)event->button.y;
             gui->mouse_down[event->button.button] = true;

@@ -561,6 +561,15 @@ int main(int argc, char **argv)
         (const clap_plugin_params_t *)plugin->get_extension(plugin, CLAP_EXT_PARAMS);
     check(params != NULL, "missing params extension");
     check(params->count(plugin) == NILAMP_PARAM_COUNT, "unexpected parameter count");
+    clap_param_info_t param_info = {0};
+    check(params->get_info(plugin, NILAMP_PARAM_GAIN_DB, &param_info),
+          "gain info read failed");
+    check(fabs(param_info.default_value) < 0.000001,
+          "unexpected default gain info");
+    check(params->get_info(plugin, NILAMP_PARAM_OUTPUT_GAIN_DB, &param_info),
+          "output gain info read failed");
+    check(fabs(param_info.default_value) < 0.000001,
+          "unexpected default output gain info");
     double gain = -1.0;
     check(params->get_value(plugin, NILAMP_PARAM_GAIN_DB, &gain), "gain read failed");
     check(fabs(gain) < 0.000001, "unexpected default gain");

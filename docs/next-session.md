@@ -2,6 +2,26 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: CLAP editor knob interaction and Options render hardening
+
+**Context.** Fixed follow-up GUI issues from REAPER testing: percent knob bubble
+placement, double-click reset behavior, Options screen crash, and explicit gain
+default checks.
+
+**Edit summary.**
+
+- Moved percent knob bubble indicators onto the 0% radius.
+- Added Pugl-side double-click detection and visual-noon knob reset.
+- Increased the Nuklear/Sokol render vertex budget for the denser Options page.
+- Added CLAP smoke assertions for input/output gain `default_value == 0 dB`.
+
+**Verification.**
+
+- `make native-host-test` passes (`clap-validator` absent, skipped).
+- `make install-clap-user` installs and re-signs
+  `~/.clap/nilamp.clap`; `native/bin/test_clap_load ~/.clap/nilamp.clap`
+  exits `0`.
+
 ### Session: compact CLAP editor polish against JSFX screenshots
 
 **Context.** Polished the CLAP editor layout against the JSFX main/options
