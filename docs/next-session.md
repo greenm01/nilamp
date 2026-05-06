@@ -2,6 +2,43 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: macOS native build and dev-chain enablement
+
+**Context.** Portability work to get the current native toolchain running on
+macOS without forking the DSP path.
+
+**Edit summary.**
+
+- `Makefile`
+  - Defaulted `YSFX_ROOT` to `~/src/ysfx` instead of the old Linux-only path.
+  - Added platform-aware linker flags for CLAP builds (`-dynamiclib` on
+    macOS, `-shared` on Linux) and stopped linking `-ldl` on Darwin.
+  - Made CLAP GUI support conditional so non-Linux builds skip the X11/Pugl
+    objects and compile the plugin without the editor extension.
+  - Added `CMAKE` discovery for Homebrew installs and `setup-python` for a
+    local `.venv` with NumPy/SciPy.
+  - Switched Python-driven targets to prefer `./.venv/bin/python3`.
+- `native/src/nilamp_clap.c`
+  - Guarded `CLAP_EXT_GUI` / timer extension exposure behind
+    `NILAMP_ENABLE_CLAP_GUI`.
+- `native/tests/test_clap_load.c`
+  - Made GUI-extension expectations conditional on the build configuration.
+- `README.md`, `AGENTS.md`
+  - Documented the macOS path, `~/src/ysfx`, `.venv` bootstrap, and the
+    current Linux-only GUI limitation.
+
+**Verification.**
+
+- `make native` passes on macOS.
+- `make native-test` passes on macOS.
+- `make native-host-test` passes on macOS (`clap-validator` absent, skipped).
+- `make setup-python` passes after creating `.venv` and installing
+  `numpy 2.4.4` and `scipy 1.17.1`.
+- `make native-jsfx-test` passes on macOS:
+  - sine ABX residual `-40.8 dB`, correlation `0.999919`;
+  - tap/public guard residual `-48.5 dB`, correlation `0.999986`;
+  - low-input regression: zero / `1e-6` / `1e-4` cases all pass.
+
 ### Session: low-input static fixed in ADNL startup/small-step path
 
 **Context.** Continued from the REAPER static root-cause session below. The

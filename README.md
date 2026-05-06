@@ -1,6 +1,6 @@
 # nilamp
 
-A native Linux guitar amp model based on Helmut Keller's "A Tube Amp Modeling
+A native C guitar amp model based on Helmut Keller's "A Tube Amp Modeling
 Project," extended toward a multi-amp platform. For fun.
 
 The name is "no amp" — `nil` + `amp`.
@@ -14,7 +14,7 @@ the plugin host and editor surfaces.
 
 ## Goals
 
-- Native Linux CLAP plugin with no YSFX wrapper dependency
+- Native CLAP plugin with no YSFX wrapper dependency
 - Multi-amp platform: 5E3 -> Bassman -> Plexi -> AC30 -> Twin -> ...
 - Realtime tweakable amp parameters
 - External IR loader for cab simulation
@@ -50,6 +50,7 @@ docs/                 Current notes, research references, ABX notes
 make native
 make native-test
 make native-host-test
+make setup-python
 make native-jsfx-test
 ```
 
@@ -58,17 +59,36 @@ This builds:
 - `native/bin/nilamp_render`
 - `native/bin/nilamp_taps_render`
 - `native/bin/nilamp.clap`
-- `native/bin/ysfx_render`
+- `native/bin/ysfx_render` when `YSFX_ROOT` points at a ready checkout
 - `native/bin/test_native`
 - `native/bin/test_clap_load`
 
 `native/bin/ysfx_render` is linked against the maintained ysfx checkout at
-`/home/niltempus/src/ysfx` by default. Initialize that checkout's submodules if
-the build reports missing `thirdparty/dr_libs` headers:
+`~/src/ysfx` by default. Override with `YSFX_ROOT=/path/to/ysfx` if needed.
+Initialize that checkout's submodules if the build reports missing
+`thirdparty/dr_libs` headers:
 
 ```bash
-git -C /home/niltempus/src/ysfx submodule update --init
+git -C ~/src/ysfx submodule update --init
 ```
+
+The JSFX/parity tools use Python with NumPy/SciPy. Bootstrap a local virtualenv
+with:
+
+```bash
+make setup-python
+```
+
+`make native-jsfx-test` and the other Python validation targets prefer
+`./.venv/bin/python3` when it exists.
+
+## macOS notes
+
+- `make native`, `make native-test`, `make native-host-test`, and
+  `make native-jsfx-test` work on macOS.
+- The current embedded CLAP editor remains Linux/X11-only because the vendored
+  Pugl backend set only includes X11 sources. macOS builds produce a CLAP plugin
+  without the `CLAP_EXT_GUI` editor extension for now.
 
 Regenerate generated native tables after table-generator changes:
 

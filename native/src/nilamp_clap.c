@@ -18,6 +18,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifndef NILAMP_ENABLE_CLAP_GUI
+#define NILAMP_ENABLE_CLAP_GUI 1
+#endif
+
 #define NILAMP_PLUGIN_ID "dev.niltempus.nilamp"
 #define NILAMP_STATE_MAGIC 0x4e4c4150u
 #define NILAMP_STATE_VERSION 1u
@@ -76,6 +80,7 @@ static const NilampParamSpec nilamp_param_specs[NILAMP_PARAM_COUNT] = {
     {NILAMP_PARAM_SAG_PCT, "Sag", "Power", "%", 0.0, 100.0, 50.0},
 };
 
+#if NILAMP_ENABLE_CLAP_GUI
 static const NilampGuiParamSpec nilamp_gui_param_specs[NILAMP_PARAM_COUNT] = {
     {NILAMP_PARAM_GAIN_DB, "Gain", "dB", 0.0f, 24.0f},
     {NILAMP_PARAM_VOLUME_PCT, "Volume", "%", 0.0f, 100.0f},
@@ -84,6 +89,7 @@ static const NilampGuiParamSpec nilamp_gui_param_specs[NILAMP_PARAM_COUNT] = {
     {NILAMP_PARAM_TREBLE_PCT, "Treble", "%", 0.0f, 100.0f},
     {NILAMP_PARAM_SAG_PCT, "Sag", "%", 0.0f, 100.0f},
 };
+#endif
 
 static const char *const nilamp_features[] = {
     CLAP_PLUGIN_FEATURE_AUDIO_EFFECT,
@@ -315,6 +321,7 @@ static void nilamp_apply_params_if_dirty(NilampClap *plug)
     }
 }
 
+#if NILAMP_ENABLE_CLAP_GUI
 static float nilamp_gui_get_param_cb(void *user, uint32_t param_id)
 {
     return (float)nilamp_load_param_value((const NilampClap *)user, param_id);
@@ -343,6 +350,7 @@ static const char *nilamp_gui_model_name_cb(void *user)
     (void)user;
     return "Keller TWD DLX II";
 }
+#endif
 
 static void nilamp_destroy_engines(NilampClap *plug)
 {
@@ -401,6 +409,7 @@ static bool nilamp_init(const clap_plugin_t *plugin)
 
 static void nilamp_unregister_gui_timer(NilampClap *plug)
 {
+#if NILAMP_ENABLE_CLAP_GUI
     if (!plug || !plug->gui_timer_registered || !plug->host_timer ||
         !plug->host_timer->unregister_timer) {
         return;
@@ -410,6 +419,9 @@ static void nilamp_unregister_gui_timer(NilampClap *plug)
         plug->gui_timer_registered = false;
         plug->gui_timer_id = CLAP_INVALID_ID;
     }
+#else
+    (void)plug;
+#endif
 }
 
 static void nilamp_destroy(const clap_plugin_t *plugin)
@@ -419,8 +431,10 @@ static void nilamp_destroy(const clap_plugin_t *plugin)
         return;
     }
     nilamp_unregister_gui_timer(plug);
+#if NILAMP_ENABLE_CLAP_GUI
     nilamp_gui_destroy(plug->gui);
     plug->gui = NULL;
+#endif
     nilamp_destroy_engines(plug);
     free(plug);
 }
@@ -687,11 +701,15 @@ static const void *nilamp_get_extension(const clap_plugin_t *plugin, const char 
 
 static void nilamp_on_main_thread(const clap_plugin_t *plugin)
 {
+#if NILAMP_ENABLE_CLAP_GUI
     NilampClap *plug = nilamp_from_plugin(plugin);
     if (!plug || !plug->gui) {
         return;
     }
     nilamp_gui_on_main_thread(plug->gui);
+#else
+    (void)plugin;
+#endif
 }
 
 static uint32_t nilamp_audio_ports_count(const clap_plugin_t *plugin, bool is_input)
@@ -951,6 +969,7 @@ static const clap_plugin_state_t nilamp_state_ext = {
     .load = nilamp_state_load,
 };
 
+#if NILAMP_ENABLE_CLAP_GUI
 static bool nilamp_gui_is_api_supported(const clap_plugin_t *plugin, const char *api,
                                         bool is_floating)
 {
@@ -1128,6 +1147,7 @@ static void nilamp_timer_on_timer(const clap_plugin_t *plugin, clap_id timer_id)
 static const clap_plugin_timer_support_t nilamp_timer_ext = {
     .on_timer = nilamp_timer_on_timer,
 };
+#endif
 
 static const void *nilamp_get_extension(const clap_plugin_t *plugin, const char *id)
 {
@@ -1144,12 +1164,14 @@ static const void *nilamp_get_extension(const clap_plugin_t *plugin, const char 
     if (strcmp(id, CLAP_EXT_STATE) == 0) {
         return &nilamp_state_ext;
     }
+#if NILAMP_ENABLE_CLAP_GUI
     if (strcmp(id, CLAP_EXT_GUI) == 0) {
         return &nilamp_gui_ext;
     }
     if (strcmp(id, CLAP_EXT_TIMER_SUPPORT) == 0) {
         return &nilamp_timer_ext;
     }
+#endif
     return NULL;
 }
 

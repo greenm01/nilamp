@@ -13,6 +13,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifndef NILAMP_EXPECT_CLAP_GUI
+#define NILAMP_EXPECT_CLAP_GUI 1
+#endif
+
 #define NILAMP_PLUGIN_ID "dev.niltempus.nilamp"
 #define NILAMP_HOST_OUTPUT_LIMIT 1.0f
 #define NILAMP_STRESS_SAMPLE_RATE 48000.0f
@@ -554,6 +558,9 @@ int main(int argc, char **argv)
 
     const clap_plugin_gui_t *gui =
         (const clap_plugin_gui_t *)plugin->get_extension(plugin, CLAP_EXT_GUI);
+    const clap_plugin_timer_support_t *timer =
+        (const clap_plugin_timer_support_t *)plugin->get_extension(plugin, CLAP_EXT_TIMER_SUPPORT);
+#if NILAMP_EXPECT_CLAP_GUI
     check(gui != NULL, "missing gui extension");
     check(gui->is_api_supported(plugin, CLAP_WINDOW_API_X11, false),
           "gui does not support embedded X11");
@@ -567,9 +574,11 @@ int main(int argc, char **argv)
           "gui preferred api failed");
     check(preferred_api && strcmp(preferred_api, CLAP_WINDOW_API_X11) == 0 && !preferred_floating,
           "unexpected gui preferred api");
-    const clap_plugin_timer_support_t *timer =
-        (const clap_plugin_timer_support_t *)plugin->get_extension(plugin, CLAP_EXT_TIMER_SUPPORT);
     check(timer && timer->on_timer, "missing timer support extension");
+#else
+    check(gui == NULL, "unexpected gui extension");
+    check(timer == NULL, "unexpected timer support extension");
+#endif
 
     check(plugin->activate(plugin, 48000.0, 1, 64), "activate failed");
     check(plugin->start_processing(plugin), "start processing failed");

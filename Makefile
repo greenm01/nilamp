@@ -1,6 +1,9 @@
 CC ?= cc
 CXX ?= c++
-PYTHON ?= python3
+CMAKE ?= $(or $(shell command -v cmake 2>/dev/null),/opt/homebrew/bin/cmake)
+PYTHON_BOOTSTRAP ?= $(or $(wildcard /opt/homebrew/bin/python3.13),$(shell command -v python3 2>/dev/null),python3)
+PYTHON ?= $(or $(wildcard .venv/bin/python3),$(shell command -v python3 2>/dev/null),/opt/homebrew/bin/python3.13)
+UNAME_S := $(shell uname -s)
 
 NATIVE_DIR := native
 NATIVE_BUILD := $(NATIVE_DIR)/build
@@ -11,7 +14,7 @@ PUGL_INCLUDE := third_party/pugl/include
 PUGL_SRC := third_party/pugl/src
 SOKOL_INCLUDE := third_party/sokol
 NUKLEAR_INCLUDE := third_party/nuklear
-YSFX_ROOT ?= /home/niltempus/src/ysfx
+YSFX_ROOT ?= $(HOME)/src/ysfx
 YSFX_BUILD := $(NATIVE_BUILD)/ysfx
 YSFX_LIB := $(YSFX_BUILD)/libysfx.a
 
@@ -19,11 +22,31 @@ CFLAGS ?= -std=c11 -O3 -Wall -Wextra -Wpedantic -Werror -I$(NATIVE_DIR)/src -I$(
 CLAP_CFLAGS := $(CFLAGS) -I$(CLAP_INCLUDE)
 GUI_CFLAGS := $(CLAP_CFLAGS) -I$(PUGL_INCLUDE) -I$(PUGL_SRC) -I$(SOKOL_INCLUDE) -I$(SOKOL_INCLUDE)/util -I$(NUKLEAR_INCLUDE)
 GUI_VENDOR_CFLAGS := -std=c11 -O3 -w -fPIC -D_POSIX_C_SOURCE=200809L -I$(PUGL_INCLUDE) -I$(PUGL_SRC) -I$(SOKOL_INCLUDE) -I$(SOKOL_INCLUDE)/util -I$(NUKLEAR_INCLUDE)
-YSFX_CFLAGS := $(CFLAGS) -I$(YSFX_ROOT)/include
+YSFX_CFLAGS := $(CFLAGS) -isystem $(YSFX_ROOT)/include
 LDFLAGS ?=
 LDLIBS ?= -lm
+DL_LDLIBS :=
+PLUGIN_LDFLAGS := -shared
+GUI_LDLIBS :=
+NILAMP_ENABLE_CLAP_GUI ?= $(if $(filter Linux,$(UNAME_S)),1,0)
+
+ifeq ($(UNAME_S),Linux)
+DL_LDLIBS := -ldl
 GUI_LDLIBS := -lX11 -lXrandr -lXcursor -lXext -lGL -ldl
-YSFX_LDLIBS := -ldl -pthread -lm
+endif
+
+ifeq ($(UNAME_S),Darwin)
+PLUGIN_LDFLAGS := -dynamiclib
+endif
+
+CLAP_PLUGIN_CFLAGS := $(CLAP_CFLAGS) -DNILAMP_ENABLE_CLAP_GUI=$(NILAMP_ENABLE_CLAP_GUI)
+TEST_CLAP_CFLAGS := $(CLAP_CFLAGS) -DNILAMP_EXPECT_CLAP_GUI=$(NILAMP_ENABLE_CLAP_GUI)
+ifneq ($(NILAMP_ENABLE_CLAP_GUI),0)
+CLAP_PLUGIN_CFLAGS += -I$(PUGL_INCLUDE) -I$(PUGL_SRC) -I$(SOKOL_INCLUDE) -I$(SOKOL_INCLUDE)/util -I$(NUKLEAR_INCLUDE)
+endif
+YSFX_LDLIBS := $(DL_LDLIBS) -pthread -lm
+
+YSFX_AVAILABLE := $(if $(and $(wildcard $(YSFX_ROOT)/include/ysfx.h),$(wildcard $(YSFX_ROOT)/thirdparty/dr_libs/dr_wav.h)),1,0)
 
 NATIVE_TABLES_C := $(NATIVE_GENERATED)/nilamp_tables.c
 NATIVE_TABLES_H := $(NATIVE_GENERATED)/nilamp_tables.h
@@ -48,11 +71,26 @@ NATIVE_GUI_OBJS := \
 	$(NATIVE_BUILD)/pugl_x11.pic.o \
 	$(NATIVE_BUILD)/pugl_x11_gl.pic.o
 
-.PHONY: all native native-test native-bench native-host-test native-reaper-host-test native-jsfx-test native-loaded-clap-diagnose clean-native FORCE
+ifeq ($(NILAMP_ENABLE_CLAP_GUI),0)
+NATIVE_GUI_OBJS :=
+endif
+
+NATIVE_TARGETS := \
+	$(NATIVE_BIN)/nilamp_render \
+	$(NATIVE_BIN)/nilamp_taps_render \
+	$(NATIVE_BIN)/test_native \
+	$(NATIVE_BIN)/test_clap_load \
+	$(NATIVE_BIN)/nilamp.clap
+
+ifeq ($(YSFX_AVAILABLE),1)
+NATIVE_TARGETS += $(NATIVE_BIN)/ysfx_render
+endif
+
+.PHONY: all native native-test native-bench native-host-test native-reaper-host-test native-jsfx-test native-loaded-clap-diagnose setup-python clean-native FORCE
 
 all: native
 
-native: $(NATIVE_BIN)/nilamp_render $(NATIVE_BIN)/nilamp_taps_render $(NATIVE_BIN)/test_native $(NATIVE_BIN)/nilamp.clap $(NATIVE_BIN)/ysfx_render
+native: $(NATIVE_TARGETS)
 
 native-test: $(NATIVE_BIN)/test_native $(NATIVE_BIN)/test_clap_load $(NATIVE_BIN)/nilamp.clap
 	$(NATIVE_BIN)/test_native
@@ -62,19 +100,24 @@ native-bench: $(NATIVE_BIN)/bench_native
 	$(NATIVE_BIN)/bench_native
 
 native-host-test: native-test
-	python3 tools/clap_validate/validate_clap.py --plugin $(NATIVE_BIN)/nilamp.clap
+	$(PYTHON) tools/clap_validate/validate_clap.py --plugin $(NATIVE_BIN)/nilamp.clap
 
 native-reaper-host-test: $(NATIVE_BIN)/nilamp.clap
-	python3 tools/clap_validate/validate_reaper_clap.py --plugin $<
+	$(PYTHON) tools/clap_validate/validate_reaper_clap.py --plugin $<
 
 native-jsfx-test: $(NATIVE_BIN)/nilamp_render $(NATIVE_BIN)/nilamp_taps_render $(NATIVE_BIN)/ysfx_render
-	python3 -m tools.jsfx_render.stage_jsfx
-	python3 tools/abx_compare.py --preset sine --rms-threshold-db -16
-	python3 tools/compare_taps.py --preset sine
-	python3 tools/low_input_regression.py --require-jsfx
+	$(PYTHON) -m tools.jsfx_render.stage_jsfx
+	$(PYTHON) tools/abx_compare.py --preset sine --rms-threshold-db -16
+	$(PYTHON) tools/compare_taps.py --preset sine
+	$(PYTHON) tools/low_input_regression.py --require-jsfx
 
 native-low-input-test: $(NATIVE_BIN)/nilamp_render
-	python3 tools/low_input_regression.py
+	$(PYTHON) tools/low_input_regression.py
+
+setup-python:
+	$(PYTHON_BOOTSTRAP) -m venv .venv
+	./.venv/bin/python3 -m pip install --upgrade pip
+	./.venv/bin/python3 -m pip install -r requirements-dev.txt
 
 $(NATIVE_BUILD) $(NATIVE_BIN) $(NATIVE_GENERATED):
 	mkdir -p $@
@@ -110,7 +153,7 @@ $(NATIVE_BIN)/nilamp_taps_render: $(NATIVE_BUILD)/nilamp_taps_render.o $(NATIVE_
 	$(CC) $(LDFLAGS) $^ $(LDLIBS) -o $@
 
 $(NATIVE_BUILD)/nilamp_clap.o: $(NATIVE_DIR)/src/nilamp_clap.c $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_DIR)/src/nilamp_cpu.h $(NATIVE_DIR)/src/nilamp_gui.h $(CLAP_INCLUDE)/clap/clap.h | $(NATIVE_BUILD)
-	$(CC) $(GUI_CFLAGS) -fPIC -c $< -o $@
+	$(CC) $(CLAP_PLUGIN_CFLAGS) -fPIC -c $< -o $@
 
 $(NATIVE_BUILD)/nilamp_gui.pic.o: $(NATIVE_DIR)/src/nilamp_gui.c $(NATIVE_DIR)/src/nilamp_gui.h | $(NATIVE_BUILD)
 	$(CC) $(GUI_CFLAGS) -fPIC -c $< -o $@
@@ -137,7 +180,7 @@ $(NATIVE_BUILD)/pugl_x11_gl.pic.o: $(PUGL_SRC)/x11_gl.c | $(NATIVE_BUILD)
 	$(CC) $(GUI_VENDOR_CFLAGS) -c $< -o $@
 
 $(NATIVE_BIN)/nilamp.clap: $(NATIVE_BUILD)/nilamp_clap.o $(NATIVE_PIC_OBJS) $(NATIVE_GUI_OBJS) Makefile | $(NATIVE_BIN)
-	$(CC) $(LDFLAGS) -shared $(filter-out Makefile,$^) $(LDLIBS) $(GUI_LDLIBS) -o $@
+	$(CC) $(LDFLAGS) $(PLUGIN_LDFLAGS) $(filter-out Makefile,$^) $(LDLIBS) $(GUI_LDLIBS) -o $@
 
 $(NATIVE_BUILD)/test_native.o: $(NATIVE_DIR)/tests/test_native.c $(NATIVE_DIR)/src/nilamp_dsp.h | $(NATIVE_BUILD)
 	$(CC) $(CFLAGS) -DNILAMP_ENABLE_TEST_API -c $< -o $@
@@ -152,16 +195,16 @@ $(NATIVE_BIN)/bench_native: $(NATIVE_BUILD)/bench_native.o $(NATIVE_BUILD)/nilam
 	$(CC) $(LDFLAGS) $^ $(LDLIBS) -o $@
 
 $(NATIVE_BUILD)/test_clap_load.o: $(NATIVE_DIR)/tests/test_clap_load.c $(NATIVE_DIR)/src/nilamp_dsp.h $(CLAP_INCLUDE)/clap/clap.h | $(NATIVE_BUILD)
-	$(CC) $(CLAP_CFLAGS) -c $< -o $@
+	$(CC) $(TEST_CLAP_CFLAGS) -c $< -o $@
 
 $(NATIVE_BIN)/test_clap_load: $(NATIVE_BUILD)/test_clap_load.o $(NATIVE_OBJS) | $(NATIVE_BIN)
-	$(CC) $(LDFLAGS) $^ $(LDLIBS) -ldl -o $@
+	$(CC) $(LDFLAGS) $^ $(LDLIBS) $(DL_LDLIBS) -o $@
 
 $(NATIVE_BUILD)/render_loaded_clap.o: $(NATIVE_DIR)/src/render_loaded_clap.c $(NATIVE_DIR)/src/nilamp_dsp.h $(CLAP_INCLUDE)/clap/clap.h | $(NATIVE_BUILD)
 	$(CC) $(CLAP_CFLAGS) -c $< -o $@
 
 $(NATIVE_BIN)/render_loaded_clap: $(NATIVE_BUILD)/render_loaded_clap.o | $(NATIVE_BIN)
-	$(CC) $(LDFLAGS) $^ $(LDLIBS) -ldl -o $@
+	$(CC) $(LDFLAGS) $^ $(LDLIBS) $(DL_LDLIBS) -o $@
 
 native-loaded-clap-diagnose: $(NATIVE_BIN)/render_loaded_clap $(NATIVE_BIN)/nilamp_render $(NATIVE_BIN)/nilamp.clap
 	$(PYTHON) tools/clap_validate/render_loaded_clap.py \
@@ -169,13 +212,20 @@ native-loaded-clap-diagnose: $(NATIVE_BIN)/render_loaded_clap $(NATIVE_BIN)/nila
 	    --render $(NATIVE_BIN)/nilamp_render \
 	    --driver $(NATIVE_BIN)/render_loaded_clap
 
+ifeq ($(YSFX_AVAILABLE),0)
+$(YSFX_BUILD)/CMakeCache.txt:
+	@echo "ysfx checkout not found at $(YSFX_ROOT)" >&2
+	@echo "Set YSFX_ROOT to a checkout with include/ysfx.h and thirdparty/dr_libs/dr_wav.h" >&2
+	@false
+else
 $(YSFX_BUILD)/CMakeCache.txt: | $(NATIVE_BUILD)
 	test -f $(YSFX_ROOT)/include/ysfx.h
 	test -f $(YSFX_ROOT)/thirdparty/dr_libs/dr_wav.h
-	cmake -S $(YSFX_ROOT) -B $(YSFX_BUILD) -DCMAKE_BUILD_TYPE=Release -DYSFX_GFX=OFF -DYSFX_PLUGIN=OFF -DYSFX_TESTS=OFF -DYSFX_TOOLS=OFF
+	$(CMAKE) -S $(YSFX_ROOT) -B $(YSFX_BUILD) -DCMAKE_BUILD_TYPE=Release -DYSFX_GFX=OFF -DYSFX_PLUGIN=OFF -DYSFX_TESTS=OFF -DYSFX_TOOLS=OFF
+endif
 
 $(YSFX_LIB): $(YSFX_BUILD)/CMakeCache.txt FORCE
-	cmake --build $(YSFX_BUILD) --target ysfx
+	$(CMAKE) --build $(YSFX_BUILD) --target ysfx
 
 $(NATIVE_BUILD)/ysfx_render.o: $(NATIVE_DIR)/src/ysfx_render.c $(YSFX_ROOT)/include/ysfx.h | $(NATIVE_BUILD)
 	$(CC) $(YSFX_CFLAGS) -c $< -o $@
