@@ -40,7 +40,7 @@ amp "keller_twd_dlx_ii" id="NILAMP_MODEL_KELLER_TWD_DLX_II" name="Keller TWD DLX
   process input_feed_gain=0.5 input_keller_gain_sq=1.2 phase_t4_gain=0.797 phase_t5_gain=0.940 screen_current_feedback=0.025
 
   controls {
-    control "input_gain" id="NILAMP_PARAM_GAIN_DB" name="Gain" module="Input" unit="dB" min=0.0 max=24.0 default=0.0 step=0.5 display="linear"
+    control "input_gain" id="NILAMP_PARAM_GAIN_DB" name="Gain" module="Input" unit="dB" min=-12.0 max=12.0 default=0.0 step=0.5 display="linear"
     control "volume" id="NILAMP_PARAM_VOLUME_PCT" name="Volume" module="Pre Amp" unit="%" min=0.0 max=100.0 default=50.0 step=2.5 display="linear"
     control "bass" id="NILAMP_PARAM_BASS_PCT" name="Bass" module="Pre Amp" unit="%" min=0.0 max=100.0 default=50.0 step=2.5 display="linear"
     control "mid" id="NILAMP_PARAM_MID_PCT" name="Mid" module="Pre Amp" unit="%" min=0.0 max=100.0 default=50.0 step=2.5 display="linear"

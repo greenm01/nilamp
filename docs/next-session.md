@@ -2,6 +2,25 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: CLAP text-key hardening and bipolar input gain
+
+**Context.** Backspace in CLAP value boxes could still crash REAPER, and the
+input gain control needed to match the output gain range/knob behavior.
+
+**Edit summary.**
+
+- Kept Backspace/Delete/Enter text-edit keys inside nilamp's custom value-box
+  editor instead of forwarding them to Nuklear while a text box is active.
+- Hardened empty text draw/transient input handling for value boxes.
+- Changed input gain from `0..24 dB` to `-12..12 dB`, keeping the `0 dB`
+  default and matching output gain's bipolar knob style.
+- Added CLAP smoke assertions for matching input/output gain ranges and
+  negative input-gain automation/state restore.
+
+**Verification.**
+
+- `make native-host-test` passes (`clap-validator` absent, skipped).
+
 ### Session: CLAP preamp text crash hardening and dropdown picker
 
 **Context.** Hardened custom text entry after REAPER crashes while typing in

@@ -564,10 +564,18 @@ int main(int argc, char **argv)
     clap_param_info_t param_info = {0};
     check(params->get_info(plugin, NILAMP_PARAM_GAIN_DB, &param_info),
           "gain info read failed");
+    check(fabs(param_info.min_value + 12.0) < 0.000001,
+          "unexpected minimum gain info");
+    check(fabs(param_info.max_value - 12.0) < 0.000001,
+          "unexpected maximum gain info");
     check(fabs(param_info.default_value) < 0.000001,
           "unexpected default gain info");
     check(params->get_info(plugin, NILAMP_PARAM_OUTPUT_GAIN_DB, &param_info),
           "output gain info read failed");
+    check(fabs(param_info.min_value + 12.0) < 0.000001,
+          "unexpected minimum output gain info");
+    check(fabs(param_info.max_value - 12.0) < 0.000001,
+          "unexpected maximum output gain info");
     check(fabs(param_info.default_value) < 0.000001,
           "unexpected default output gain info");
     const clap_id preamp_ids[] = {
@@ -740,7 +748,7 @@ int main(int argc, char **argv)
         .port_index = -1,
         .channel = -1,
         .key = -1,
-        .value = 6.0,
+        .value = -6.0,
     };
     const clap_event_header_t *event_ptrs[1] = {&gain_event.header};
     TestEvents automation_events = {.events = event_ptrs, .count = 1};
@@ -748,7 +756,7 @@ int main(int argc, char **argv)
     check(plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE,
           "automation process returned failure");
     check(params->get_value(plugin, NILAMP_PARAM_GAIN_DB, &gain), "gain reread failed");
-    check(fabs(gain - 6.0) < 0.000001, "automation gain was not applied");
+    check(fabs(gain + 6.0) < 0.000001, "negative automation gain was not applied");
 
     MemoryStream memory = {0};
     clap_ostream_t ostream = {
@@ -770,7 +778,7 @@ int main(int argc, char **argv)
     };
     check(state->load(plugin, &istream), "state load failed");
     check(params->get_value(plugin, NILAMP_PARAM_GAIN_DB, &gain), "gain state reread failed");
-    check(fabs(gain - 6.0) < 0.000001, "state did not restore gain");
+    check(fabs(gain + 6.0) < 0.000001, "state did not restore negative gain");
 
     struct {
         uint32_t magic;

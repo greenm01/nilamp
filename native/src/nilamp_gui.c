@@ -97,6 +97,7 @@ struct NilampGui {
     bool key_enter;
     bool key_escape;
     bool key_backspace;
+    bool key_delete;
     bool value_box_hovered;
     bool dropdown_hovered;
     bool edit_replace_on_type;
@@ -503,8 +504,10 @@ static void nilamp_gui_feed_input(NilampGui *gui, struct nk_context *ctx)
 {
     nk_input_begin(ctx);
     nk_input_motion(ctx, gui->mouse_x, gui->mouse_y);
-    for (uint32_t i = 0; i < NK_KEY_MAX; i++) {
-        nk_input_key(ctx, (enum nk_keys)i, gui->key_down[i] ? 1 : 0);
+    if (gui->active_edit < 0) {
+        for (uint32_t i = 0; i < NK_KEY_MAX; i++) {
+            nk_input_key(ctx, (enum nk_keys)i, gui->key_down[i] ? 1 : 0);
+        }
     }
     for (uint32_t i = 0; i < 3; i++) {
         if (gui->mouse_down[i]) {
@@ -526,10 +529,12 @@ static void nilamp_gui_clear_transient_input(NilampGui *gui)
         return;
     }
     gui->text_input_len = 0u;
+    gui->text_input[0] = '\0';
     gui->mouse_double_click = false;
     gui->key_enter = false;
     gui->key_escape = false;
     gui->key_backspace = false;
+    gui->key_delete = false;
 }
 
 static float nilamp_gui_minf(float a, float b)
@@ -547,7 +552,7 @@ static void nilamp_gui_draw_text(struct nk_context *ctx, struct nk_command_buffe
                                  struct nk_rect bounds, const char *text,
                                  struct nk_color color, bool centered)
 {
-    if (!ctx || !canvas || !text) {
+    if (!ctx || !canvas || !text || bounds.w <= 0.0f || bounds.h <= 0.0f) {
         return;
     }
 
@@ -556,6 +561,9 @@ static void nilamp_gui_draw_text(struct nk_context *ctx, struct nk_command_buffe
         return;
     }
     const int len = (int)nilamp_gui_bounded_strlen(text, NILAMP_GUI_TEXT_INPUT_LEN);
+    if (len <= 0) {
+        return;
+    }
     if (centered && font && font->width) {
         const float text_width = font->width(font->userdata, font->height, text, len);
         if (text_width < bounds.w) {
@@ -682,7 +690,7 @@ static void nilamp_gui_update_active_edit(NilampGui *gui, NilampGuiMsg *outbox,
     text[NILAMP_GUI_EDIT_TEXT_LEN - 1u] = '\0';
     const NilampGuiParamSpec *param = &gui->params[gui->active_edit];
     size_t len = nilamp_gui_bounded_strlen(text, NILAMP_GUI_EDIT_TEXT_LEN);
-    if (gui->key_backspace) {
+    if (gui->key_backspace || gui->key_delete) {
         if (gui->edit_replace_on_type) {
             text[0] = '\0';
             len = 0u;
@@ -1113,7 +1121,7 @@ static void nilamp_gui_build(NilampGui *gui, struct nk_context *ctx,
         (void)nilamp_gui_knob(gui, ctx, canvas, input_gain,
                               nilamp_gui_scale_rect(sx, sy, 24.0f, 60.0f, 66.0f, 104.0f),
                               outbox, outbox_count, small_radius,
-                              NILAMP_GUI_KNOB_GAIN_UNIPOLAR);
+                              NILAMP_GUI_KNOB_GAIN_BIPOLAR);
         (void)nilamp_gui_knob(gui, ctx, canvas, output_gain,
                               nilamp_gui_scale_rect(sx, sy, 413.0f, 60.0f, 66.0f, 104.0f),
                               outbox, outbox_count, small_radius,
@@ -1472,21 +1480,25 @@ static PuglStatus nilamp_gui_event(PuglView *view, const PuglEvent *event)
     case PUGL_KEY_PRESS:
     case PUGL_KEY_RELEASE: {
         const bool down = event->type == PUGL_KEY_PRESS;
+        const bool editing = gui->active_edit >= 0;
         enum nk_keys key = NK_KEY_NONE;
         switch (event->key.key) {
         case PUGL_KEY_BACKSPACE:
             key = NK_KEY_BACKSPACE;
-            if (down) {
+            if (down && editing) {
                 gui->key_backspace = true;
             }
             break;
         case PUGL_KEY_DELETE:
             key = NK_KEY_DEL;
+            if (down && editing) {
+                gui->key_delete = true;
+            }
             break;
         case PUGL_KEY_ENTER:
         case PUGL_KEY_PAD_ENTER:
             key = NK_KEY_ENTER;
-            if (down) {
+            if (down && editing) {
                 gui->key_enter = true;
             }
             break;
@@ -1528,7 +1540,7 @@ static PuglStatus nilamp_gui_event(PuglView *view, const PuglEvent *event)
             break;
         }
         if (key != NK_KEY_NONE) {
-            gui->key_down[key] = down;
+            gui->key_down[key] = editing ? false : down;
             nilamp_gui_request_redraw(gui);
         }
         break;
