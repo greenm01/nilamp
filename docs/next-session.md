@@ -2,6 +2,32 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: compact CLAP editor polish against JSFX screenshots
+
+**Context.** Polished the CLAP editor layout against the JSFX main/options
+screenshots after the first options implementation showed clipped value boxes,
+missing footer labels, and over-wide panels.
+
+**Edit summary.**
+
+- Switched the editor design grid to a compact JSFX-like `500x340` footprint.
+- Restored panel footer captions and tightened main/options panel geometry.
+- Replaced Nuklear edit widgets with centered custom numeric value boxes.
+- Split gain/percent knob drawing modes: gain zero points now sit at noon,
+  gain knobs omit bubble highlights, and percent knobs keep the JSFX sweep.
+- Added a slightly larger nilamp-owned Nuklear default font atlas.
+- Kept sokol_nuklear's internal default atlas alive; the vendored shutdown path
+  aborts if `snk_setup` is called with `no_default_font`.
+- Made the larger font best-effort so GUI realization falls back to the
+  internal Nuklear font instead of failing the editor.
+
+**Verification.**
+
+- `make native-host-test` passes (`clap-validator` absent, skipped).
+- `make install-clap-user` installs and re-signs
+  `~/.clap/nilamp.clap`; `native/bin/test_clap_load ~/.clap/nilamp.clap`
+  exits `0`.
+
 ### Session: KDL-backed CLAP options controls and two-screen editor
 
 **Context.** Added the JSFX-style options page and promoted the amp option
