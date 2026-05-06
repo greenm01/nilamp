@@ -2,6 +2,60 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: low-input static fixed in ADNL startup/small-step path
+
+**Context.** Continued from the REAPER static root-cause session below. The
+low-input regression harness was already present and reproduced the issue:
+exact silence stayed quiet, but tiny non-zero inputs could excite the native
+engine into audible hash while Keller's JSFX reference stayed bounded.
+
+**Root cause.** The native ADNL state was zero-initialized even though Keller's
+JSFX seeds the ADAA history at table x=0:
+`x0 = 0`, `y0 = y(0)`, `z0 = z(0)` in
+`vendor/keller-jsfx/Libs/HK_LIB_ADNL.jsfx-inc`. The C table antiderivative has
+a non-zero integration constant, so `(z(x) - prev_z) / (x - prev_x)` produced
+a huge first non-zero quotient when `prev_z` started at 0. After seeding
+`z(0)`, float table precision still made tiny near-zero antiderivative
+differences ill-conditioned, so the native ADNL now evaluates its history and
+polynomial in double precision and uses the stable direct-value average for
+absolute steps below `0.001`. The generated table's tiny numerical `y(0)`
+residue is clamped to the ideal zero so exact silence cannot self-excite.
+
+**Edit summary.**
+
+- `native/src/nilamp_dsp.c`
+  - `Adnl` history changed to double precision.
+  - Engine creation now routes through `nilamp_engine_reset()`.
+  - Reset seeds all TWD DLX II ADNL blocks at x=0 with `z(0)` from the table
+    and ideal `y(0)=0`.
+  - ADNL processing uses double evaluation and falls back to the average
+    form for tiny absolute steps.
+  - Test-only ADNL/tube/power-pair helpers use the same seed.
+- `tools/keller_oracle.py`
+  - Oracle ADNL startup and small-step behavior now mirrors native.
+- `tests/fixtures/*.f32`
+  - Regenerated with `python3 tools/gen_fixtures.py`.
+
+**Verification.**
+
+- `make native-test` passes.
+- `make native-jsfx-test` passes:
+  - sine ABX residual `-40.8 dB`, correlation `0.999919`;
+  - tap/public guard residual `-48.5 dB`, correlation `0.999986`;
+  - all diagnostic taps within threshold;
+  - low-input regression passes with zero peak `0.000e+00`, 1e-6 RMS noise
+    native peak `4.369e-06`, and 1e-4 RMS noise native/JSFX peak ratio `0.11x`.
+- `python3 tools/abx_compare.py --preset sweep --rms-threshold-db -11.2`
+  passes: residual `-21.6 dB`, correlation `0.990743`.
+- Installed the rebuilt plugin to `~/.clap/nilamp.clap`.
+
+**Next work.**
+
+1. Confirm the original REAPER live-input static is gone with the installed
+   `~/.clap/nilamp.clap`.
+2. Consider making `native-low-input-test` part of `native-test` if the
+   optional JSFX comparison remains skipped by default.
+
 ### Session: REAPER static root-caused to low-input DSP instability
 
 **Context.** Continuing from the loaded-CLAP diagnostic session below. The

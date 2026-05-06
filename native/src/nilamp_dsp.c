@@ -40,9 +40,9 @@ typedef struct {
 } Pkd;
 
 typedef struct {
-    float prev_x;
-    float prev_y;
-    float prev_z;
+    double prev_x;
+    double prev_y;
+    double prev_z;
 } Adnl;
 
 typedef struct {
@@ -414,41 +414,49 @@ static float adnl_process(Adnl *st, const float *table, size_t table_len, float 
         index = num_segments - 1;
     }
 
-    const float w = x + XMAX - (float)index * DX;
+    const double xd = (double)x;
+    const double xmax = (double)XMAX;
+    const double dx = (double)DX;
+    const double w = xd + xmax - (double)index * dx;
     const size_t base = (size_t)index * 9u;
-    const float a3 = table[base + 0u];
-    const float a2 = table[base + 1u];
-    const float a1 = table[base + 2u];
-    const float a0 = table[base + 3u];
-    const float b4 = table[base + 4u];
-    const float b3 = table[base + 5u];
-    const float b2 = table[base + 6u];
-    const float b1 = table[base + 7u];
-    const float b0 = table[base + 8u];
+    const double a3 = (double)table[base + 0u];
+    const double a2 = (double)table[base + 1u];
+    const double a1 = (double)table[base + 2u];
+    const double a0 = (double)table[base + 3u];
+    const double b4 = (double)table[base + 4u];
+    const double b3 = (double)table[base + 5u];
+    const double b2 = (double)table[base + 6u];
+    const double b1 = (double)table[base + 7u];
+    const double b0 = (double)table[base + 8u];
 
-    const float ymin = table[table_len - 3u];
-    const float ymax = table[table_len - 2u];
-    const float z_at_xmax = table[table_len - 1u];
+    const double ymin = (double)table[table_len - 3u];
+    const double ymax = (double)table[table_len - 2u];
+    const double z_at_xmax = (double)table[table_len - 1u];
 
-    float y1 = ((a3 * w + a2) * w + a1) * w + a0;
-    float z1 = (((b4 * w + b3) * w + b2) * w + b1) * w + b0;
+    double y1 = ((a3 * w + a2) * w + a1) * w + a0;
+    double z1 = (((b4 * w + b3) * w + b2) * w + b1) * w + b0;
 
     if (x <= -XMAX) {
         y1 = ymin;
-        z1 = ymin * (x + XMAX);
+        z1 = ymin * (xd + xmax);
     } else if (x >= XMAX) {
         y1 = ymax;
-        z1 = z_at_xmax + ymax * (x - XMAX);
+        z1 = z_at_xmax + ymax * (xd - xmax);
+    } else if (xd == 0.0) {
+        y1 = 0.0;
     }
 
-    const float dx0 = x - st->prev_x;
-    const float reldx0 = fabsf(dx0) / (fabsf(x + st->prev_x) + 1e-7f);
-    const float out = (reldx0 < 0.0001f) ? 0.5f * (y1 + st->prev_y) : (z1 - st->prev_z) / dx0;
+    const double dx0 = xd - st->prev_x;
+    const double reldx0 = fabs(dx0) / (fabs(xd + st->prev_x) + 1e-7);
+    /* The generated C tables store float coefficients; near zero their
+       antiderivative difference is less reliable than the direct-value limit. */
+    const int use_average = reldx0 < 0.0001 || fabs(dx0) < 0.001;
+    const double out = use_average ? 0.5 * (y1 + st->prev_y) : (z1 - st->prev_z) / dx0;
 
-    st->prev_x = x;
+    st->prev_x = xd;
     st->prev_y = y1;
     st->prev_z = z1;
-    return out;
+    return (float)out;
 }
 
 static float pk_k1(float tau, double sr)
@@ -532,12 +540,33 @@ NilampEngine *nilamp_engine_create_model(double sample_rate, NilampModelId model
     engine->sr = sample_rate;
     engine->params = nilamp_default_params();
     engine->model = model;
+    nilamp_engine_reset(engine);
     return engine;
 }
 
 void nilamp_engine_destroy(NilampEngine *engine)
 {
     free(engine);
+}
+
+/* Seed an Adnl ADAA history to the table-consistent state at x=0.
+ *
+ * The ADAA quotient (z(x) - z(prev_x)) / (x - prev_x) requires prev_z to
+ * equal z(prev_x). The table's antiderivative carries a non-zero constant of
+ * integration (e.g. T1 12AX7 has z(0) ~= -6.76), so a zero-init produces an
+ * enormous spurious quotient on the first non-zero sample. JSFX seeds
+ * (x0, y0, z0) = (0, y(0), z(0)) at table-build time
+ * (vendor/keller-jsfx/Libs/HK_LIB_ADNL.jsfx-inc:181-184); we replicate that
+ * after the engine zero-init.
+ */
+static void adnl_seed_at_zero(Adnl *st, const float *table)
+{
+    const int idx_zero = (int)(XMAX / DX);
+    const size_t base = (size_t)idx_zero * 9u;
+    st->prev_x = 0.0f;
+    /* ideal y(0); the generated table row has tiny numerical residue */
+    st->prev_y = 0.0;
+    st->prev_z = table[base + 8u]; /* b0 at x=0 = z(0) */
 }
 
 void nilamp_engine_reset(NilampEngine *engine)
@@ -552,6 +581,16 @@ void nilamp_engine_reset(NilampEngine *engine)
     engine->sr = sr;
     engine->params = params;
     engine->model = model;
+
+    if (model != NULL && model->id == NILAMP_MODEL_KELLER_TWD_DLX_II) {
+        NilampTwdDlxIiState *st = &engine->state.twd_dlx_ii;
+        const NilampTwdDlxIiData *data = &TWD_DLX_II_DATA;
+        adnl_seed_at_zero(&st->t1.adnl, data->t1->table);
+        adnl_seed_at_zero(&st->t2.adnl, data->t2->table);
+        adnl_seed_at_zero(&st->t3.adnl, data->t3->table);
+        adnl_seed_at_zero(&st->t4.adnl, data->t4->table);
+        adnl_seed_at_zero(&st->t5.adnl, data->t5->table);
+    }
 }
 
 void nilamp_engine_set_params(NilampEngine *engine, const NilampParams *params)
@@ -802,6 +841,7 @@ void nilamp_test_adnl(NilampTestAdnlTable table, const float *input, float *outp
     }
 
     Adnl st = { 0 };
+    adnl_seed_at_zero(&st, coeffs);
     for (size_t i = 0; i < n; i++) {
         output[i] = adnl_process(&st, coeffs, len, input[i]);
     }
@@ -841,6 +881,7 @@ void nilamp_test_filter_backend(double sample_rate, const float *input, float *o
 static void test_tube_ck(const StageCfg *cfg, double sample_rate, const float *input, float *v_out, float *dia, size_t n)
 {
     TubeCk st = { 0 };
+    adnl_seed_at_zero(&st.adnl, cfg->table);
     for (size_t i = 0; i < n; i++) {
         tube_ck_process(&st, cfg, sample_rate, input[i], 0.0f, &v_out[i], &dia[i]);
     }
@@ -864,6 +905,7 @@ void nilamp_test_tube_ck_t2_dz(double sample_rate, const float *input, float *v_
 static void test_tube_cd(const StageCfg *cfg, double sample_rate, const float *input, float *v_out, float *vk_out, float *dia, size_t n)
 {
     TubeCd st = { 0 };
+    adnl_seed_at_zero(&st.adnl, cfg->table);
     for (size_t i = 0; i < n; i++) {
         tube_cd_process(&st, cfg, sample_rate, input[i], 0.0f, &v_out[i], &vk_out[i], &dia[i]);
     }
@@ -889,6 +931,8 @@ void nilamp_test_power_pair(double sample_rate, const float *t3_v, const float *
     Svf1 hs_t5 = { 0 };
     TubeCk t4 = { 0 };
     TubeCk t5 = { 0 };
+    adnl_seed_at_zero(&t4.adnl, T4.table);
+    adnl_seed_at_zero(&t5.adnl, T5.table);
 
     for (size_t i = 0; i < n; i++) {
         float t4_in = ii1_hp_process(&hp3, 5.8f, sample_rate, t3_v[i] * 0.797f);

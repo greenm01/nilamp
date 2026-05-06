@@ -497,8 +497,10 @@ class AdnlProcessor:
     def __init__(self, table):
         self.table = table
         self.x_prev = 0.0
-        self.z_prev = 0.0
+        idx_zero = int(table["xmax"] / table["dx"])
+        zero_row = table["coeffs"][idx_zero]
         self.y_prev = 0.0
+        self.z_prev = float(zero_row[8])
 
     def process_block(self, x_buf):
         """Process a 1-D NumPy array."""
@@ -511,7 +513,7 @@ class AdnlProcessor:
         ymax = self.table["ymax"]
 
         for n in range(len(x_buf)):
-            x = x_buf[n]
+            x = float(x_buf[n])
 
             # --- direct evaluation (same as _adnl_eval but inlined for speed) ---
             if x <= -xmax:
@@ -530,21 +532,26 @@ class AdnlProcessor:
                 index = min(num_segments - 1, max(0, raw_index))
                 w = x + xmax - float(index) * dx
                 ab = coeffs[index]
-                a3, a2, a1, a0, b4, b3, b2, b1, b0 = ab
+                a3, a2, a1, a0, b4, b3, b2, b1, b0 = (float(v) for v in ab)
                 y1 = (((a3 * w + a2) * w + a1) * w + a0)
                 z1 = ((((b4 * w + b3) * w + b2) * w + b1) * w + b0)
+                if x == 0.0:
+                    y1 = 0.0
 
             # --- ADAA ---
             # Keller's JSFX (HK_LIB_ADNL.jsfx-inc:245):
             #   reldx0 < 1e-4   -> 0.5 * (y1 + y0)   (avg / limit form)
             #   reldx0 >= 1e-4  -> (z1 - z0) / dx0   (antiderivative quotient)
+            # The native tables store float coefficients, so tiny absolute
+            # steps also use the stable limit form to avoid near-zero
+            # antiderivative cancellation.
             dx0 = x - self.x_prev
             reldx0 = abs(dx0) / (abs(x + self.x_prev) + 1e-7)
 
             z0 = self.z_prev
             y0 = self.y_prev
 
-            if reldx0 < 0.0001:
+            if reldx0 < 0.0001 or abs(dx0) < 0.001:
                 adaa_result = 0.5 * (y1 + y0)
             else:
                 # safe_dx0 guards against the (theoretical) reldx0 >= 1e-4
@@ -867,11 +874,6 @@ class TubeCk:
         v2 = v1 * self.kpre
         v3 = v2 / (1.0 + self.kspre * dvs)
         v4 = v3 - self.kpk * self._pkd(v3)
-        # Use float32 so AdnlProcessor's intermediate w/dx0 cancellations
-        # match the native runtime arithmetic; default np.array would promote to
-        # f64 and shift small near-cancelled differences enough to break
-        # bit-comparable agreement (~3e-4 RMS skew on T3_CD with sub-pkre
-        # signals).  See ADNL_DTYPE note in TubeCd below.
         v5 = self.adnl.process_block(np.array([v4], dtype=np.float32))[0]
         v6 = self._eq(v5)
         v7 = v6 * (1.0 + self.kspost * dvs)
@@ -958,12 +960,6 @@ class TubeCd:
         v2 = v * self.kpre
         v3 = v2 / (1.0 + self.kspre * dvs)
         v4 = v3 - self.kpk * self._pkd(v3)
-        # ADNL_DTYPE: see TubeCk.process_sample.  Pinning to float32 here
-        # is what makes T3_CD's tiny-signal output (kpre=0.0105, sine 0.5
-        # in -> 0.005 max into ADNL) match the native runtime; without it the
-        # oracle disagrees by O(1) of the signal because the
-        # antiderivative quotient (z1-z0)/dx0 cancels at f32 precision
-        # in float32 but survives at f64 in NumPy.
         v5 = self.adnl.process_block(np.array([v4], dtype=np.float32))[0]
         v6 = self._eq(v5)
         v7 = v6 * (1.0 + self.kspost * dvs)
