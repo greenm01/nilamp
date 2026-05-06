@@ -20,10 +20,13 @@
 #if NILAMP_EXPECT_CLAP_GUI
 #if defined(__APPLE__)
 #define NILAMP_EXPECT_CLAP_WINDOW_API CLAP_WINDOW_API_COCOA
+#define NILAMP_EXPECT_CLAP_FLOATING 1
 #elif defined(_WIN32)
 #define NILAMP_EXPECT_CLAP_WINDOW_API CLAP_WINDOW_API_WIN32
+#define NILAMP_EXPECT_CLAP_FLOATING 0
 #else
 #define NILAMP_EXPECT_CLAP_WINDOW_API CLAP_WINDOW_API_X11
+#define NILAMP_EXPECT_CLAP_FLOATING 0
 #endif
 #endif
 
@@ -574,8 +577,9 @@ int main(int argc, char **argv)
     check(gui != NULL, "missing gui extension");
     check(gui->is_api_supported(plugin, NILAMP_EXPECT_CLAP_WINDOW_API, false),
           "gui does not support expected embedded api");
-    check(!gui->is_api_supported(plugin, NILAMP_EXPECT_CLAP_WINDOW_API, true),
-          "gui unexpectedly supports floating expected api");
+    check(gui->is_api_supported(plugin, NILAMP_EXPECT_CLAP_WINDOW_API, true) ==
+              (bool)NILAMP_EXPECT_CLAP_FLOATING,
+          "unexpected floating gui support");
     check(!gui->is_api_supported(plugin, CLAP_WINDOW_API_WAYLAND, false),
           "gui unexpectedly supports embedded Wayland");
     const char *preferred_api = NULL;

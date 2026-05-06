@@ -36,10 +36,12 @@ typedef struct NilampGuiCallbacks {
 NilampGui *nilamp_gui_create(const NilampGuiCallbacks *callbacks,
                              const NilampGuiParamSpec *params,
                              uint32_t param_count,
-                             NilampGuiApi api);
+                             NilampGuiApi api,
+                             bool is_floating);
 void nilamp_gui_destroy(NilampGui *gui);
 
 bool nilamp_gui_set_parent(NilampGui *gui, NilampGuiParent parent);
+bool nilamp_gui_set_transient(NilampGui *gui, NilampGuiParent parent);
 bool nilamp_gui_show(NilampGui *gui);
 bool nilamp_gui_hide(NilampGui *gui);
 bool nilamp_gui_set_scale(NilampGui *gui, double scale);

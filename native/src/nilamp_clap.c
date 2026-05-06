@@ -10,6 +10,7 @@
 #include <errno.h>
 #include <float.h>
 #include <math.h>
+#include <stdarg.h>
 #include <stdatomic.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -74,6 +75,7 @@ typedef struct NilampClap {
     atomic_uint params_dirty;
     clap_id gui_timer_id;
     double sample_rate;
+    bool gui_is_floating;
     bool gui_timer_registered;
     bool active;
 } NilampClap;
@@ -102,6 +104,44 @@ static const NilampGuiParamSpec nilamp_gui_param_specs[NILAMP_PARAM_COUNT] = {
     {NILAMP_PARAM_TREBLE_PCT, "Treble", "%", 0.0f, 100.0f},
     {NILAMP_PARAM_SAG_PCT, "Sag", "%", 0.0f, 100.0f},
 };
+
+static void nilamp_gui_log(const char *fmt, ...)
+{
+    const char *path = getenv("NILAMP_GUI_LOG");
+    if (!path || !path[0]) {
+        return;
+    }
+
+    FILE *fp = fopen(path, "a");
+    if (!fp) {
+        return;
+    }
+
+    fputs("[nilamp_clap] ", fp);
+    va_list args;
+    va_start(args, fmt);
+    vfprintf(fp, fmt, args);
+    va_end(args);
+    fputc('\n', fp);
+    fclose(fp);
+}
+
+static bool nilamp_gui_supports_floating(void)
+{
+#if defined(__APPLE__)
+    return true;
+#else
+    return false;
+#endif
+}
+
+static bool nilamp_gui_api_supported(const char *api, bool is_floating)
+{
+    if (api && strcmp(api, NILAMP_CLAP_WINDOW_API) == 0) {
+        return !is_floating || nilamp_gui_supports_floating();
+    }
+    return is_floating && nilamp_gui_supports_floating() && (!api || !api[0]);
+}
 #endif
 
 static const char *const nilamp_features[] = {
@@ -119,7 +159,7 @@ static const clap_plugin_descriptor_t nilamp_descriptor = {
     .url = "",
     .manual_url = "",
     .support_url = "",
-    .version = "0.1.0",
+    .version = "0.1.1",
     .description = "Native C guitar amp model",
     .features = nilamp_features,
 };
@@ -987,7 +1027,10 @@ static bool nilamp_gui_is_api_supported(const clap_plugin_t *plugin, const char 
                                         bool is_floating)
 {
     (void)plugin;
-    return api && strcmp(api, NILAMP_CLAP_WINDOW_API) == 0 && !is_floating;
+    const bool ok = nilamp_gui_api_supported(api, is_floating);
+    nilamp_gui_log("is_api_supported api=%s floating=%d -> %d",
+                   api ? api : "(null)", is_floating ? 1 : 0, ok ? 1 : 0);
+    return ok;
 }
 
 static bool nilamp_gui_get_preferred_api(const clap_plugin_t *plugin, const char **api,
@@ -999,6 +1042,7 @@ static bool nilamp_gui_get_preferred_api(const clap_plugin_t *plugin, const char
     }
     *api = NILAMP_CLAP_WINDOW_API;
     *is_floating = false;
+    nilamp_gui_log("get_preferred_api -> api=%s floating=0", NILAMP_CLAP_WINDOW_API);
     return true;
 }
 
@@ -1006,7 +1050,10 @@ static bool nilamp_gui_create_ext(const clap_plugin_t *plugin, const char *api,
                                   bool is_floating)
 {
     NilampClap *plug = nilamp_from_plugin(plugin);
-    if (!plug || plug->gui || !nilamp_gui_is_api_supported(plugin, api, is_floating)) {
+    if (!plug || plug->gui || !nilamp_gui_api_supported(api, is_floating)) {
+        nilamp_gui_log("create rejected api=%s floating=%d plug=%p existing_gui=%p",
+                       api ? api : "(null)", is_floating ? 1 : 0, (void *)plug,
+                       plug ? (void *)plug->gui : NULL);
         return false;
     }
 
@@ -1017,8 +1064,12 @@ static bool nilamp_gui_create_ext(const clap_plugin_t *plugin, const char *api,
         .model_name = nilamp_gui_model_name_cb,
     };
     plug->gui = nilamp_gui_create(&callbacks, nilamp_gui_param_specs, NILAMP_PARAM_COUNT,
-                                  NILAMP_GUI_NATIVE_API);
-    return plug->gui != NULL;
+                                  NILAMP_GUI_NATIVE_API, is_floating);
+    const bool ok = plug->gui != NULL;
+    plug->gui_is_floating = ok && is_floating;
+    nilamp_gui_log("create api=%s floating=%d -> %d", api ? api : "(null)",
+                   is_floating ? 1 : 0, ok ? 1 : 0);
+    return ok;
 }
 
 static void nilamp_gui_destroy_ext(const clap_plugin_t *plugin)
@@ -1030,24 +1081,32 @@ static void nilamp_gui_destroy_ext(const clap_plugin_t *plugin)
     nilamp_unregister_gui_timer(plug);
     nilamp_gui_destroy(plug->gui);
     plug->gui = NULL;
+    plug->gui_is_floating = false;
+    nilamp_gui_log("destroy");
 }
 
 static bool nilamp_gui_set_scale_ext(const clap_plugin_t *plugin, double scale)
 {
     NilampClap *plug = nilamp_from_plugin(plugin);
-    return plug && plug->gui && nilamp_gui_set_scale(plug->gui, scale);
+    const bool ok = plug && plug->gui && nilamp_gui_set_scale(plug->gui, scale);
+    nilamp_gui_log("set_scale scale=%.3f -> %d", scale, ok ? 1 : 0);
+    return ok;
 }
 
 static bool nilamp_gui_get_size_ext(const clap_plugin_t *plugin, uint32_t *width,
                                     uint32_t *height)
 {
     NilampClap *plug = nilamp_from_plugin(plugin);
-    return plug && plug->gui && nilamp_gui_get_size(plug->gui, width, height);
+    const bool ok = plug && plug->gui && nilamp_gui_get_size(plug->gui, width, height);
+    nilamp_gui_log("get_size -> %d width=%u height=%u", ok ? 1 : 0,
+                   ok && width ? *width : 0u, ok && height ? *height : 0u);
+    return ok;
 }
 
 static bool nilamp_gui_can_resize_ext(const clap_plugin_t *plugin)
 {
     (void)plugin;
+    nilamp_gui_log("can_resize -> 0");
     return false;
 }
 
@@ -1058,6 +1117,7 @@ static bool nilamp_gui_get_resize_hints_ext(const clap_plugin_t *plugin,
     if (hints) {
         memset(hints, 0, sizeof(*hints));
     }
+    nilamp_gui_log("get_resize_hints -> 0");
     return false;
 }
 
@@ -1070,6 +1130,7 @@ static bool nilamp_gui_adjust_size_ext(const clap_plugin_t *plugin, uint32_t *wi
     }
     *width = 540u;
     *height = 360u;
+    nilamp_gui_log("adjust_size -> width=%u height=%u", *width, *height);
     return true;
 }
 
@@ -1077,7 +1138,9 @@ static bool nilamp_gui_set_size_ext(const clap_plugin_t *plugin, uint32_t width,
                                     uint32_t height)
 {
     NilampClap *plug = nilamp_from_plugin(plugin);
-    return plug && plug->gui && nilamp_gui_set_size(plug->gui, width, height);
+    const bool ok = plug && plug->gui && nilamp_gui_set_size(plug->gui, width, height);
+    nilamp_gui_log("set_size width=%u height=%u -> %d", width, height, ok ? 1 : 0);
+    return ok;
 }
 
 static bool nilamp_gui_set_parent_ext(const clap_plugin_t *plugin,
@@ -1086,6 +1149,9 @@ static bool nilamp_gui_set_parent_ext(const clap_plugin_t *plugin,
     NilampClap *plug = nilamp_from_plugin(plugin);
     if (!plug || !plug->gui || !window || !window->api ||
         strcmp(window->api, NILAMP_CLAP_WINDOW_API) != 0) {
+        nilamp_gui_log("set_parent rejected api=%s plug=%p gui=%p window=%p",
+                       window && window->api ? window->api : "(null)", (void *)plug,
+                       plug ? (void *)plug->gui : NULL, (const void *)window);
         return false;
     }
     uintptr_t handle = 0u;
@@ -1096,42 +1162,73 @@ static bool nilamp_gui_set_parent_ext(const clap_plugin_t *plugin,
 #else
     handle = (uintptr_t)window->x11;
 #endif
-    return nilamp_gui_set_parent(
+    const bool ok = nilamp_gui_set_parent(
         plug->gui,
         (NilampGuiParent){
             .api = NILAMP_GUI_NATIVE_API,
             .handle = handle,
         });
+    nilamp_gui_log("set_parent api=%s handle=%p -> %d", window->api, (void *)handle,
+                   ok ? 1 : 0);
+    return ok;
 }
 
 static bool nilamp_gui_set_transient_ext(const clap_plugin_t *plugin,
                                          const clap_window_t *window)
 {
-    (void)plugin;
-    (void)window;
-    return false;
+    NilampClap *plug = nilamp_from_plugin(plugin);
+    if (!plug || !plug->gui || !plug->gui_is_floating || !window || !window->api ||
+        strcmp(window->api, NILAMP_CLAP_WINDOW_API) != 0) {
+        nilamp_gui_log("set_transient rejected api=%s floating=%d plug=%p gui=%p window=%p",
+                       window && window->api ? window->api : "(null)",
+                       plug && plug->gui_is_floating ? 1 : 0, (void *)plug,
+                       plug ? (void *)plug->gui : NULL, (const void *)window);
+        return false;
+    }
+    uintptr_t handle = 0u;
+#if defined(__APPLE__)
+    handle = (uintptr_t)window->cocoa;
+#elif defined(_WIN32)
+    handle = (uintptr_t)window->win32;
+#else
+    handle = (uintptr_t)window->x11;
+#endif
+    const bool ok = nilamp_gui_set_transient(
+        plug->gui,
+        (NilampGuiParent){
+            .api = NILAMP_GUI_NATIVE_API,
+            .handle = handle,
+        });
+    nilamp_gui_log("set_transient api=%s handle=%p -> %d", window->api,
+                   (void *)handle, ok ? 1 : 0);
+    return ok;
 }
 
 static void nilamp_gui_suggest_title_ext(const clap_plugin_t *plugin, const char *title)
 {
     (void)plugin;
-    (void)title;
+    nilamp_gui_log("suggest_title title=%s", title ? title : "(null)");
 }
 
 static bool nilamp_gui_show_ext(const clap_plugin_t *plugin)
 {
     NilampClap *plug = nilamp_from_plugin(plugin);
     const bool ok = plug && plug->gui && nilamp_gui_show(plug->gui);
+    nilamp_gui_log("show -> %d", ok ? 1 : 0);
     if (ok && plug->host_timer && plug->host_timer->register_timer &&
         !plug->gui_timer_registered) {
         clap_id timer_id = CLAP_INVALID_ID;
         if (plug->host_timer->register_timer(plug->host, 33u, &timer_id)) {
             plug->gui_timer_id = timer_id;
             plug->gui_timer_registered = true;
+            nilamp_gui_log("register_timer id=%u", timer_id);
+        } else {
+            nilamp_gui_log("register_timer failed");
         }
     }
     if (ok && !plug->gui_timer_registered && plug->host && plug->host->request_callback) {
         plug->host->request_callback(plug->host);
+        nilamp_gui_log("request_callback fallback");
     }
     return ok;
 }
@@ -1140,7 +1237,9 @@ static bool nilamp_gui_hide_ext(const clap_plugin_t *plugin)
 {
     NilampClap *plug = nilamp_from_plugin(plugin);
     nilamp_unregister_gui_timer(plug);
-    return plug && plug->gui && nilamp_gui_hide(plug->gui);
+    const bool ok = plug && plug->gui && nilamp_gui_hide(plug->gui);
+    nilamp_gui_log("hide -> %d", ok ? 1 : 0);
+    return ok;
 }
 
 static const clap_plugin_gui_t nilamp_gui_ext = {

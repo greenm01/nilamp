@@ -20,6 +20,7 @@
 #include "sokol_nuklear.h"
 
 #include <math.h>
+#include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -63,11 +64,33 @@ struct NilampGui {
     bool mouse_motion;
     int active_knob;
     bool realized;
+    bool is_floating;
     bool visible;
     bool gpu_ready;
 };
 
 static bool nilamp_gui_sokol_in_use = false;
+
+static void nilamp_gui_log(const char *fmt, ...)
+{
+    const char *path = getenv("NILAMP_GUI_LOG");
+    if (!path || !path[0]) {
+        return;
+    }
+
+    FILE *fp = fopen(path, "a");
+    if (!fp) {
+        return;
+    }
+
+    fputs("[nilamp_gui] ", fp);
+    va_list args;
+    va_start(args, fmt);
+    vfprintf(fp, fmt, args);
+    va_end(args);
+    fputc('\n', fp);
+    fclose(fp);
+}
 
 static float nilamp_gui_clampf(float value, float min_value, float max_value)
 {
@@ -592,10 +615,12 @@ static PuglStatus nilamp_gui_event(PuglView *view, const PuglEvent *event)
 NilampGui *nilamp_gui_create(const NilampGuiCallbacks *callbacks,
                              const NilampGuiParamSpec *params,
                              uint32_t param_count,
-                             NilampGuiApi api)
+                             NilampGuiApi api,
+                             bool is_floating)
 {
     if (!callbacks || !callbacks->get_param || !callbacks->set_param || !params ||
         param_count == 0 || param_count > NILAMP_GUI_MAX_PARAMS) {
+        nilamp_gui_log("create rejected: invalid arguments");
         return NULL;
     }
 
@@ -608,6 +633,7 @@ NilampGui *nilamp_gui_create(const NilampGuiCallbacks *callbacks,
     gui->params = params;
     gui->param_count = param_count;
     gui->api = api;
+    gui->is_floating = is_floating;
     gui->model.width = NILAMP_GUI_DEFAULT_WIDTH;
     gui->model.height = NILAMP_GUI_DEFAULT_HEIGHT;
     gui->model.dirty = true;
@@ -623,21 +649,35 @@ NilampGui *nilamp_gui_create(const NilampGuiCallbacks *callbacks,
     }
 
     puglSetHandle(gui->view, gui);
-    if (puglSetBackend(gui->view, puglGlBackend()) ||
-        puglSetEventFunc(gui->view, nilamp_gui_event) ||
-        puglSetViewHint(gui->view, PUGL_CONTEXT_API, PUGL_OPENGL_API) ||
-        puglSetViewHint(gui->view, PUGL_CONTEXT_VERSION_MAJOR, 3) ||
-        puglSetViewHint(gui->view, PUGL_CONTEXT_VERSION_MINOR, 3) ||
-        puglSetViewHint(gui->view, PUGL_CONTEXT_PROFILE, PUGL_OPENGL_CORE_PROFILE) ||
-        puglSetViewHint(gui->view, PUGL_DOUBLE_BUFFER, 1) ||
-        puglSetViewHint(gui->view, PUGL_STENCIL_BITS, 0) ||
-        puglSetViewHint(gui->view, PUGL_RESIZABLE, 0) ||
-        puglSetSizeHint(gui->view, PUGL_DEFAULT_SIZE, gui->model.width, gui->model.height) ||
-        puglSetSizeHint(gui->view, PUGL_CURRENT_SIZE, gui->model.width, gui->model.height)) {
+    PuglStatus status = PUGL_SUCCESS;
+    if ((status = puglSetBackend(gui->view, puglGlBackend())) ||
+        (status = puglSetEventFunc(gui->view, nilamp_gui_event)) ||
+        (status = puglSetViewHint(gui->view, PUGL_CONTEXT_API, PUGL_OPENGL_API)) ||
+        (status = puglSetViewHint(gui->view, PUGL_CONTEXT_VERSION_MAJOR, 3)) ||
+        (status = puglSetViewHint(gui->view, PUGL_CONTEXT_VERSION_MINOR, 3)) ||
+        (status = puglSetViewHint(gui->view, PUGL_CONTEXT_PROFILE, PUGL_OPENGL_CORE_PROFILE)) ||
+        (status = puglSetViewHint(gui->view, PUGL_DOUBLE_BUFFER, 1)) ||
+        (status = puglSetViewHint(gui->view, PUGL_STENCIL_BITS, 0)) ||
+        (status = puglSetViewHint(gui->view, PUGL_RESIZABLE, 0)) ||
+        (status = puglSetSizeHint(gui->view, PUGL_DEFAULT_SIZE, gui->model.width,
+                                  gui->model.height))) {
+        nilamp_gui_log("create failed configuring Pugl: %s", puglStrerror(status));
         nilamp_gui_destroy(gui);
         return NULL;
     }
 
+    status = puglSetSizeHint(gui->view, PUGL_CURRENT_SIZE, gui->model.width,
+                             gui->model.height);
+    if (status > PUGL_FAILURE) {
+        nilamp_gui_log("create failed setting current size: %s", puglStrerror(status));
+        nilamp_gui_destroy(gui);
+        return NULL;
+    }
+    if (status) {
+        nilamp_gui_log("create deferred current size: %s", puglStrerror(status));
+    }
+
+    nilamp_gui_log("create ok api=%d floating=%d", (int)api, is_floating ? 1 : 0);
     return gui;
 }
 
@@ -663,27 +703,82 @@ void nilamp_gui_destroy(NilampGui *gui)
 bool nilamp_gui_set_parent(NilampGui *gui, NilampGuiParent parent)
 {
     if (!gui || !gui->view || parent.handle == 0u || parent.api != gui->api) {
+        nilamp_gui_log("set_parent rejected handle=%p api=%d", (void *)parent.handle,
+                       (int)parent.api);
+        return false;
+    }
+    if (gui->is_floating) {
+        nilamp_gui_log("set_parent rejected for floating gui");
         return false;
     }
     if (!gui->realized) {
-        if (puglSetParent(gui->view, (PuglNativeView)parent.handle) || puglRealize(gui->view)) {
+        PuglStatus status = puglSetParent(gui->view, (PuglNativeView)parent.handle);
+        if (status) {
+            nilamp_gui_log("set_parent failed: %s", puglStrerror(status));
             return false;
         }
+        status = puglRealize(gui->view);
+        if (status) {
+            nilamp_gui_log("set_parent realize failed: %s", puglStrerror(status));
+            return false;
+        }
+        nilamp_gui_log("set_parent realize ok");
         gui->realized = true;
     }
     return true;
 }
 
-bool nilamp_gui_show(NilampGui *gui)
+bool nilamp_gui_set_transient(NilampGui *gui, NilampGuiParent parent)
 {
-    if (!gui || !gui->view || !gui->realized || !gui->gpu_ready) {
+    if (!gui || !gui->view || parent.handle == 0u || parent.api != gui->api) {
+        nilamp_gui_log("set_transient rejected handle=%p api=%d", (void *)parent.handle,
+                       (int)parent.api);
         return false;
     }
-    if (puglShow(gui->view, PUGL_SHOW_PASSIVE) > PUGL_FAILURE) {
+    if (!gui->is_floating || puglGetParent(gui->view)) {
+        nilamp_gui_log("set_transient rejected floating=%d parent=%p",
+                       gui->is_floating ? 1 : 0, (void *)puglGetParent(gui->view));
+        return false;
+    }
+
+    PuglStatus status = puglSetTransientParent(gui->view, (PuglNativeView)parent.handle);
+    if (status && gui->realized) {
+        nilamp_gui_log("set_transient failed: %s", puglStrerror(status));
+        return false;
+    }
+    nilamp_gui_log("set_transient ok status=%s", puglStrerror(status));
+    return true;
+}
+
+bool nilamp_gui_show(NilampGui *gui)
+{
+    if (!gui || !gui->view) {
+        nilamp_gui_log("show rejected: missing gui/view");
+        return false;
+    }
+    if (!gui->realized && gui->is_floating) {
+        const PuglStatus status = puglRealize(gui->view);
+        if (status) {
+            nilamp_gui_log("show floating realize failed: %s", puglStrerror(status));
+            return false;
+        }
+        nilamp_gui_log("show floating realize ok");
+        gui->realized = true;
+    }
+    if (!gui->realized || !gui->gpu_ready) {
+        nilamp_gui_log("show rejected realized=%d gpu_ready=%d",
+                       gui->realized ? 1 : 0, gui->gpu_ready ? 1 : 0);
+        return false;
+    }
+    const PuglStatus status =
+        puglShow(gui->view, gui->is_floating ? PUGL_SHOW_RAISE : PUGL_SHOW_PASSIVE);
+    if (status > PUGL_FAILURE) {
+        nilamp_gui_log("show failed: %s", puglStrerror(status));
         return false;
     }
     gui->visible = true;
     nilamp_gui_request_redraw(gui);
+    nilamp_gui_log("show ok status=%s", puglStrerror(status));
     return true;
 }
 
