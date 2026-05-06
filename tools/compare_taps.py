@@ -301,7 +301,7 @@ def main() -> int:
     parser.add_argument("--bass", type=float, default=50.0)
     parser.add_argument("--mid", type=float, default=50.0)
     parser.add_argument("--treble", type=float, default=50.0)
-    parser.add_argument("--sag", type=float, default=100.0)
+    parser.add_argument("--sag", type=float, default=50.0)
     parser.add_argument("--tube1", type=int, choices=[0, 1], default=1)
     parser.add_argument("--splitter", type=int, choices=[0, 1, 2, 3, 4], default=2)
     parser.add_argument("--input-scale", type=float, default=1.0)

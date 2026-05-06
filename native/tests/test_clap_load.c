@@ -426,6 +426,112 @@ static void init_param_event(clap_event_param_value_t *event, clap_id id, double
     event->value = value;
 }
 
+static void check_param_metadata(const clap_plugin_t *plugin,
+                                 const clap_plugin_params_t *params)
+{
+    uint32_t spec_count = 0;
+    const NilampControlSpec *specs = nilamp_control_specs(&spec_count);
+    check(specs != NULL, "missing control specs");
+    check(spec_count == NILAMP_PARAM_COUNT, "unexpected control spec count");
+    check(params->count(plugin) == spec_count, "CLAP param count does not match specs");
+
+    for (uint32_t i = 0; i < spec_count; i++) {
+        clap_param_info_t info = {0};
+        const NilampControlSpec *spec = &specs[i];
+        check(params->get_info(plugin, i, &info), "param metadata read failed");
+        check(info.id == spec->id, "param metadata id mismatch");
+        check(strcmp(info.name, spec->name) == 0, "param metadata name mismatch");
+        check(strcmp(info.module, spec->module) == 0, "param metadata module mismatch");
+        check(fabs(info.min_value - spec->min_value) < 0.000001,
+              "param metadata minimum mismatch");
+        check(fabs(info.max_value - spec->max_value) < 0.000001,
+              "param metadata maximum mismatch");
+        check(fabs(info.default_value - spec->default_value) < 0.000001,
+              "param metadata default mismatch");
+
+        if (spec->display == NILAMP_CONTROL_DISPLAY_ENUM) {
+            check(spec->enum_names != NULL && spec->enum_count > 0u,
+                  "enum spec is missing labels");
+            for (uint32_t value = 0; value < spec->enum_count; value++) {
+                char text[64];
+                double parsed = -1.0;
+                check(params->value_to_text(plugin, spec->id, (double)value,
+                                            text, sizeof(text)),
+                      "enum value_to_text failed");
+                check(strcmp(text, spec->enum_names[value]) == 0,
+                      "enum value_to_text label mismatch");
+                check(params->text_to_value(plugin, spec->id, spec->enum_names[value],
+                                            &parsed),
+                      "enum text_to_value failed");
+                check(fabs(parsed - (double)value) < 0.000001,
+                      "enum text_to_value mismatch");
+            }
+        }
+    }
+}
+
+static double alternate_param_value(const NilampControlSpec *spec)
+{
+    if (spec->display == NILAMP_CONTROL_DISPLAY_ENUM) {
+        return spec->max_value;
+    }
+    double value = spec->default_value + spec->step;
+    if (value > spec->max_value) {
+        value = spec->min_value;
+    }
+    if (fabs(value - spec->default_value) < 0.000001 && spec->max_value > spec->min_value) {
+        value = spec->max_value;
+    }
+    return value;
+}
+
+static void run_all_param_automation_test(const clap_plugin_t *plugin,
+                                          const clap_plugin_params_t *params,
+                                          clap_process_t *process,
+                                          clap_output_events_t *out_events)
+{
+    uint32_t spec_count = 0;
+    const NilampControlSpec *specs = nilamp_control_specs(&spec_count);
+    clap_event_param_value_t events[NILAMP_PARAM_COUNT];
+    const clap_event_header_t *event_ptrs[NILAMP_PARAM_COUNT];
+    double expected[NILAMP_PARAM_COUNT];
+
+    check(spec_count == NILAMP_PARAM_COUNT, "automation spec count mismatch");
+    for (uint32_t i = 0; i < spec_count; i++) {
+        expected[i] = alternate_param_value(&specs[i]);
+        init_param_event(&events[i], specs[i].id, expected[i]);
+        event_ptrs[i] = &events[i].header;
+    }
+
+    TestEvents all_events = {.events = event_ptrs, .count = spec_count};
+    clap_input_events_t input_events = {
+        .ctx = &all_events,
+        .size = events_size,
+        .get = events_get,
+    };
+    params->flush(plugin, &input_events, out_events);
+    for (uint32_t i = 0; i < spec_count; i++) {
+        double actual = NAN;
+        check(params->get_value(plugin, specs[i].id, &actual),
+              "automated param read failed");
+        check(fabs(actual - expected[i]) < 0.000001,
+              "automated param value mismatch");
+    }
+
+    plugin->reset(plugin);
+    check(plugin->process(plugin, process) == CLAP_PROCESS_CONTINUE,
+          "all-param automation process returned failure");
+    clap_audio_buffer_t *output = process->audio_outputs;
+    for (uint32_t ch = 0; ch < output->channel_count; ch++) {
+        if (!output->data32[ch]) {
+            continue;
+        }
+        for (uint32_t i = 0; i < process->frames_count; i++) {
+            check(isfinite(output->data32[ch][i]), "all-param automation output is non-finite");
+        }
+    }
+}
+
 static void run_clap_output_safety_test(const clap_plugin_t *plugin,
                                         const clap_plugin_params_t *params,
                                         clap_process_t *process,
@@ -566,7 +672,7 @@ int main(int argc, char **argv)
     const clap_plugin_params_t *params =
         (const clap_plugin_params_t *)plugin->get_extension(plugin, CLAP_EXT_PARAMS);
     check(params != NULL, "missing params extension");
-    check(params->count(plugin) == NILAMP_PARAM_COUNT, "unexpected parameter count");
+    check_param_metadata(plugin, params);
     clap_param_info_t param_info = {0};
     check(params->get_info(plugin, NILAMP_PARAM_GAIN_DB, &param_info),
           "gain info read failed");
@@ -764,6 +870,7 @@ int main(int argc, char **argv)
     process.audio_inputs_count = 1;
     process.audio_outputs_count = 1;
     process.frames_count = Frames;
+    run_all_param_automation_test(plugin, params, &process, &out_events);
 
     clap_event_param_value_t gain_event = {
         .header = {

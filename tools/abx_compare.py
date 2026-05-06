@@ -89,7 +89,7 @@ class Params:
     bass_pct: float = 50.0     # 0..100
     mid_pct: float = 50.0      # 0..100
     treble_pct: float = 50.0   # 0..100
-    sag_pct: float = 100.0     # 0..100 (nilamp only; JSFX has no equivalent)
+    sag_pct: float = 50.0      # 0..100 (50 matches Keller's fixed JSFX PSS)
     tube1: int = 1             # 0=12AY7, 1=12AX7
     splitter: int = 2          # JSFX TWD DLX II default: LTP 1
 
@@ -523,7 +523,7 @@ def main() -> int:
     ap.add_argument("--bass", type=float, default=50.0)
     ap.add_argument("--mid", type=float, default=50.0)
     ap.add_argument("--treble", type=float, default=50.0)
-    ap.add_argument("--sag", type=float, default=100.0)
+    ap.add_argument("--sag", type=float, default=50.0)
     ap.add_argument("--tube1", type=int, choices=[0, 1], default=1)
     ap.add_argument("--splitter", type=int, choices=[0, 1, 2, 3, 4], default=2)
     ap.add_argument("--input-scale", type=float, default=1.0,

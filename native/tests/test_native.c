@@ -93,6 +93,80 @@ static int compare_fixture(const char *label, const float *actual, size_t n, con
     return rc;
 }
 
+static float rms_diff_after(const float *a, const float *b, size_t n, size_t skip)
+{
+    if (skip >= n) {
+        skip = 0;
+    }
+    double sum_sq = 0.0;
+    for (size_t i = skip; i < n; i++) {
+        const double d = (double)a[i] - (double)b[i];
+        sum_sq += d * d;
+    }
+    return (float)sqrt(sum_sq / (double)(n - skip));
+}
+
+static float peak_abs(const float *x, size_t n)
+{
+    float peak = 0.0f;
+    for (size_t i = 0; i < n; i++) {
+        const float v = fabsf(x[i]);
+        if (v > peak) {
+            peak = v;
+        }
+    }
+    return peak;
+}
+
+static void fill_sine(float *out, size_t n, float freq, float amp)
+{
+    for (size_t i = 0; i < n; i++) {
+        const float t = (float)i / (float)SAMPLE_RATE;
+        out[i] = amp * sinf(6.28318530717958647692f * freq * t);
+    }
+}
+
+static int render_params(const float *input, size_t n,
+                         const NilampParams *params, float *output)
+{
+    NilampEngine *engine = nilamp_engine_create(SAMPLE_RATE);
+    if (!engine) {
+        return -1;
+    }
+    nilamp_engine_set_params(engine, params);
+    nilamp_engine_process(engine, input, output, (uint32_t)n);
+    nilamp_engine_destroy(engine);
+    return 0;
+}
+
+static int check_render_delta(const char *label, const float *input, size_t n,
+                              const NilampParams *a, const NilampParams *b,
+                              float min_rms_diff)
+{
+    float *out_a = alloc_zero(n);
+    float *out_b = alloc_zero(n);
+    if (!out_a || !out_b || render_params(input, n, a, out_a) != 0 ||
+        render_params(input, n, b, out_b) != 0) {
+        free(out_a);
+        free(out_b);
+        return -1;
+    }
+
+    const float diff = rms_diff_after(out_a, out_b, n, n / 10u);
+    const float peak_a = peak_abs(out_a, n);
+    const float peak_b = peak_abs(out_b, n);
+    printf("[%s] rms_diff=%.6e peak_a=%.6e peak_b=%.6e n=%zu\n",
+           label, (double)diff, (double)peak_a, (double)peak_b, n);
+    const int rc = diff >= min_rms_diff && peak_a > 1e-8f && peak_b > 1e-8f ? 0 : -1;
+    if (rc != 0) {
+        fprintf(stderr, "%s did not produce required audio delta %.6e >= %.6e\n",
+                label, (double)diff, (double)min_rms_diff);
+    }
+    free(out_a);
+    free(out_b);
+    return rc;
+}
+
 static int test_pkd(void)
 {
     float *input = NULL;
@@ -291,6 +365,7 @@ static int test_nilamp_taps(void)
     NilampEngine *engine = nilamp_engine_create(SAMPLE_RATE);
     NilampParams params = nilamp_default_params();
     params.phase_splitter = 0.0f;
+    params.sag_pct = 35.355339f;
     nilamp_engine_set_params(engine, &params);
     float *outputs[NILAMP_NUM_TAPS] = { 0 };
     for (size_t i = 0; i < NILAMP_NUM_TAPS; i++) {
@@ -331,6 +406,64 @@ static int test_nilamp_taps(void)
     return rc;
 }
 
+static int test_control_audio_impact(void)
+{
+    enum { N = 48000 };
+    float *input = alloc_zero(N);
+    if (!input) {
+        return -1;
+    }
+    fill_sine(input, N, 220.0f, 0.15f);
+
+    int rc = 0;
+    NilampParams base = nilamp_default_params();
+    base.gain_db = 12.0f;
+    base.volume_pct = 100.0f;
+
+    NilampParams sag0 = base;
+    NilampParams sag100 = base;
+    sag0.sag_pct = 0.0f;
+    sag100.sag_pct = 100.0f;
+    if (check_render_delta("control_sag_0_vs_100", input, N, &sag0, &sag100,
+                           5e-4f) != 0) {
+        rc = 1;
+    }
+
+    NilampParams tube_ay7 = base;
+    NilampParams tube_ax7 = base;
+    tube_ay7.tube1 = 0.0f;
+    tube_ax7.tube1 = 1.0f;
+    if (check_render_delta("control_tube1_12ay7_vs_12ax7", input, N,
+                           &tube_ay7, &tube_ax7, 1e-3f) != 0) {
+        rc = 1;
+    }
+
+    for (int mode = 0; mode <= 4; mode++) {
+        if (mode == 2) {
+            continue;
+        }
+        NilampParams mode_params = base;
+        mode_params.phase_splitter = (float)mode;
+        char label[64];
+        snprintf(label, sizeof(label), "control_splitter_default_vs_%d", mode);
+        if (check_render_delta(label, input, N, &base, &mode_params, 1e-3f) != 0) {
+            rc = 1;
+        }
+    }
+
+    NilampParams comp_off = base;
+    NilampParams comp_both = base;
+    comp_off.gain_comp = 0.0f;
+    comp_both.gain_comp = 3.0f;
+    if (check_render_delta("control_gain_comp_off_vs_both", input, N,
+                           &comp_off, &comp_both, 1e-3f) != 0) {
+        rc = 1;
+    }
+
+    free(input);
+    return rc;
+}
+
 static int test_model_identity(void)
 {
     NilampEngine *engine = nilamp_engine_create(SAMPLE_RATE);
@@ -357,5 +490,6 @@ int main(void)
     if (test_power_pair() != 0) rc = 1;
     if (test_pss() != 0) rc = 1;
     if (test_nilamp_taps() != 0) rc = 1;
+    if (test_control_audio_impact() != 0) rc = 1;
     return rc;
 }

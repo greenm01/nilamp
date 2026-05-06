@@ -2,6 +2,36 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: CLAP control audit and Sag mapping
+
+**Context.** Audited CLAP-exposed controls against the generated KDL specs and
+native DSP path after Sag was reported as inaudible.
+
+**Edit summary.**
+
+- Changed Sag from a linear `0..1x` p3 supply-resistance multiplier to a
+  squared `0..4x` curve where `50%` is the Keller JSFX fixed PSS reference.
+- Updated JSFX comparison defaults so Sag `50%` remains the parity point.
+- Added CLAP smoke coverage that checks every generated control against CLAP
+  metadata, enum text conversion, automation writes, and post-automation
+  finite processing.
+- Added native audio-impact coverage for Sag, Tube 1, Splitter modes, and
+  Gain Compensation.
+
+**Verification.**
+
+- `make native-test` passes; Sag 0 vs 100 under hot drive now produces
+  `rms_diff=1.440655e-03`.
+- `make native-host-test` passes (`clap-validator` absent, skipped).
+- `make native-jsfx-test` passes:
+  - sine ABX residual `-40.6 dB`, correlation `0.999919`;
+  - all staged taps within diagnostic threshold;
+  - low-input regression passes.
+- `git diff --check` passes.
+- `make install-clap-user` installs and re-signs
+  `~/.clap/nilamp-twd-mkii.clap`.
+- `native/bin/test_clap_load ~/.clap/nilamp-twd-mkii.clap` exits `0`.
+
 ### Session: Tube 1 and Splitter DSP controls
 
 **Context.** Implemented the Keller TWD DLX II Tube 1 and Splitter topology

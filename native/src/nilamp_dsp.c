@@ -949,7 +949,13 @@ static NilampTapFrame nilamp_twd_dlx_ii_process_sample(NilampTwdDlxIiState *st, 
     const float bass = params->bass_pct * 0.01f;
     const float mid = params->mid_pct * 0.01f;
     const float treble = params->treble_pct * 0.01f;
-    const float sag = params->sag_pct * 0.01f;
+    float sag = params->sag_pct * 0.02f;
+    if (!isfinite(sag)) {
+        sag = 1.0f;
+    } else if (sag < 0.0f) {
+        sag = 0.0f;
+    }
+    sag *= sag;
     const float tone_fmid = iso266(params->tone_fmid_dbhz);
     const float tone_qmid = iso266(params->tone_qmid_db);
     const float res_gain1 = db_to_linear(params->spk_res_gain1_db);
