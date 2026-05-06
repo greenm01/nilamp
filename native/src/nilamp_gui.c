@@ -936,8 +936,13 @@ static bool nilamp_gui_knob(NilampGui *gui, struct nk_context *ctx,
 
     const char *unit = NULL;
     (void)nilamp_gui_display_box_value(param, value, &unit);
+    const bool has_unit = unit && unit[0];
+    const float box_w = 42.0f;
+    const float unit_gap = has_unit ? 3.0f : 0.0f;
+    const float unit_w = has_unit ? 28.0f : 0.0f;
+    const float group_w = box_w + unit_gap + unit_w;
     const struct nk_rect edit_rect =
-        nk_rect(bounds.x + 5.0f, bounds.y + bounds.h - 23.0f, bounds.w - 31.0f, 19.0f);
+        nk_rect(cx - group_w * 0.5f, bounds.y + bounds.h - 26.0f, box_w, 19.0f);
     nilamp_gui_value_box(gui, ctx, canvas, index, edit_rect, unit, outbox, outbox_count);
     return hovered || gui->active_knob == (int)index;
 }
