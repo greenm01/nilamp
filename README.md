@@ -156,8 +156,10 @@ python3 tools/abx_compare.py --preset sweep
 `make native-host-test` is REAPER-free: it runs the native CLAP loader and
 optional `clap-validator` when that tool is installed. The old REAPER smoke
 test remains available as `make native-reaper-host-test` for manual host checks.
-`make install-clap-user` installs the CLAP to `~/.clap/nilamp-twd-mkii.clap` by default;
-on macOS it also re-signs the copied dylib so hosts can load it.
+`make install-clap-user` installs the CLAP to the platform user plugin path by default:
+`~/Library/Audio/Plug-Ins/CLAP/nilamp-twd-mkii.clap` on macOS and
+`~/.clap/nilamp-twd-mkii.clap` on Linux. On macOS it also re-signs the copied
+dylib so hosts can load it.
 
 ## License
 

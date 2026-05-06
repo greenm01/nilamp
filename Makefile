@@ -19,7 +19,7 @@ NUKLEAR_INCLUDE := third_party/nuklear
 YSFX_ROOT ?= $(HOME)/src/ysfx
 YSFX_BUILD := $(NATIVE_BUILD)/ysfx
 YSFX_LIB := $(YSFX_BUILD)/libysfx.a
-CLAP_INSTALL_DIR ?= $(HOME)/.clap
+CLAP_INSTALL_DIR_DEFAULT := $(HOME)/.clap
 AMP_MODELS := models/amps/keller_twd_dlx_ii.kdl
 CLAP_NAME_C := $(strip $(shell $(PYTHON) tools/gen_amp_models.py --print-clap-name-c $(AMP_MODELS)))
 CLAP_BUNDLE := $(strip $(shell $(PYTHON) tools/gen_amp_models.py --print-clap-filename $(AMP_MODELS)))
@@ -51,10 +51,13 @@ GUI_LDLIBS := -lX11 -lXrandr -lXcursor -lXext -lGL -ldl
 endif
 
 ifeq ($(UNAME_S),Darwin)
+CLAP_INSTALL_DIR_DEFAULT := $(HOME)/Library/Audio/Plug-Ins/CLAP
 PLUGIN_LDFLAGS := -dynamiclib -Wl,-install_name,@rpath/$(CLAP_BUNDLE)
 GUI_LDLIBS := -framework Cocoa -framework CoreVideo -framework OpenGL
 CLAP_INSTALL_CODESIGN := $(CODESIGN) --force --sign -
 endif
+
+CLAP_INSTALL_DIR ?= $(CLAP_INSTALL_DIR_DEFAULT)
 
 CLAP_PLUGIN_CFLAGS := $(CLAP_CFLAGS) -DNILAMP_ENABLE_CLAP_GUI=$(NILAMP_ENABLE_CLAP_GUI) '-DNILAMP_CLAP_NAME=$(CLAP_NAME_C)'
 TEST_CLAP_CFLAGS := $(CLAP_CFLAGS) -DNILAMP_EXPECT_CLAP_GUI=$(NILAMP_ENABLE_CLAP_GUI) '-DNILAMP_EXPECT_CLAP_NAME=$(CLAP_NAME_C)'
