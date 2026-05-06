@@ -2,6 +2,34 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: Windows MSVC CLAP build and install
+
+**Context.** Ported the native CLAP build to Windows with the MSVC toolchain so
+nilamp can be loaded in REAPER as a native Windows CLAP plugin.
+
+**Edit summary.**
+
+- Added `Makefile.msvc` for VS 2022 Build Tools / NMake builds.
+- Added Windows compatibility shims for case-insensitive string compares,
+  dynamic CLAP loading in smoke hosts, and MSVC x64 FTZ/DAZ support.
+- Vendored Pugl Win32/OpenGL backend files and enabled the existing
+  Pugl/Sokol/Nuklear editor through `CLAP_WINDOW_API_WIN32`.
+- Added Windows docs and made CLAP validation find `.exe` tools plus a local
+  `clap-validator` build.
+- Added a per-user Windows install target for
+  `%LOCALAPPDATA%\Programs\Common\CLAP`.
+
+**Verification.**
+
+- `nmake /f Makefile.msvc native` passes.
+- `nmake /f Makefile.msvc native-test` passes.
+- `nmake /f Makefile.msvc native-host-test` passes with `clap-validator`:
+  21 tests run, 15 passed, 0 failed, 6 skipped.
+- `nmake /f Makefile.msvc install-clap-user` installs
+  `%LOCALAPPDATA%\Programs\Common\CLAP\nilamp-twd-mkii.clap`.
+- `native\bin\test_clap_load.exe %LOCALAPPDATA%\Programs\Common\CLAP\nilamp-twd-mkii.clap`
+  exits `0`.
+
 ### Session: CLAP control audit and Sag mapping
 
 **Context.** Audited CLAP-exposed controls against the generated KDL specs and

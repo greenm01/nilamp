@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 #include "nilamp_dsp.h"
+#include "nilamp_compat.h"
 #include "nilamp_cpu.h"
 #include "nilamp_gui.h"
 
@@ -18,7 +19,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <strings.h>
 
 #ifndef NILAMP_ENABLE_CLAP_GUI
 #define NILAMP_ENABLE_CLAP_GUI 1
@@ -892,12 +892,12 @@ static bool nilamp_params_text_to_value(const clap_plugin_t *plugin, clap_id par
     if (spec->display == NILAMP_CONTROL_DISPLAY_ENUM && spec->enum_names &&
         spec->enum_count > 0u) {
         for (uint32_t i = 0; i < spec->enum_count; i++) {
-            if (strcasecmp(param_value_text, spec->enum_names[i]) == 0) {
+            if (nilamp_stricmp(param_value_text, spec->enum_names[i]) == 0) {
                 *out_value = (double)i;
                 return true;
             }
         }
-        if (spec->id == NILAMP_PARAM_GAIN_COMP && strcasecmp(param_value_text, "tube1") == 0) {
+        if (spec->id == NILAMP_PARAM_GAIN_COMP && nilamp_stricmp(param_value_text, "tube1") == 0) {
             *out_value = 1.0;
             return true;
         }

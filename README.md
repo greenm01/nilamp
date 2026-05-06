@@ -16,11 +16,11 @@ The name means "no amp": `nil` + `amp`.
 ## Status
 
 The active build is a native C DSP engine, Make-built offline renderers, and a
-C CLAP plugin with an embedded GPU editor. The target format is CLAP. Linux and
-macOS are the main targets; Windows can follow later.
+C CLAP plugin with an embedded GPU editor. The target format is CLAP. Linux,
+macOS, and Windows are supported native targets.
 
-Current editor backends are X11/XWayland on Linux and Cocoa on macOS. Native
-Wayland and Windows editor support are future work.
+Current editor backends are X11/XWayland on Linux, Cocoa on macOS, and Win32 on
+Windows. Native Wayland support is future work.
 
 ## Goals
 
@@ -54,6 +54,8 @@ The native CLAP build requires:
 - Linux only: X11/Xrandr/Xcursor/Xext and OpenGL development headers
 - macOS only: Xcode Command Line Tools; Cocoa, CoreVideo, and OpenGL come
   from the macOS SDK
+- Windows only: Visual Studio 2022 Build Tools with the MSVC x64 toolchain and
+  Windows SDK; use an x64 Native Tools prompt or run `vcvars64.bat`
 
 Install system packages:
 
@@ -73,6 +75,9 @@ sudo apt install build-essential git cmake python3 python3-venv python3-pip \
 # macOS
 xcode-select --install
 brew install cmake python git
+
+# Windows
+# Install Visual Studio 2022 Build Tools with "Desktop development with C++".
 ```
 
 The JSFX parity path uses Joep Vanlier's maintained ysfx checkout.
@@ -97,6 +102,8 @@ docs/                 Current notes, research references, ABX notes
 
 ## Build
 
+Linux and macOS use the main Makefile:
+
 ```bash
 make native
 make native-test
@@ -104,6 +111,15 @@ make native-host-test
 make install-clap-user
 make setup-python
 make native-jsfx-test
+```
+
+Windows uses MSVC/NMake from an x64 Native Tools prompt:
+
+```bat
+nmake /f Makefile.msvc native
+nmake /f Makefile.msvc native-test
+nmake /f Makefile.msvc native-host-test
+nmake /f Makefile.msvc install-clap-user
 ```
 
 This builds:
@@ -167,7 +183,11 @@ available as `make native-reaper-host-test` for manual host checks.
 `make install-clap-user` installs the CLAP to the platform user plugin path:
 `~/Library/Audio/Plug-Ins/CLAP/nilamp-twd-mkii.clap` on macOS and
 `~/.clap/nilamp-twd-mkii.clap` on Linux. On macOS it also re-signs the copied
-dylib so hosts can load it.
+dylib so hosts can load it. On Windows, `nmake /f Makefile.msvc install-clap-user`
+copies `native\bin\nilamp-twd-mkii.clap` to `%LOCALAPPDATA%\Programs\Common\CLAP`.
+`nmake /f Makefile.msvc install-clap` installs to
+`C:\Program Files\Common Files\CLAP`; run the shell elevated for that system
+path or set `CLAP_INSTALL_DIR=...`.
 
 Build a macOS release ZIP with:
 

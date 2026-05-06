@@ -1,0 +1,152 @@
+# MSVC/NMake build for Windows x64. Run from an "x64 Native Tools Command Prompt
+# for VS 2022" or any shell where vcvars64.bat has initialized the environment.
+
+PYTHON=python
+
+NATIVE_DIR=native
+NATIVE_BUILD=$(NATIVE_DIR)\build
+NATIVE_BIN=$(NATIVE_DIR)\bin
+NATIVE_GENERATED=$(NATIVE_DIR)\generated
+CLAP_INCLUDE=third_party\clap\include
+PUGL_INCLUDE=third_party\pugl\include
+PUGL_SRC=third_party\pugl\src
+SOKOL_INCLUDE=third_party\sokol
+NUKLEAR_INCLUDE=third_party\nuklear
+
+CLAP_BUNDLE=nilamp-twd-mkii.clap
+CLAP_PLUGIN=$(NATIVE_BIN)\$(CLAP_BUNDLE)
+CLAP_INSTALL_DIR=C:\Program Files\Common Files\CLAP
+CLAP_USER_INSTALL_DIR=$(LOCALAPPDATA)\Programs\Common\CLAP
+
+BASE_CFLAGS=/nologo /std:c11 /experimental:c11atomics /O2 /MT /W4 /WX /D_CRT_SECURE_NO_WARNINGS /I$(NATIVE_DIR)\src /I$(NATIVE_GENERATED)
+CLAP_CFLAGS=$(BASE_CFLAGS) /I$(CLAP_INCLUDE)
+GUI_CFLAGS=$(CLAP_CFLAGS) /DPUGL_STATIC /wd5287 /I$(PUGL_INCLUDE) /I$(PUGL_SRC) /I$(SOKOL_INCLUDE) /I$(SOKOL_INCLUDE)\util /I$(NUKLEAR_INCLUDE)
+VENDOR_CFLAGS=/nologo /std:c11 /O2 /MT /W0 /D_CRT_SECURE_NO_WARNINGS /DPUGL_STATIC /I$(PUGL_INCLUDE) /I$(PUGL_SRC) /I$(SOKOL_INCLUDE) /I$(SOKOL_INCLUDE)\util /I$(NUKLEAR_INCLUDE)
+CLAP_NAME_DEFINE="/DNILAMP_CLAP_NAME=\"nilamp TWD MKII\""
+TEST_CLAP_NAME_DEFINE="/DNILAMP_EXPECT_CLAP_NAME=\"nilamp TWD MKII\""
+
+NATIVE_OBJS= \
+	$(NATIVE_BUILD)\nilamp_dsp.obj \
+	$(NATIVE_BUILD)\nilamp_tables.obj
+
+NATIVE_GUI_OBJS= \
+	$(NATIVE_BUILD)\nilamp_gui.obj \
+	$(NATIVE_BUILD)\nilamp_font_0xproto.obj \
+	$(NATIVE_BUILD)\nilamp_sokol.obj \
+	$(NATIVE_BUILD)\nilamp_sokol_nuklear.obj \
+	$(NATIVE_BUILD)\nilamp_nuklear.obj \
+	$(NATIVE_BUILD)\pugl_common.obj \
+	$(NATIVE_BUILD)\pugl_internal.obj \
+	$(NATIVE_BUILD)\pugl_win.obj \
+	$(NATIVE_BUILD)\pugl_win_gl.obj
+
+NATIVE_TARGETS= \
+	$(NATIVE_BIN)\nilamp_render.exe \
+	$(NATIVE_BIN)\nilamp_taps_render.exe \
+	$(NATIVE_BIN)\test_native.exe \
+	$(NATIVE_BIN)\test_clap_load.exe \
+	$(NATIVE_BIN)\render_loaded_clap.exe \
+	$(CLAP_PLUGIN)
+
+!IF [if not exist "$(NATIVE_BUILD)" mkdir "$(NATIVE_BUILD)"] != 0
+!ERROR failed to create $(NATIVE_BUILD)
+!ENDIF
+
+!IF [if not exist "$(NATIVE_BIN)" mkdir "$(NATIVE_BIN)"] != 0
+!ERROR failed to create $(NATIVE_BIN)
+!ENDIF
+
+all: native
+
+native: $(NATIVE_TARGETS)
+
+native-test: $(NATIVE_BIN)\test_native.exe $(NATIVE_BIN)\test_clap_load.exe $(CLAP_PLUGIN)
+	$(NATIVE_BIN)\test_native.exe
+	$(NATIVE_BIN)\test_clap_load.exe $(CLAP_PLUGIN)
+
+native-host-test: native-test
+	$(PYTHON) tools\clap_validate\validate_clap.py --plugin $(CLAP_PLUGIN)
+
+install-clap: $(CLAP_PLUGIN)
+	if not exist "$(CLAP_INSTALL_DIR)" mkdir "$(CLAP_INSTALL_DIR)"
+	copy /Y "$(CLAP_PLUGIN)" "$(CLAP_INSTALL_DIR)\$(CLAP_BUNDLE)"
+
+install-clap-user: $(CLAP_PLUGIN)
+	if not exist "$(CLAP_USER_INSTALL_DIR)" mkdir "$(CLAP_USER_INSTALL_DIR)"
+	copy /Y "$(CLAP_PLUGIN)" "$(CLAP_USER_INSTALL_DIR)\$(CLAP_BUNDLE)"
+
+clean-native:
+	if exist "$(NATIVE_BUILD)" rmdir /S /Q "$(NATIVE_BUILD)"
+	if exist "$(NATIVE_BIN)" rmdir /S /Q "$(NATIVE_BIN)"
+
+$(NATIVE_BUILD)\nilamp_tables.obj: $(NATIVE_GENERATED)\nilamp_tables.c $(NATIVE_GENERATED)\nilamp_tables.h
+	cl $(BASE_CFLAGS) /c $(NATIVE_GENERATED)\nilamp_tables.c /Fo$@
+
+$(NATIVE_BUILD)\nilamp_dsp.obj: $(NATIVE_DIR)\src\nilamp_dsp.c $(NATIVE_DIR)\src\nilamp_dsp.h $(NATIVE_GENERATED)\nilamp_tables.h $(NATIVE_GENERATED)\nilamp_models.inc
+	cl $(BASE_CFLAGS) /c $(NATIVE_DIR)\src\nilamp_dsp.c /Fo$@
+
+$(NATIVE_BUILD)\nilamp_dsp_test.obj: $(NATIVE_DIR)\src\nilamp_dsp.c $(NATIVE_DIR)\src\nilamp_dsp.h $(NATIVE_GENERATED)\nilamp_tables.h $(NATIVE_GENERATED)\nilamp_models.inc
+	cl $(BASE_CFLAGS) /DNILAMP_ENABLE_TEST_API /c $(NATIVE_DIR)\src\nilamp_dsp.c /Fo$@
+
+$(NATIVE_BUILD)\nilamp_render.obj: $(NATIVE_DIR)\src\nilamp_render.c $(NATIVE_DIR)\src\nilamp_dsp.h $(NATIVE_DIR)\src\nilamp_cpu.h $(NATIVE_DIR)\src\nilamp_compat.h
+	cl $(BASE_CFLAGS) /c $(NATIVE_DIR)\src\nilamp_render.c /Fo$@
+
+$(NATIVE_BIN)\nilamp_render.exe: $(NATIVE_BUILD)\nilamp_render.obj $(NATIVE_OBJS)
+	link /nologo /out:$@ $**
+
+$(NATIVE_BUILD)\nilamp_taps_render.obj: $(NATIVE_DIR)\src\nilamp_render.c $(NATIVE_DIR)\src\nilamp_dsp.h $(NATIVE_DIR)\src\nilamp_cpu.h $(NATIVE_DIR)\src\nilamp_compat.h
+	cl $(BASE_CFLAGS) /DNILAMP_TAPS_RENDER /c $(NATIVE_DIR)\src\nilamp_render.c /Fo$@
+
+$(NATIVE_BIN)\nilamp_taps_render.exe: $(NATIVE_BUILD)\nilamp_taps_render.obj $(NATIVE_OBJS)
+	link /nologo /out:$@ $**
+
+$(NATIVE_BUILD)\test_native.obj: $(NATIVE_DIR)\tests\test_native.c $(NATIVE_DIR)\src\nilamp_dsp.h
+	cl $(BASE_CFLAGS) /DNILAMP_ENABLE_TEST_API /c $(NATIVE_DIR)\tests\test_native.c /Fo$@
+
+$(NATIVE_BIN)\test_native.exe: $(NATIVE_BUILD)\test_native.obj $(NATIVE_BUILD)\nilamp_dsp_test.obj $(NATIVE_BUILD)\nilamp_tables.obj
+	link /nologo /out:$@ $**
+
+$(NATIVE_BUILD)\test_clap_load.obj: $(NATIVE_DIR)\tests\test_clap_load.c $(NATIVE_DIR)\src\nilamp_dsp.h
+	cl $(CLAP_CFLAGS) /DNILAMP_EXPECT_CLAP_GUI=1 $(TEST_CLAP_NAME_DEFINE) /c $(NATIVE_DIR)\tests\test_clap_load.c /Fo$@
+
+$(NATIVE_BIN)\test_clap_load.exe: $(NATIVE_BUILD)\test_clap_load.obj $(NATIVE_OBJS)
+	link /nologo /out:$@ $**
+
+$(NATIVE_BUILD)\render_loaded_clap.obj: $(NATIVE_DIR)\src\render_loaded_clap.c $(NATIVE_DIR)\src\nilamp_dsp.h
+	cl $(CLAP_CFLAGS) /c $(NATIVE_DIR)\src\render_loaded_clap.c /Fo$@
+
+$(NATIVE_BIN)\render_loaded_clap.exe: $(NATIVE_BUILD)\render_loaded_clap.obj
+	link /nologo /out:$@ $**
+
+$(NATIVE_BUILD)\nilamp_clap.obj: $(NATIVE_DIR)\src\nilamp_clap.c $(NATIVE_DIR)\src\nilamp_dsp.h $(NATIVE_DIR)\src\nilamp_cpu.h $(NATIVE_DIR)\src\nilamp_compat.h $(NATIVE_DIR)\src\nilamp_gui.h
+	cl $(GUI_CFLAGS) /DNILAMP_ENABLE_CLAP_GUI=1 $(CLAP_NAME_DEFINE) /c $(NATIVE_DIR)\src\nilamp_clap.c /Fo$@
+
+$(NATIVE_BUILD)\nilamp_gui.obj: $(NATIVE_DIR)\src\nilamp_gui.c $(NATIVE_DIR)\src\nilamp_gui.h $(NATIVE_GENERATED)\nilamp_font_0xproto.h
+	cl $(GUI_CFLAGS) /c $(NATIVE_DIR)\src\nilamp_gui.c /Fo$@
+
+$(NATIVE_BUILD)\nilamp_font_0xproto.obj: $(NATIVE_GENERATED)\nilamp_font_0xproto.c $(NATIVE_GENERATED)\nilamp_font_0xproto.h
+	cl $(BASE_CFLAGS) /c $(NATIVE_GENERATED)\nilamp_font_0xproto.c /Fo$@
+
+$(NATIVE_BUILD)\nilamp_sokol.obj: $(NATIVE_DIR)\src\nilamp_sokol.c
+	cl $(VENDOR_CFLAGS) /c $(NATIVE_DIR)\src\nilamp_sokol.c /Fo$@
+
+$(NATIVE_BUILD)\nilamp_sokol_nuklear.obj: $(NATIVE_DIR)\src\nilamp_sokol_nuklear.c
+	cl $(VENDOR_CFLAGS) /c $(NATIVE_DIR)\src\nilamp_sokol_nuklear.c /Fo$@
+
+$(NATIVE_BUILD)\nilamp_nuklear.obj: $(NATIVE_DIR)\src\nilamp_nuklear.c
+	cl $(VENDOR_CFLAGS) /c $(NATIVE_DIR)\src\nilamp_nuklear.c /Fo$@
+
+$(NATIVE_BUILD)\pugl_common.obj: $(PUGL_SRC)\common.c
+	cl $(VENDOR_CFLAGS) /c $(PUGL_SRC)\common.c /Fo$@
+
+$(NATIVE_BUILD)\pugl_internal.obj: $(PUGL_SRC)\internal.c
+	cl $(VENDOR_CFLAGS) /c $(PUGL_SRC)\internal.c /Fo$@
+
+$(NATIVE_BUILD)\pugl_win.obj: $(PUGL_SRC)\win.c $(PUGL_SRC)\win.h
+	cl $(VENDOR_CFLAGS) /c $(PUGL_SRC)\win.c /Fo$@
+
+$(NATIVE_BUILD)\pugl_win_gl.obj: $(PUGL_SRC)\win_gl.c $(PUGL_SRC)\win.h
+	cl $(VENDOR_CFLAGS) /c $(PUGL_SRC)\win_gl.c /Fo$@
+
+$(CLAP_PLUGIN): $(NATIVE_BUILD)\nilamp_clap.obj $(NATIVE_OBJS) $(NATIVE_GUI_OBJS)
+	link /nologo /dll /out:$@ /implib:$(NATIVE_BUILD)\nilamp-twd-mkii.lib $** user32.lib gdi32.lib shell32.lib shlwapi.lib dwmapi.lib opengl32.lib

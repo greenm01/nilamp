@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import subprocess
 import sys
@@ -10,7 +11,8 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parents[1]
-TEST_CLAP_LOAD = REPO_ROOT / "native" / "bin" / "test_clap_load"
+EXE = ".exe" if sys.platform == "win32" else ""
+TEST_CLAP_LOAD = REPO_ROOT / "native" / "bin" / f"test_clap_load{EXE}"
 
 
 def run_clap_loader(plugin: Path) -> None:
@@ -18,7 +20,11 @@ def run_clap_loader(plugin: Path) -> None:
 
 
 def run_optional_clap_validator(plugin: Path) -> None:
-    validator = shutil.which("clap-validator")
+    validator = os.environ.get("CLAP_VALIDATOR") or shutil.which("clap-validator")
+    if validator is None and sys.platform == "win32":
+        local_validator = Path("C:/src/clap-validator/target/release/clap-validator.exe")
+        if local_validator.is_file():
+            validator = str(local_validator)
     if validator is None:
         print("clap-validator not found; skipping external CLAP validation")
         return

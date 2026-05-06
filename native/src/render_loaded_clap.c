@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 //
-// Diagnostic CLAP host: dlopen a CLAP plugin and render a mono float32 WAV
+// Diagnostic CLAP host: load a CLAP plugin and render a mono float32 WAV
 // through it under several stereo-port presentation modes. Used to isolate
 // whether the plugin itself emits clean output before involving REAPER.
 //
@@ -11,7 +11,12 @@
 
 #include <clap/clap.h>
 
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#else
 #include <dlfcn.h>
+#endif
 #include <errno.h>
 #include <math.h>
 #include <stdbool.h>
@@ -47,6 +52,57 @@ typedef struct {
     float treble_pct;
     float sag_pct;
 } Args;
+
+#if defined(_WIN32)
+typedef HMODULE NilampModule;
+
+static NilampModule nilamp_module_open(const char *path)
+{
+    return LoadLibraryA(path);
+}
+
+static void *nilamp_module_symbol(NilampModule module, const char *name)
+{
+    return module ? (void *)GetProcAddress(module, name) : NULL;
+}
+
+static void nilamp_module_close(NilampModule module)
+{
+    if (module) {
+        FreeLibrary(module);
+    }
+}
+
+static void nilamp_module_print_error(const char *program, const char *path)
+{
+    fprintf(stderr, "%s: load %s: Windows error %lu\n",
+            program, path, (unsigned long)GetLastError());
+}
+#else
+typedef void *NilampModule;
+
+static NilampModule nilamp_module_open(const char *path)
+{
+    return dlopen(path, RTLD_NOW | RTLD_LOCAL);
+}
+
+static void *nilamp_module_symbol(NilampModule module, const char *name)
+{
+    return module ? dlsym(module, name) : NULL;
+}
+
+static void nilamp_module_close(NilampModule module)
+{
+    if (module) {
+        dlclose(module);
+    }
+}
+
+static void nilamp_module_print_error(const char *program, const char *path)
+{
+    fprintf(stderr, "%s: load %s: %s\n", program, path, dlerror());
+}
+#endif
 
 static uint16_t rd16(const uint8_t *p)
 {
@@ -296,15 +352,14 @@ int main(int argc, char **argv)
         args.sample_rate = (double)wav_sr;
     }
 
-    void *handle = dlopen(args.plugin_path, RTLD_NOW | RTLD_LOCAL);
+    NilampModule handle = nilamp_module_open(args.plugin_path);
     if (!handle) {
-        fprintf(stderr, "render_loaded_clap: dlopen %s: %s\n",
-                args.plugin_path, dlerror());
+        nilamp_module_print_error("render_loaded_clap", args.plugin_path);
         free(mono); return 1;
     }
 
     const clap_plugin_entry_t *entry =
-        (const clap_plugin_entry_t *)dlsym(handle, "clap_entry");
+        (const clap_plugin_entry_t *)nilamp_module_symbol(handle, "clap_entry");
     if (!entry || !entry->init || !entry->init(args.plugin_path)) {
         fprintf(stderr, "render_loaded_clap: clap_entry init failed\n");
         free(mono); return 1;
@@ -446,7 +501,7 @@ int main(int argc, char **argv)
     plugin->deactivate(plugin);
     plugin->destroy(plugin);
     entry->deinit();
-    dlclose(handle);
+    nilamp_module_close(handle);
 
     int rc = 0;
     if (write_stereo_channels_f32(args.output_l_path, out_l, frames,

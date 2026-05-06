@@ -5,7 +5,12 @@
 #include <clap/ext/gui.h>
 #include <clap/ext/timer-support.h>
 
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#else
 #include <dlfcn.h>
+#endif
 #include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -56,6 +61,57 @@ typedef struct TestHostData {
     uint32_t active_timer_period_ms;
     bool timer_registered;
 } TestHostData;
+
+#if defined(_WIN32)
+typedef HMODULE NilampModule;
+
+static NilampModule nilamp_module_open(const char *path)
+{
+    return LoadLibraryA(path);
+}
+
+static void *nilamp_module_symbol(NilampModule module, const char *name)
+{
+    return module ? (void *)GetProcAddress(module, name) : NULL;
+}
+
+static void nilamp_module_close(NilampModule module)
+{
+    if (module) {
+        FreeLibrary(module);
+    }
+}
+
+static void nilamp_module_print_error(const char *prefix)
+{
+    fprintf(stderr, "test_clap_load: %s failed: Windows error %lu\n",
+            prefix, (unsigned long)GetLastError());
+}
+#else
+typedef void *NilampModule;
+
+static NilampModule nilamp_module_open(const char *path)
+{
+    return dlopen(path, RTLD_NOW | RTLD_LOCAL);
+}
+
+static void *nilamp_module_symbol(NilampModule module, const char *name)
+{
+    return module ? dlsym(module, name) : NULL;
+}
+
+static void nilamp_module_close(NilampModule module)
+{
+    if (module) {
+        dlclose(module);
+    }
+}
+
+static void nilamp_module_print_error(const char *prefix)
+{
+    fprintf(stderr, "test_clap_load: %s failed: %s\n", prefix, dlerror());
+}
+#endif
 
 static void fail(const char *message)
 {
@@ -612,14 +668,14 @@ static void run_clap_output_safety_test(const clap_plugin_t *plugin,
 int main(int argc, char **argv)
 {
     const char *plugin_path = argc > 1 ? argv[1] : "native/bin/nilamp-twd-mkii.clap";
-    void *handle = dlopen(plugin_path, RTLD_NOW | RTLD_LOCAL);
+    NilampModule handle = nilamp_module_open(plugin_path);
     if (!handle) {
-        fprintf(stderr, "test_clap_load: dlopen failed: %s\n", dlerror());
+        nilamp_module_print_error("module open");
         return 1;
     }
 
     const clap_plugin_entry_t *entry =
-        (const clap_plugin_entry_t *)dlsym(handle, "clap_entry");
+        (const clap_plugin_entry_t *)nilamp_module_symbol(handle, "clap_entry");
     check(entry != NULL, "missing clap_entry");
     check(entry->init(plugin_path), "entry init failed");
 
@@ -1002,7 +1058,7 @@ int main(int argc, char **argv)
     plugin->deactivate(plugin);
     plugin->destroy(plugin);
     entry->deinit();
-    dlclose(handle);
+    nilamp_module_close(handle);
 
     return 0;
 }

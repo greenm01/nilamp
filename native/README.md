@@ -52,8 +52,8 @@ native/bin/nilamp-twd-mkii.clap
 ```
 
 Its custom editor is an embedded GPU GUI built in C with Pugl, `sokol_gfx`,
-and Nuklear: X11 on Linux, and the same renderer embedded through Cocoa on
-macOS. Wayland sessions use the Linux path through XWayland for now.
+and Nuklear: X11 on Linux, Cocoa on macOS, and Win32 on Windows. Wayland
+sessions use the Linux path through XWayland for now.
 
 Install the CLAP to the user plugin path with:
 
@@ -64,6 +64,19 @@ make install-clap-user
 This writes `~/Library/Audio/Plug-Ins/CLAP/nilamp-twd-mkii.clap` on macOS and
 `~/.clap/nilamp-twd-mkii.clap` on Linux by default. The macOS install also
 re-signs the copied dylib.
+
+On Windows, build from an x64 Native Tools prompt with:
+
+```bat
+nmake /f Makefile.msvc native
+nmake /f Makefile.msvc native-host-test
+nmake /f Makefile.msvc install-clap-user
+```
+
+The Windows user install target copies to `%LOCALAPPDATA%\Programs\Common\CLAP`.
+The system install target, `install-clap`, copies to
+`C:\Program Files\Common Files\CLAP`; run the prompt elevated or set
+`CLAP_INSTALL_DIR=...`.
 
 Build the macOS release package with:
 

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "nilamp_dsp.h"
+#include "nilamp_compat.h"
 #include "nilamp_cpu.h"
 
 #include <errno.h>
@@ -9,7 +10,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <strings.h>
 
 typedef struct {
     uint16_t channels;
@@ -262,7 +262,7 @@ static int parse_enum_arg(const char *name, const char *value, NilampParamId id,
         return -1;
     }
     for (uint32_t i = 0; i < spec->enum_count; i++) {
-        if (strcasecmp(value, spec->enum_names[i]) == 0) {
+        if (nilamp_stricmp(value, spec->enum_names[i]) == 0) {
             *out = (float)i;
             return 0;
         }
