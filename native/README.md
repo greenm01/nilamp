@@ -48,7 +48,7 @@ dia1_next`.
 The CLAP plugin is:
 
 ```bash
-native/bin/nilamp.clap
+native/bin/nilamp-twd-mkii.clap
 ```
 
 Its custom editor is an embedded GPU GUI built in C with Pugl, `sokol_gfx`,
@@ -61,7 +61,7 @@ Install the CLAP to the user plugin path with:
 make install-clap-user
 ```
 
-This writes `~/.clap/nilamp.clap` by default and re-signs the copied dylib on
+This writes `~/.clap/nilamp-twd-mkii.clap` by default and re-signs the copied dylib on
 macOS.
 
 Quick native throughput benchmark:

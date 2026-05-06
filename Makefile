@@ -20,6 +20,16 @@ YSFX_ROOT ?= $(HOME)/src/ysfx
 YSFX_BUILD := $(NATIVE_BUILD)/ysfx
 YSFX_LIB := $(YSFX_BUILD)/libysfx.a
 CLAP_INSTALL_DIR ?= $(HOME)/.clap
+AMP_MODELS := models/amps/keller_twd_dlx_ii.kdl
+CLAP_NAME_C := $(strip $(shell $(PYTHON) tools/gen_amp_models.py --print-clap-name-c $(AMP_MODELS)))
+CLAP_BUNDLE := $(strip $(shell $(PYTHON) tools/gen_amp_models.py --print-clap-filename $(AMP_MODELS)))
+ifeq ($(CLAP_NAME_C),)
+$(error failed to read CLAP descriptor name from $(AMP_MODELS))
+endif
+ifeq ($(CLAP_BUNDLE),)
+$(error failed to read CLAP bundle filename from $(AMP_MODELS))
+endif
+CLAP_PLUGIN := $(NATIVE_BIN)/$(CLAP_BUNDLE)
 
 CFLAGS ?= -std=c11 -O3 -Wall -Wextra -Wpedantic -Werror -I$(NATIVE_DIR)/src -I$(NATIVE_GENERATED)
 CLAP_CFLAGS := $(CFLAGS) -I$(CLAP_INCLUDE)
@@ -41,13 +51,13 @@ GUI_LDLIBS := -lX11 -lXrandr -lXcursor -lXext -lGL -ldl
 endif
 
 ifeq ($(UNAME_S),Darwin)
-PLUGIN_LDFLAGS := -dynamiclib -Wl,-install_name,@rpath/nilamp.clap
+PLUGIN_LDFLAGS := -dynamiclib -Wl,-install_name,@rpath/$(CLAP_BUNDLE)
 GUI_LDLIBS := -framework Cocoa -framework CoreVideo -framework OpenGL
 CLAP_INSTALL_CODESIGN := $(CODESIGN) --force --sign -
 endif
 
-CLAP_PLUGIN_CFLAGS := $(CLAP_CFLAGS) -DNILAMP_ENABLE_CLAP_GUI=$(NILAMP_ENABLE_CLAP_GUI)
-TEST_CLAP_CFLAGS := $(CLAP_CFLAGS) -DNILAMP_EXPECT_CLAP_GUI=$(NILAMP_ENABLE_CLAP_GUI)
+CLAP_PLUGIN_CFLAGS := $(CLAP_CFLAGS) -DNILAMP_ENABLE_CLAP_GUI=$(NILAMP_ENABLE_CLAP_GUI) '-DNILAMP_CLAP_NAME=$(CLAP_NAME_C)'
+TEST_CLAP_CFLAGS := $(CLAP_CFLAGS) -DNILAMP_EXPECT_CLAP_GUI=$(NILAMP_ENABLE_CLAP_GUI) '-DNILAMP_EXPECT_CLAP_NAME=$(CLAP_NAME_C)'
 ifneq ($(NILAMP_ENABLE_CLAP_GUI),0)
 CLAP_PLUGIN_CFLAGS += -I$(PUGL_INCLUDE) -I$(PUGL_SRC) -I$(SOKOL_INCLUDE) -I$(SOKOL_INCLUDE)/util -I$(NUKLEAR_INCLUDE)
 endif
@@ -58,7 +68,6 @@ YSFX_AVAILABLE := $(if $(and $(wildcard $(YSFX_ROOT)/include/ysfx.h),$(wildcard 
 NATIVE_TABLES_C := $(NATIVE_GENERATED)/nilamp_tables.c
 NATIVE_TABLES_H := $(NATIVE_GENERATED)/nilamp_tables.h
 NATIVE_MODELS_INC := $(NATIVE_GENERATED)/nilamp_models.inc
-AMP_MODELS := models/amps/keller_twd_dlx_ii.kdl
 
 NATIVE_OBJS := \
 	$(NATIVE_BUILD)/nilamp_dsp.o \
@@ -97,7 +106,7 @@ NATIVE_TARGETS := \
 	$(NATIVE_BIN)/nilamp_taps_render \
 	$(NATIVE_BIN)/test_native \
 	$(NATIVE_BIN)/test_clap_load \
-	$(NATIVE_BIN)/nilamp.clap
+	$(CLAP_PLUGIN)
 
 ifeq ($(YSFX_AVAILABLE),1)
 NATIVE_TARGETS += $(NATIVE_BIN)/ysfx_render
@@ -109,22 +118,22 @@ all: native
 
 native: $(NATIVE_TARGETS)
 
-install-clap-user: $(NATIVE_BIN)/nilamp.clap
+install-clap-user: $(CLAP_PLUGIN)
 	mkdir -p $(CLAP_INSTALL_DIR)
-	cp -f $< $(CLAP_INSTALL_DIR)/nilamp.clap
-	$(if $(CLAP_INSTALL_CODESIGN),$(CLAP_INSTALL_CODESIGN) $(CLAP_INSTALL_DIR)/nilamp.clap)
+	cp -f $< $(CLAP_INSTALL_DIR)/$(CLAP_BUNDLE)
+	$(if $(CLAP_INSTALL_CODESIGN),$(CLAP_INSTALL_CODESIGN) $(CLAP_INSTALL_DIR)/$(CLAP_BUNDLE))
 
-native-test: $(NATIVE_BIN)/test_native $(NATIVE_BIN)/test_clap_load $(NATIVE_BIN)/nilamp.clap
+native-test: $(NATIVE_BIN)/test_native $(NATIVE_BIN)/test_clap_load $(CLAP_PLUGIN)
 	$(NATIVE_BIN)/test_native
-	$(NATIVE_BIN)/test_clap_load $(NATIVE_BIN)/nilamp.clap
+	$(NATIVE_BIN)/test_clap_load $(CLAP_PLUGIN)
 
 native-bench: $(NATIVE_BIN)/bench_native
 	$(NATIVE_BIN)/bench_native
 
 native-host-test: native-test
-	$(PYTHON) tools/clap_validate/validate_clap.py --plugin $(NATIVE_BIN)/nilamp.clap
+	$(PYTHON) tools/clap_validate/validate_clap.py --plugin $(CLAP_PLUGIN)
 
-native-reaper-host-test: $(NATIVE_BIN)/nilamp.clap
+native-reaper-host-test: $(CLAP_PLUGIN)
 	$(PYTHON) tools/clap_validate/validate_reaper_clap.py --plugin $<
 
 native-jsfx-test: $(NATIVE_BIN)/nilamp_render $(NATIVE_BIN)/nilamp_taps_render $(NATIVE_BIN)/ysfx_render
@@ -207,7 +216,7 @@ $(NATIVE_BUILD)/pugl_mac.pic.o: $(PUGL_SRC)/mac.m $(PUGL_SRC)/mac.h | $(NATIVE_B
 $(NATIVE_BUILD)/pugl_mac_gl.pic.o: $(PUGL_SRC)/mac_gl.m $(PUGL_SRC)/mac.h | $(NATIVE_BUILD)
 	$(OBJC) $(GUI_VENDOR_OBJCFLAGS) -c $< -o $@
 
-$(NATIVE_BIN)/nilamp.clap: $(NATIVE_BUILD)/nilamp_clap.o $(NATIVE_PIC_OBJS) $(NATIVE_GUI_OBJS) Makefile | $(NATIVE_BIN)
+$(CLAP_PLUGIN): $(NATIVE_BUILD)/nilamp_clap.o $(NATIVE_PIC_OBJS) $(NATIVE_GUI_OBJS) Makefile | $(NATIVE_BIN)
 	$(CC) $(LDFLAGS) $(PLUGIN_LDFLAGS) $(filter-out Makefile,$^) $(LDLIBS) $(GUI_LDLIBS) -o $@
 
 $(NATIVE_BUILD)/test_native.o: $(NATIVE_DIR)/tests/test_native.c $(NATIVE_DIR)/src/nilamp_dsp.h | $(NATIVE_BUILD)
@@ -234,9 +243,9 @@ $(NATIVE_BUILD)/render_loaded_clap.o: $(NATIVE_DIR)/src/render_loaded_clap.c $(N
 $(NATIVE_BIN)/render_loaded_clap: $(NATIVE_BUILD)/render_loaded_clap.o | $(NATIVE_BIN)
 	$(CC) $(LDFLAGS) $^ $(LDLIBS) $(DL_LDLIBS) -o $@
 
-native-loaded-clap-diagnose: $(NATIVE_BIN)/render_loaded_clap $(NATIVE_BIN)/nilamp_render $(NATIVE_BIN)/nilamp.clap
+native-loaded-clap-diagnose: $(NATIVE_BIN)/render_loaded_clap $(NATIVE_BIN)/nilamp_render $(CLAP_PLUGIN)
 	$(PYTHON) tools/clap_validate/render_loaded_clap.py \
-	    --plugin $(NATIVE_BIN)/nilamp.clap \
+	    --plugin $(CLAP_PLUGIN) \
 	    --render $(NATIVE_BIN)/nilamp_render \
 	    --driver $(NATIVE_BIN)/render_loaded_clap
 

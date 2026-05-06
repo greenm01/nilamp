@@ -31,6 +31,9 @@
 #endif
 
 #define NILAMP_PLUGIN_ID "dev.niltempus.nilamp"
+#ifndef NILAMP_EXPECT_CLAP_NAME
+#define NILAMP_EXPECT_CLAP_NAME "nilamp"
+#endif
 #define NILAMP_HOST_OUTPUT_LIMIT 1.0f
 #define NILAMP_STRESS_SAMPLE_RATE 48000.0f
 
@@ -502,7 +505,7 @@ static void run_clap_output_safety_test(const clap_plugin_t *plugin,
 
 int main(int argc, char **argv)
 {
-    const char *plugin_path = argc > 1 ? argv[1] : "native/bin/nilamp.clap";
+    const char *plugin_path = argc > 1 ? argv[1] : "native/bin/nilamp-twd-mkii.clap";
     void *handle = dlopen(plugin_path, RTLD_NOW | RTLD_LOCAL);
     if (!handle) {
         fprintf(stderr, "test_clap_load: dlopen failed: %s\n", dlerror());
@@ -523,6 +526,9 @@ int main(int argc, char **argv)
         factory->get_plugin_descriptor(factory, 0);
     check(descriptor != NULL, "missing descriptor");
     check(strcmp(descriptor->id, NILAMP_PLUGIN_ID) == 0, "unexpected plugin id");
+    check(descriptor->name != NULL &&
+              strcmp(descriptor->name, NILAMP_EXPECT_CLAP_NAME) == 0,
+          "unexpected plugin name");
 
     TestHostData host_data = {
         .next_timer_id = 1u,

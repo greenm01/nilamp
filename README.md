@@ -103,7 +103,7 @@ This builds:
 
 - `native/bin/nilamp_render`
 - `native/bin/nilamp_taps_render`
-- `native/bin/nilamp.clap`
+- `native/bin/nilamp-twd-mkii.clap`
 - `native/bin/ysfx_render` when `YSFX_ROOT` points at a ready checkout
 - `native/bin/test_native`
 - `native/bin/test_clap_load`
@@ -156,7 +156,7 @@ python3 tools/abx_compare.py --preset sweep
 `make native-host-test` is REAPER-free: it runs the native CLAP loader and
 optional `clap-validator` when that tool is installed. The old REAPER smoke
 test remains available as `make native-reaper-host-test` for manual host checks.
-`make install-clap-user` installs the CLAP to `~/.clap/nilamp.clap` by default;
+`make install-clap-user` installs the CLAP to `~/.clap/nilamp-twd-mkii.clap` by default;
 on macOS it also re-signs the copied dylib so hosts can load it.
 
 ## License

@@ -102,6 +102,8 @@ typedef struct {
     NilampModelId id;
     const char *name;
     const char *family;
+    const char *clap_name;
+    const char *clap_filename;
     float speaker_source_ohms;
     float speaker_nominal_ohms;
 } NilampModelSpec;

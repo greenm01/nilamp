@@ -38,7 +38,7 @@ def run_optional_clap_validator(plugin: Path) -> None:
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--plugin", default=REPO_ROOT / "native/bin/nilamp.clap", type=Path)
+    parser.add_argument("--plugin", default=REPO_ROOT / "native/bin/nilamp-twd-mkii.clap", type=Path)
     parser.add_argument("--skip-clap-validator", action="store_true")
     args = parser.parse_args(argv)
 

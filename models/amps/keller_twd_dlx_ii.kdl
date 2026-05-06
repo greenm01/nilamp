@@ -1,4 +1,4 @@
-amp "keller_twd_dlx_ii" id="NILAMP_MODEL_KELLER_TWD_DLX_II" name="Keller TWD DLX II" family="5E3 tweed deluxe" topology="tweed_5e3_cathodyne_pp" {
+amp "keller_twd_dlx_ii" id="NILAMP_MODEL_KELLER_TWD_DLX_II" name="Keller TWD DLX II" family="5E3 tweed deluxe" topology="tweed_5e3_cathodyne_pp" clap_name="nilamp TWD MKII" clap_filename="nilamp-twd-mkii.clap" {
   speaker source_ohms=0.0 nominal_ohms=8.0
 
   stage "t1" symbol="T1" kind="triode_ck" method="keller_glf_adaa" table="nilamp_t1_12ax7_table" len=13503 {

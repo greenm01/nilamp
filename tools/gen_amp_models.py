@@ -84,6 +84,7 @@ KNOWN_CONTROL_DISPLAYS = {
     "iso266": "NILAMP_CONTROL_DISPLAY_ISO266",
     "enum": "NILAMP_CONTROL_DISPLAY_ENUM",
 }
+CLAP_FILENAME_RE = re.compile(r"[A-Za-z0-9._-]+\.clap")
 
 
 @dataclass
@@ -285,8 +286,14 @@ def validate_amp(node: Node) -> dict[str, Any]:
     name = required_prop(node, "name", str)
     family = required_prop(node, "family", str)
     topology = required_prop(node, "topology", str)
+    clap_name = required_prop(node, "clap_name", str)
+    clap_filename = required_prop(node, "clap_filename", str)
     if topology not in KNOWN_TOPOLOGIES:
         fail(f"unknown topology {topology!r} for {slug}")
+    if not clap_name:
+        fail(f"{slug} clap_name must not be empty")
+    if not CLAP_FILENAME_RE.fullmatch(clap_filename):
+        fail(f"{slug} clap_filename must be a bare .clap filename")
 
     speaker = node_child(node, "speaker")
     speaker_source = required_number(speaker, "source_ohms")
@@ -400,6 +407,8 @@ def validate_amp(node: Node) -> dict[str, Any]:
         "name": name,
         "family": family,
         "topology": topology,
+        "clap_name": clap_name,
+        "clap_filename": clap_filename,
         "speaker_source_ohms": speaker_source,
         "speaker_nominal_ohms": speaker_nominal,
         "stages": stages,
@@ -471,6 +480,8 @@ def render(models: list[dict[str, Any]]) -> str:
         lines.append(f"        .id = {model['id']},")
         lines.append(f"        .name = {c_string(model['name'])},")
         lines.append(f"        .family = {c_string(model['family'])},")
+        lines.append(f"        .clap_name = {c_string(model['clap_name'])},")
+        lines.append(f"        .clap_filename = {c_string(model['clap_filename'])},")
         lines.append(f"        .speaker_source_ohms = {c_float(model['speaker_source_ohms'])},")
         lines.append(f"        .speaker_nominal_ohms = {c_float(model['speaker_nominal_ohms'])},")
         lines.append("    },")
@@ -480,14 +491,28 @@ def render(models: list[dict[str, Any]]) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("output", type=Path)
-    parser.add_argument("models", type=Path, nargs="+")
+    parser.add_argument("--print-clap-filename", action="store_true",
+                        help="print the configured CLAP bundle filename for one model")
+    parser.add_argument("--print-clap-name-c", action="store_true",
+                        help="print the configured CLAP descriptor name as a C string")
+    parser.add_argument("paths", type=Path, nargs="+")
     args = parser.parse_args()
 
-    models = [parse_model(path) for path in args.models]
+    if args.print_clap_filename or args.print_clap_name_c:
+        if len(args.paths) != 1:
+            fail("metadata print mode expects exactly one model path")
+        model = parse_model(args.paths[0])
+        print(c_string(model["clap_name"]) if args.print_clap_name_c else model["clap_filename"])
+        return 0
+
+    if len(args.paths) < 2:
+        fail("missing model path")
+
+    output = args.paths[0]
+    models = [parse_model(path) for path in args.paths[1:]]
     models.sort(key=lambda model: model["id"])
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(render(models))
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(render(models))
     return 0
 
 

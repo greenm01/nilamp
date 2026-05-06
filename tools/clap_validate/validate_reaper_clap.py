@@ -22,9 +22,9 @@ REAPER_LOG = Path("/tmp/nilamp_clap_validate.reaper.log")
 
 EXPECTED_PARAMS = ["Gain", "Volume", "Bass", "Mid", "Treble", "Sag"]
 PLUGIN_CANDIDATES = [
-    "CLAP: nilamp (niltempus)",
-    "nilamp (niltempus)",
-    "nilamp",
+    "CLAP: nilamp TWD MKII (niltempus)",
+    "nilamp TWD MKII (niltempus)",
+    "nilamp TWD MKII",
     "dev.niltempus.nilamp",
 ]
 
@@ -237,7 +237,7 @@ def run_reaper(*, reaper_bin: str, plugin: Path, output_wav: Path, timeout_s: fl
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--plugin", default=REPO_ROOT / "native/bin/nilamp.clap", type=Path)
+    parser.add_argument("--plugin", default=REPO_ROOT / "native/bin/nilamp-twd-mkii.clap", type=Path)
     parser.add_argument("--output", default=Path("/tmp/nilamp_clap_validate/output.wav"), type=Path)
     parser.add_argument("--reaper-bin", default="reaper")
     parser.add_argument("--timeout", default=90.0, type=float)

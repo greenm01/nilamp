@@ -24,6 +24,10 @@
 #define NILAMP_ENABLE_CLAP_GUI 1
 #endif
 
+#ifndef NILAMP_CLAP_NAME
+#define NILAMP_CLAP_NAME "nilamp"
+#endif
+
 #if NILAMP_ENABLE_CLAP_GUI
 #if defined(__APPLE__)
 #define NILAMP_CLAP_WINDOW_API CLAP_WINDOW_API_COCOA
@@ -124,7 +128,7 @@ static const char *const nilamp_features[] = {
 static const clap_plugin_descriptor_t nilamp_descriptor = {
     .clap_version = CLAP_VERSION_INIT,
     .id = NILAMP_PLUGIN_ID,
-    .name = "nilamp",
+    .name = NILAMP_CLAP_NAME,
     .vendor = "niltempus",
     .url = "",
     .manual_url = "",

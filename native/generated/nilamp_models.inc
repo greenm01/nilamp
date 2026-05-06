@@ -242,6 +242,8 @@ static const NilampModelSpec NILAMP_MODELS[] = {
         .id = NILAMP_MODEL_KELLER_TWD_DLX_II,
         .name = "Keller TWD DLX II",
         .family = "5E3 tweed deluxe",
+        .clap_name = "nilamp TWD MKII",
+        .clap_filename = "nilamp-twd-mkii.clap",
         .speaker_source_ohms = 0.0f,
         .speaker_nominal_ohms = 8.0f,
     },
