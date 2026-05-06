@@ -12,6 +12,45 @@ typedef enum NilampModelId {
     NILAMP_MODEL_DEFAULT = NILAMP_MODEL_KELLER_TWD_DLX_II,
 } NilampModelId;
 
+typedef enum NilampParamId {
+    NILAMP_PARAM_GAIN_DB = 0,
+    NILAMP_PARAM_VOLUME_PCT = 1,
+    NILAMP_PARAM_BASS_PCT = 2,
+    NILAMP_PARAM_MID_PCT = 3,
+    NILAMP_PARAM_TREBLE_PCT = 4,
+    NILAMP_PARAM_SAG_PCT = 5,
+    NILAMP_PARAM_OUTPUT_GAIN_DB = 6,
+    NILAMP_PARAM_TONE_FMID_DBHZ = 7,
+    NILAMP_PARAM_TONE_QMID_DB = 8,
+    NILAMP_PARAM_SPK_RES_GAIN1_DB = 9,
+    NILAMP_PARAM_SPK_RES_GAIN2_DB = 10,
+    NILAMP_PARAM_SPK_RES_FRES_DBHZ = 11,
+    NILAMP_PARAM_SPK_RES_QTS_DB = 12,
+    NILAMP_PARAM_SPK_IND_GAIN1_DB = 13,
+    NILAMP_PARAM_SPK_IND_GAIN2_DB = 14,
+    NILAMP_PARAM_SPK_IND_FIND_DBHZ = 15,
+    NILAMP_PARAM_GAIN_COMP = 16,
+    NILAMP_PARAM_COUNT = 17,
+} NilampParamId;
+
+typedef enum NilampControlDisplay {
+    NILAMP_CONTROL_DISPLAY_LINEAR = 0,
+    NILAMP_CONTROL_DISPLAY_ISO266 = 1,
+    NILAMP_CONTROL_DISPLAY_ENUM = 2,
+} NilampControlDisplay;
+
+typedef struct NilampControlSpec {
+    uint32_t id;
+    const char *name;
+    const char *module;
+    const char *unit;
+    float min_value;
+    float max_value;
+    float default_value;
+    float step;
+    NilampControlDisplay display;
+} NilampControlSpec;
+
 typedef struct NilampParams {
     float gain_db;
     float volume_pct;
@@ -19,6 +58,17 @@ typedef struct NilampParams {
     float mid_pct;
     float treble_pct;
     float sag_pct;
+    float output_gain_db;
+    float tone_fmid_dbhz;
+    float tone_qmid_db;
+    float spk_res_gain1_db;
+    float spk_res_gain2_db;
+    float spk_res_fres_dbhz;
+    float spk_res_qts_db;
+    float spk_ind_gain1_db;
+    float spk_ind_gain2_db;
+    float spk_ind_find_dbhz;
+    float gain_comp;
 } NilampParams;
 
 enum {
@@ -46,6 +96,9 @@ void nilamp_engine_process_taps(NilampEngine *engine, const float *input, float 
 NilampParams nilamp_default_params(void);
 NilampModelId nilamp_engine_model_id(const NilampEngine *engine);
 const char *nilamp_model_name(NilampModelId model_id);
+const NilampControlSpec *nilamp_control_specs(uint32_t *count);
+const NilampControlSpec *nilamp_control_spec(uint32_t id);
+float nilamp_control_display_value(const NilampControlSpec *spec, float raw_value);
 
 #ifdef NILAMP_ENABLE_TEST_API
 void nilamp_test_flt_ii1_lp(float f, double sample_rate, const float *input, float *output, size_t n);

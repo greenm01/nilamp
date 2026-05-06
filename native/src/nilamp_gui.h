@@ -2,6 +2,8 @@
 #ifndef NILAMP_GUI_H
 #define NILAMP_GUI_H
 
+#include "nilamp_dsp.h"
+
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -18,13 +20,7 @@ typedef struct NilampGuiParent {
     uintptr_t handle;
 } NilampGuiParent;
 
-typedef struct NilampGuiParamSpec {
-    uint32_t id;
-    const char *name;
-    const char *unit;
-    float min_value;
-    float max_value;
-} NilampGuiParamSpec;
+typedef NilampControlSpec NilampGuiParamSpec;
 
 typedef struct NilampGuiCallbacks {
     void *user;

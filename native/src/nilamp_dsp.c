@@ -224,6 +224,22 @@ static float db_to_linear(float db)
     return powf(10.0f, db / 20.0f);
 }
 
+static float iso266(float dbhz)
+{
+    const float f = db_to_linear(dbhz);
+    const float decade = floorf(0.05f * dbhz);
+    const float fract = 0.05f * dbhz - decade;
+    float resolution = 0.02f * powf(10.0f, decade);
+    if (fract >= 0.899f) {
+        resolution = 0.2f * powf(10.0f, decade);
+    } else if (fract >= 0.649f) {
+        resolution = 0.1f * powf(10.0f, decade);
+    } else if (fract >= 0.089f) {
+        resolution = 0.05f * powf(10.0f, decade);
+    }
+    return resolution * floorf(f / resolution + 0.5f);
+}
+
 static float ii1_lp_process(Ii1 *st, float f, double sr, float x)
 {
     const float k = 1.0f - expf((float)(-2.0 * M_PI * (double)f / sr));
@@ -509,16 +525,78 @@ static float tube_pss_process(TubePss *st, float r, float tau, double sr, float 
     return dvs_filtered - r * st->s;
 }
 
+static void nilamp_params_set_raw(NilampParams *params, uint32_t id, float value)
+{
+    if (!params) {
+        return;
+    }
+    switch ((NilampParamId)id) {
+    case NILAMP_PARAM_GAIN_DB:
+        params->gain_db = value;
+        break;
+    case NILAMP_PARAM_VOLUME_PCT:
+        params->volume_pct = value;
+        break;
+    case NILAMP_PARAM_BASS_PCT:
+        params->bass_pct = value;
+        break;
+    case NILAMP_PARAM_MID_PCT:
+        params->mid_pct = value;
+        break;
+    case NILAMP_PARAM_TREBLE_PCT:
+        params->treble_pct = value;
+        break;
+    case NILAMP_PARAM_SAG_PCT:
+        params->sag_pct = value;
+        break;
+    case NILAMP_PARAM_OUTPUT_GAIN_DB:
+        params->output_gain_db = value;
+        break;
+    case NILAMP_PARAM_TONE_FMID_DBHZ:
+        params->tone_fmid_dbhz = value;
+        break;
+    case NILAMP_PARAM_TONE_QMID_DB:
+        params->tone_qmid_db = value;
+        break;
+    case NILAMP_PARAM_SPK_RES_GAIN1_DB:
+        params->spk_res_gain1_db = value;
+        break;
+    case NILAMP_PARAM_SPK_RES_GAIN2_DB:
+        params->spk_res_gain2_db = value;
+        break;
+    case NILAMP_PARAM_SPK_RES_FRES_DBHZ:
+        params->spk_res_fres_dbhz = value;
+        break;
+    case NILAMP_PARAM_SPK_RES_QTS_DB:
+        params->spk_res_qts_db = value;
+        break;
+    case NILAMP_PARAM_SPK_IND_GAIN1_DB:
+        params->spk_ind_gain1_db = value;
+        break;
+    case NILAMP_PARAM_SPK_IND_GAIN2_DB:
+        params->spk_ind_gain2_db = value;
+        break;
+    case NILAMP_PARAM_SPK_IND_FIND_DBHZ:
+        params->spk_ind_find_dbhz = value;
+        break;
+    case NILAMP_PARAM_GAIN_COMP:
+        params->gain_comp = value;
+        break;
+    case NILAMP_PARAM_COUNT:
+    default:
+        break;
+    }
+}
+
 NilampParams nilamp_default_params(void)
 {
-    return (NilampParams) {
-        .gain_db = 0.0f,
-        .volume_pct = 50.0f,
-        .bass_pct = 50.0f,
-        .mid_pct = 50.0f,
-        .treble_pct = 50.0f,
-        .sag_pct = 50.0f,
-    };
+    NilampParams params = {0};
+    for (uint32_t i = 0; i < sizeof(KELLER_TWD_DLX_II_CONTROLS) /
+                                sizeof(KELLER_TWD_DLX_II_CONTROLS[0]); i++) {
+        nilamp_params_set_raw(&params, KELLER_TWD_DLX_II_CONTROLS[i].id,
+                              KELLER_TWD_DLX_II_CONTROLS[i].default_value);
+    }
+    return params;
 }
 
 NilampEngine *nilamp_engine_create(double sample_rate)
@@ -611,6 +689,35 @@ const char *nilamp_model_name(NilampModelId model_id)
     return model != NULL ? model->name : "";
 }
 
+const NilampControlSpec *nilamp_control_specs(uint32_t *count)
+{
+    if (count) {
+        *count = (uint32_t)(sizeof(KELLER_TWD_DLX_II_CONTROLS) /
+                            sizeof(KELLER_TWD_DLX_II_CONTROLS[0]));
+    }
+    return KELLER_TWD_DLX_II_CONTROLS;
+}
+
+const NilampControlSpec *nilamp_control_spec(uint32_t id)
+{
+    uint32_t count = 0;
+    const NilampControlSpec *specs = nilamp_control_specs(&count);
+    for (uint32_t i = 0; i < count; i++) {
+        if (specs[i].id == id) {
+            return &specs[i];
+        }
+    }
+    return NULL;
+}
+
+float nilamp_control_display_value(const NilampControlSpec *spec, float raw_value)
+{
+    if (!spec) {
+        return raw_value;
+    }
+    return spec->display == NILAMP_CONTROL_DISPLAY_ISO266 ? iso266(raw_value) : raw_value;
+}
+
 static NilampTapFrame nilamp_twd_dlx_ii_process_sample(NilampTwdDlxIiState *st, double sr, const NilampParams *params, float input)
 {
     const NilampTwdDlxIiData *model = &TWD_DLX_II_DATA;
@@ -619,11 +726,34 @@ static NilampTapFrame nilamp_twd_dlx_ii_process_sample(NilampTwdDlxIiState *st, 
        the 0.5 feed factor that the parity harness measures at the first tap. */
     const float gain =
         db_to_linear(params->gain_db) * model->input_feed_gain * sqrtf(model->input_keller_gain_sq);
-    const float volume = params->volume_pct * 0.01f;
+    float volume = params->volume_pct * 0.01f;
+    const int gain_comp = (int)lroundf(params->gain_comp);
+    if (gain_comp == 1 || gain_comp == 3) {
+        volume *= 0.572f;
+    }
     const float bass = params->bass_pct * 0.01f;
     const float mid = params->mid_pct * 0.01f;
     const float treble = params->treble_pct * 0.01f;
     const float sag = params->sag_pct * 0.01f;
+    const float tone_fmid = iso266(params->tone_fmid_dbhz);
+    const float tone_qmid = iso266(params->tone_qmid_db);
+    const float res_gain1 = db_to_linear(params->spk_res_gain1_db);
+    const float res_gain2 = db_to_linear(params->spk_res_gain2_db);
+    const float res_fres = iso266(params->spk_res_fres_dbhz);
+    const float res_qts = iso266(params->spk_res_qts_db);
+    const float res_q2 = res_qts * sqrtf(res_gain2);
+    const float res_q1 = res_q2 * sqrtf(res_gain2 * res_gain1);
+    const float ind_gain1 = db_to_linear(params->spk_ind_gain1_db);
+    const float ind_gain2 = db_to_linear(params->spk_ind_gain2_db);
+    const float ind_find = iso266(params->spk_ind_find_dbhz);
+    float ind_f2 = ind_find * sqrtf(ind_gain2);
+    if (ind_f2 >= 0.4f * (float)sr) {
+        ind_f2 = 0.4f * (float)sr;
+    }
+    float ind_f1 = ind_f2 * sqrtf(ind_gain2 * ind_gain1);
+    if (ind_f1 >= 0.4f * (float)sr) {
+        ind_f1 = 0.4f * (float)sr;
+    }
 
     st->t4.advk = 0.5f * (st->t4.advk + st->t5.advk);
     st->t5.advk = st->t4.advk;
@@ -647,7 +777,8 @@ static NilampTapFrame nilamp_twd_dlx_ii_process_sample(NilampTwdDlxIiState *st, 
 
     float v2 = ii1_hp_process(&st->hp1, 10.0f, sr, res1_v);
     v2 *= volume * volume;
-    v2 = svf2_tst(&st->tone, sr, bass * bass, mid * mid, treble * treble, 630.0f, 0.5f, v2);
+    v2 = svf2_tst(&st->tone, sr, bass * bass, mid * mid, treble * treble,
+                  tone_fmid, tone_qmid, v2);
     v2 = ii1_lp_process(&st->lp1, 8800.0f, sr, v2);
 
     float res3_v, res3_dia;
@@ -659,8 +790,8 @@ static NilampTapFrame nilamp_twd_dlx_ii_process_sample(NilampTwdDlxIiState *st, 
 
     float drive_t4 = res4_v * model->phase_t4_gain;
     drive_t4 = ii1_hp_process(&st->hp3, 5.8f, sr, drive_t4);
-    drive_t4 = svf2_peq(&st->peq1_t4, sr, 1.1220184543f, 80.0f, 2.6685237666f, drive_t4);
-    drive_t4 = svf1_hs(&st->hs1_t4, sr, 1.4125375446f, 2098.1359672f, drive_t4);
+    drive_t4 = svf2_peq(&st->peq1_t4, sr, res_gain1, res_fres, res_q1, drive_t4);
+    drive_t4 = svf1_hs(&st->hs1_t4, sr, ind_gain1, ind_f1, drive_t4);
 
     float res5_v, res5_dia;
     tube_ck_process(&st->t4, model->t4, sr, drive_t4, dvs2, &res5_v, &res5_dia);
@@ -668,8 +799,8 @@ static NilampTapFrame nilamp_twd_dlx_ii_process_sample(NilampTwdDlxIiState *st, 
 
     float aux = res4_vk * model->phase_t5_gain;
     aux = ii1_hp_process(&st->hp4, 6.4f, sr, aux);
-    aux = svf2_peq(&st->peq1_t5, sr, 1.1220184543f, 80.0f, 2.6685237666f, aux);
-    aux = svf1_hs(&st->hs1_t5, sr, 1.4125375446f, 2098.1359672f, aux);
+    aux = svf2_peq(&st->peq1_t5, sr, res_gain1, res_fres, res_q1, aux);
+    aux = svf1_hs(&st->hs1_t5, sr, ind_gain1, ind_f1, aux);
     const float drive_t5 = aux;
 
     float res_t5_v, res_t5_dia;
@@ -677,8 +808,8 @@ static NilampTapFrame nilamp_twd_dlx_ii_process_sample(NilampTwdDlxIiState *st, 
     const float t5_advk_out = st->t5.advk;
 
     const float post_pp = res5_v - res_t5_v;
-    const float post_peq3 = svf2_peq(&st->peq3, sr, 1.2589254118f, 80.0f, 2.2440931043f, post_pp);
-    const float post_hs3 = svf1_hs(&st->hs3, sr, 1.4125375446f, 1485.8089753f, post_peq3);
+    const float post_peq3 = svf2_peq(&st->peq3, sr, res_gain2, res_fres, res_q2, post_pp);
+    const float post_hs3 = svf1_hs(&st->hs3, sr, ind_gain2, ind_f2, post_peq3);
     const float post_hp5 = ii1_hp_process(&st->hp5, 40.0f, sr, post_hs3);
     float v_out = post_hp5;
     v_out = df2_lp(&st->lp2, sr, 10000.0f, sqrtf(0.5f), v_out);
@@ -737,7 +868,7 @@ void nilamp_engine_process(NilampEngine *engine, const float *input, float *outp
             nilamp_engine_reset(engine);
             output[i] = 0.0f;
         } else {
-            output[i] = taps.v_out;
+            output[i] = taps.v_out * db_to_linear(engine->params.output_gain_db);
         }
     }
 }

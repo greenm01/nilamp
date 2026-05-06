@@ -560,10 +560,18 @@ int main(int argc, char **argv)
     const clap_plugin_params_t *params =
         (const clap_plugin_params_t *)plugin->get_extension(plugin, CLAP_EXT_PARAMS);
     check(params != NULL, "missing params extension");
-    check(params->count(plugin) == 6, "unexpected parameter count");
+    check(params->count(plugin) == NILAMP_PARAM_COUNT, "unexpected parameter count");
     double gain = -1.0;
-    check(params->get_value(plugin, 0, &gain), "gain read failed");
+    check(params->get_value(plugin, NILAMP_PARAM_GAIN_DB, &gain), "gain read failed");
     check(fabs(gain) < 0.000001, "unexpected default gain");
+    double output_gain = -99.0;
+    check(params->get_value(plugin, NILAMP_PARAM_OUTPUT_GAIN_DB, &output_gain),
+          "output gain read failed");
+    check(fabs(output_gain) < 0.000001, "unexpected default output gain");
+    double fmid = 0.0;
+    check(params->get_value(plugin, NILAMP_PARAM_TONE_FMID_DBHZ, &fmid),
+          "Fmid read failed");
+    check(fabs(fmid - 56.0) < 0.000001, "unexpected default Fmid");
 
     const clap_plugin_state_t *state =
         (const clap_plugin_state_t *)plugin->get_extension(plugin, CLAP_EXT_STATE);
@@ -712,7 +720,7 @@ int main(int argc, char **argv)
     in_events.ctx = &automation_events;
     check(plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE,
           "automation process returned failure");
-    check(params->get_value(plugin, 0, &gain), "gain reread failed");
+    check(params->get_value(plugin, NILAMP_PARAM_GAIN_DB, &gain), "gain reread failed");
     check(fabs(gain - 6.0) < 0.000001, "automation gain was not applied");
 
     MemoryStream memory = {0};
@@ -725,7 +733,7 @@ int main(int argc, char **argv)
     gain_event.value = 12.0;
     check(plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE,
           "second automation process returned failure");
-    check(params->get_value(plugin, 0, &gain), "gain second reread failed");
+    check(params->get_value(plugin, NILAMP_PARAM_GAIN_DB, &gain), "gain second reread failed");
     check(fabs(gain - 12.0) < 0.000001, "second automation gain was not applied");
 
     memory.offset = 0;
@@ -734,8 +742,31 @@ int main(int argc, char **argv)
         .read = stream_read,
     };
     check(state->load(plugin, &istream), "state load failed");
-    check(params->get_value(plugin, 0, &gain), "gain state reread failed");
+    check(params->get_value(plugin, NILAMP_PARAM_GAIN_DB, &gain), "gain state reread failed");
     check(fabs(gain - 6.0) < 0.000001, "state did not restore gain");
+
+    struct {
+        uint32_t magic;
+        uint32_t version;
+        float values[6];
+    } old_state = {
+        .magic = 0x4e4c4150u,
+        .version = 1u,
+        .values = {3.0f, 60.0f, 40.0f, 50.0f, 70.0f, 25.0f},
+    };
+    MemoryStream old_memory = {0};
+    memcpy(old_memory.data, &old_state, sizeof(old_state));
+    old_memory.size = sizeof(old_state);
+    clap_istream_t old_istream = {
+        .ctx = &old_memory,
+        .read = stream_read,
+    };
+    check(state->load(plugin, &old_istream), "old state load failed");
+    check(params->get_value(plugin, NILAMP_PARAM_GAIN_DB, &gain), "old state gain reread failed");
+    check(fabs(gain - 3.0) < 0.000001, "old state did not restore gain");
+    check(params->get_value(plugin, NILAMP_PARAM_OUTPUT_GAIN_DB, &output_gain),
+          "old state output gain reread failed");
+    check(fabs(output_gain) < 0.000001, "old state output gain did not default");
 
     run_clap_output_safety_test(plugin, params, &process, &out_events);
 

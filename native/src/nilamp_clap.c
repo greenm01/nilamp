@@ -18,6 +18,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 #ifndef NILAMP_ENABLE_CLAP_GUI
 #define NILAMP_ENABLE_CLAP_GUI 1
@@ -38,28 +39,13 @@
 
 #define NILAMP_PLUGIN_ID "dev.niltempus.nilamp"
 #define NILAMP_STATE_MAGIC 0x4e4c4150u
-#define NILAMP_STATE_VERSION 1u
+#define NILAMP_STATE_VERSION 2u
+#define NILAMP_STATE_VERSION_1 1u
+#define NILAMP_STATE_VERSION_1_PARAM_COUNT 6u
 #define NILAMP_CLAP_OUTPUT_LIMIT 1.0f
 
-typedef enum NilampParamId {
-    NILAMP_PARAM_GAIN_DB = 0,
-    NILAMP_PARAM_VOLUME_PCT = 1,
-    NILAMP_PARAM_BASS_PCT = 2,
-    NILAMP_PARAM_MID_PCT = 3,
-    NILAMP_PARAM_TREBLE_PCT = 4,
-    NILAMP_PARAM_SAG_PCT = 5,
-    NILAMP_PARAM_COUNT = 6,
-} NilampParamId;
-
-typedef struct NilampParamSpec {
-    clap_id id;
-    const char *name;
-    const char *module;
-    const char *unit;
-    double min_value;
-    double max_value;
-    double default_value;
-} NilampParamSpec;
+typedef NilampControlSpec NilampParamSpec;
+#define nilamp_param_specs (nilamp_control_specs(NULL))
 
 typedef struct NilampClap {
     clap_plugin_t plugin;
@@ -86,24 +72,8 @@ typedef struct NilampStateBlob {
     float values[NILAMP_PARAM_COUNT];
 } NilampStateBlob;
 
-static const NilampParamSpec nilamp_param_specs[NILAMP_PARAM_COUNT] = {
-    {NILAMP_PARAM_GAIN_DB, "Gain", "Amp", "dB", 0.0, 24.0, 0.0},
-    {NILAMP_PARAM_VOLUME_PCT, "Volume", "Amp", "%", 0.0, 100.0, 50.0},
-    {NILAMP_PARAM_BASS_PCT, "Bass", "Tone", "%", 0.0, 100.0, 50.0},
-    {NILAMP_PARAM_MID_PCT, "Mid", "Tone", "%", 0.0, 100.0, 50.0},
-    {NILAMP_PARAM_TREBLE_PCT, "Treble", "Tone", "%", 0.0, 100.0, 50.0},
-    {NILAMP_PARAM_SAG_PCT, "Sag", "Power", "%", 0.0, 100.0, 50.0},
-};
-
 #if NILAMP_ENABLE_CLAP_GUI
-static const NilampGuiParamSpec nilamp_gui_param_specs[NILAMP_PARAM_COUNT] = {
-    {NILAMP_PARAM_GAIN_DB, "Gain", "dB", 0.0f, 24.0f},
-    {NILAMP_PARAM_VOLUME_PCT, "Volume", "%", 0.0f, 100.0f},
-    {NILAMP_PARAM_BASS_PCT, "Bass", "%", 0.0f, 100.0f},
-    {NILAMP_PARAM_MID_PCT, "Mid", "%", 0.0f, 100.0f},
-    {NILAMP_PARAM_TREBLE_PCT, "Treble", "%", 0.0f, 100.0f},
-    {NILAMP_PARAM_SAG_PCT, "Sag", "%", 0.0f, 100.0f},
-};
+#define nilamp_gui_param_specs ((const NilampGuiParamSpec *)nilamp_control_specs(NULL))
 
 static void nilamp_gui_log(const char *fmt, ...)
 {
@@ -232,6 +202,28 @@ static double nilamp_get_param_value(const NilampParams *params, clap_id id)
         return params->treble_pct;
     case NILAMP_PARAM_SAG_PCT:
         return params->sag_pct;
+    case NILAMP_PARAM_OUTPUT_GAIN_DB:
+        return params->output_gain_db;
+    case NILAMP_PARAM_TONE_FMID_DBHZ:
+        return params->tone_fmid_dbhz;
+    case NILAMP_PARAM_TONE_QMID_DB:
+        return params->tone_qmid_db;
+    case NILAMP_PARAM_SPK_RES_GAIN1_DB:
+        return params->spk_res_gain1_db;
+    case NILAMP_PARAM_SPK_RES_GAIN2_DB:
+        return params->spk_res_gain2_db;
+    case NILAMP_PARAM_SPK_RES_FRES_DBHZ:
+        return params->spk_res_fres_dbhz;
+    case NILAMP_PARAM_SPK_RES_QTS_DB:
+        return params->spk_res_qts_db;
+    case NILAMP_PARAM_SPK_IND_GAIN1_DB:
+        return params->spk_ind_gain1_db;
+    case NILAMP_PARAM_SPK_IND_GAIN2_DB:
+        return params->spk_ind_gain2_db;
+    case NILAMP_PARAM_SPK_IND_FIND_DBHZ:
+        return params->spk_ind_find_dbhz;
+    case NILAMP_PARAM_GAIN_COMP:
+        return params->gain_comp;
     case NILAMP_PARAM_COUNT:
     default:
         return 0.0;
@@ -246,30 +238,12 @@ static void nilamp_load_params(const NilampClap *plug, NilampParams *params)
         return;
     }
 
-    (void)nilamp_set_param_value(
-        params, NILAMP_PARAM_GAIN_DB,
-        nilamp_bits_to_float(atomic_load_explicit(&plug->param_bits[NILAMP_PARAM_GAIN_DB],
-                                                  memory_order_acquire)));
-    (void)nilamp_set_param_value(
-        params, NILAMP_PARAM_VOLUME_PCT,
-        nilamp_bits_to_float(atomic_load_explicit(&plug->param_bits[NILAMP_PARAM_VOLUME_PCT],
-                                                  memory_order_acquire)));
-    (void)nilamp_set_param_value(
-        params, NILAMP_PARAM_BASS_PCT,
-        nilamp_bits_to_float(atomic_load_explicit(&plug->param_bits[NILAMP_PARAM_BASS_PCT],
-                                                  memory_order_acquire)));
-    (void)nilamp_set_param_value(
-        params, NILAMP_PARAM_MID_PCT,
-        nilamp_bits_to_float(atomic_load_explicit(&plug->param_bits[NILAMP_PARAM_MID_PCT],
-                                                  memory_order_acquire)));
-    (void)nilamp_set_param_value(
-        params, NILAMP_PARAM_TREBLE_PCT,
-        nilamp_bits_to_float(atomic_load_explicit(&plug->param_bits[NILAMP_PARAM_TREBLE_PCT],
-                                                  memory_order_acquire)));
-    (void)nilamp_set_param_value(
-        params, NILAMP_PARAM_SAG_PCT,
-        nilamp_bits_to_float(atomic_load_explicit(&plug->param_bits[NILAMP_PARAM_SAG_PCT],
-                                                  memory_order_acquire)));
+    for (uint32_t i = 0; i < NILAMP_PARAM_COUNT; i++) {
+        (void)nilamp_set_param_value(
+            params, nilamp_param_specs[i].id,
+            nilamp_bits_to_float(atomic_load_explicit(&plug->param_bits[i],
+                                                      memory_order_acquire)));
+    }
 }
 
 static void nilamp_store_params(NilampClap *plug, const NilampParams *params)
@@ -343,6 +317,39 @@ static bool nilamp_set_param_value(NilampParams *params, clap_id id, double valu
         return true;
     case NILAMP_PARAM_SAG_PCT:
         params->sag_pct = clamped;
+        return true;
+    case NILAMP_PARAM_OUTPUT_GAIN_DB:
+        params->output_gain_db = clamped;
+        return true;
+    case NILAMP_PARAM_TONE_FMID_DBHZ:
+        params->tone_fmid_dbhz = clamped;
+        return true;
+    case NILAMP_PARAM_TONE_QMID_DB:
+        params->tone_qmid_db = clamped;
+        return true;
+    case NILAMP_PARAM_SPK_RES_GAIN1_DB:
+        params->spk_res_gain1_db = clamped;
+        return true;
+    case NILAMP_PARAM_SPK_RES_GAIN2_DB:
+        params->spk_res_gain2_db = clamped;
+        return true;
+    case NILAMP_PARAM_SPK_RES_FRES_DBHZ:
+        params->spk_res_fres_dbhz = clamped;
+        return true;
+    case NILAMP_PARAM_SPK_RES_QTS_DB:
+        params->spk_res_qts_db = clamped;
+        return true;
+    case NILAMP_PARAM_SPK_IND_GAIN1_DB:
+        params->spk_ind_gain1_db = clamped;
+        return true;
+    case NILAMP_PARAM_SPK_IND_GAIN2_DB:
+        params->spk_ind_gain2_db = clamped;
+        return true;
+    case NILAMP_PARAM_SPK_IND_FIND_DBHZ:
+        params->spk_ind_find_dbhz = clamped;
+        return true;
+    case NILAMP_PARAM_GAIN_COMP:
+        params->gain_comp = clamped;
         return true;
     case NILAMP_PARAM_COUNT:
     default:
@@ -843,7 +850,15 @@ static bool nilamp_params_value_to_text(const clap_plugin_t *plugin, clap_id par
     }
 
     const double clamped = nilamp_clamp(value, spec);
-    const int written = snprintf(out_buffer, out_buffer_capacity, "%.3f %s", clamped, spec->unit);
+    if (spec->id == NILAMP_PARAM_GAIN_COMP) {
+        static const char *const names[] = {"Off", "Tube 1", "Splitter", "Both"};
+        const int index = (int)lround(clamped);
+        const char *name = (index >= 0 && index < 4) ? names[index] : "Splitter";
+        const int written = snprintf(out_buffer, out_buffer_capacity, "%s", name);
+        return written >= 0 && (uint32_t)written < out_buffer_capacity;
+    }
+    const double display = nilamp_control_display_value(spec, (float)clamped);
+    const int written = snprintf(out_buffer, out_buffer_capacity, "%.3g %s", display, spec->unit);
     return written >= 0 && (uint32_t)written < out_buffer_capacity;
 }
 
@@ -856,11 +871,36 @@ static bool nilamp_params_text_to_value(const clap_plugin_t *plugin, clap_id par
         return false;
     }
 
+    if (spec->id == NILAMP_PARAM_GAIN_COMP) {
+        if (strcasecmp(param_value_text, "off") == 0) {
+            *out_value = 0.0;
+            return true;
+        }
+        if (strcasecmp(param_value_text, "tube 1") == 0 || strcasecmp(param_value_text, "tube1") == 0) {
+            *out_value = 1.0;
+            return true;
+        }
+        if (strcasecmp(param_value_text, "splitter") == 0) {
+            *out_value = 2.0;
+            return true;
+        }
+        if (strcasecmp(param_value_text, "both") == 0) {
+            *out_value = 3.0;
+            return true;
+        }
+    }
+
     errno = 0;
     char *end = NULL;
-    const double parsed = strtod(param_value_text, &end);
+    double parsed = strtod(param_value_text, &end);
     if (end == param_value_text || errno == ERANGE || !isfinite(parsed)) {
         return false;
+    }
+    if (spec->display == NILAMP_CONTROL_DISPLAY_ISO266) {
+        if (parsed <= 0.0) {
+            return false;
+        }
+        parsed = 20.0 * log10(parsed);
     }
     *out_value = nilamp_clamp(parsed, spec);
     return true;
@@ -966,9 +1006,13 @@ static void nilamp_params_to_values(const NilampParams *params,
 }
 
 static bool nilamp_values_to_params(const float values[NILAMP_PARAM_COUNT],
+                                    uint32_t value_count,
                                     NilampParams *params)
 {
-    for (uint32_t i = 0; i < NILAMP_PARAM_COUNT; i++) {
+    if (value_count > NILAMP_PARAM_COUNT) {
+        return false;
+    }
+    for (uint32_t i = 0; i < value_count; i++) {
         if (!nilamp_set_param_value(params, nilamp_param_specs[i].id, values[i])) {
             return false;
         }
@@ -1000,11 +1044,30 @@ static bool nilamp_state_load(const clap_plugin_t *plugin, const clap_istream_t 
         return false;
     }
 
-    NilampStateBlob blob = {0};
+    struct {
+        uint32_t magic;
+        uint32_t version;
+    } header = {0};
     NilampParams params = nilamp_default_params();
-    if (!nilamp_read_all(stream, &blob, sizeof(blob)) || blob.magic != NILAMP_STATE_MAGIC ||
-        blob.version != NILAMP_STATE_VERSION ||
-        !nilamp_values_to_params(blob.values, &params)) {
+    float values[NILAMP_PARAM_COUNT] = {0};
+    nilamp_params_to_values(&params, values);
+
+    if (!nilamp_read_all(stream, &header, sizeof(header)) ||
+        header.magic != NILAMP_STATE_MAGIC) {
+        return false;
+    }
+
+    uint32_t value_count = 0u;
+    if (header.version == NILAMP_STATE_VERSION_1) {
+        value_count = NILAMP_STATE_VERSION_1_PARAM_COUNT;
+    } else if (header.version == NILAMP_STATE_VERSION) {
+        value_count = NILAMP_PARAM_COUNT;
+    } else {
+        return false;
+    }
+
+    if (!nilamp_read_all(stream, values, sizeof(values[0]) * value_count) ||
+        !nilamp_values_to_params(values, value_count, &params)) {
         return false;
     }
     plug->params = params;

@@ -51,9 +51,18 @@ The CLAP plugin is:
 native/bin/nilamp.clap
 ```
 
-Its first custom editor is an embedded X11 GPU GUI built in C with Pugl,
-`sokol_gfx`, and Nuklear. Wayland sessions use this path through XWayland for
-now.
+Its custom editor is an embedded GPU GUI built in C with Pugl, `sokol_gfx`,
+and Nuklear: X11 on Linux, and the same renderer embedded through Cocoa on
+macOS. Wayland sessions use the Linux path through XWayland for now.
+
+Install the CLAP to the user plugin path with:
+
+```bash
+make install-clap-user
+```
+
+This writes `~/.clap/nilamp.clap` by default and re-signs the copied dylib on
+macOS.
 
 Quick native throughput benchmark:
 

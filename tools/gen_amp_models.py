@@ -68,6 +68,22 @@ PROCESS_FIELDS = (
     "phase_t5_gain",
     "screen_current_feedback",
 )
+CONTROL_FIELDS = (
+    "id",
+    "name",
+    "module",
+    "unit",
+    "min",
+    "max",
+    "default",
+    "step",
+    "display",
+)
+KNOWN_CONTROL_DISPLAYS = {
+    "linear": "NILAMP_CONTROL_DISPLAY_LINEAR",
+    "iso266": "NILAMP_CONTROL_DISPLAY_ISO266",
+    "enum": "NILAMP_CONTROL_DISPLAY_ENUM",
+}
 
 
 @dataclass
@@ -346,6 +362,38 @@ def validate_amp(node: Node) -> dict[str, Any]:
         "screen_current_feedback": required_number(process, "screen_current_feedback"),
     }
 
+    controls_node = node_child(node, "controls")
+    controls: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    for control in child_nodes(controls_node, "control"):
+        key = required_arg(control, 0, str)
+        control_id = required_prop(control, "id", str)
+        if control_id in seen_ids:
+            fail(f"{slug} duplicate control id {control_id!r}")
+        seen_ids.add(control_id)
+        display = required_prop(control, "display", str)
+        if display not in KNOWN_CONTROL_DISPLAYS:
+            fail(f"{slug} control {key!r} has unknown display {display!r}")
+        minimum = required_number(control, "min")
+        maximum = required_number(control, "max")
+        default = required_number(control, "default")
+        if minimum > maximum:
+            fail(f"{slug} control {key!r} min exceeds max")
+        if default < minimum or default > maximum:
+            fail(f"{slug} control {key!r} default outside range")
+        controls.append({
+            "key": key,
+            "id": control_id,
+            "name": required_prop(control, "name", str),
+            "module": required_prop(control, "module", str),
+            "unit": required_prop(control, "unit", str),
+            "min": minimum,
+            "max": maximum,
+            "default": default,
+            "step": required_number(control, "step"),
+            "display": KNOWN_CONTROL_DISPLAYS[display],
+        })
+
     return {
         "slug": slug,
         "id": model_id,
@@ -356,6 +404,7 @@ def validate_amp(node: Node) -> dict[str, Any]:
         "speaker_nominal_ohms": speaker_nominal,
         "stages": stages,
         "process": process_values,
+        "controls": controls,
     }
 
 
@@ -398,6 +447,21 @@ def render(models: list[dict[str, Any]]) -> str:
             lines.append(f"    .{stage_name} = &{model['stages'][stage_name]['symbol']},")
         for field_name in PROCESS_FIELDS:
             lines.append(f"    .{field_name} = {c_float(model['process'][field_name])},")
+        lines.append("};")
+        lines.append("")
+        lines.append(f"static const NilampControlSpec {model['slug'].upper()}_CONTROLS[] = {{")
+        for control in model["controls"]:
+            lines.append("    {")
+            lines.append(f"        .id = {control['id']},")
+            lines.append(f"        .name = {c_string(control['name'])},")
+            lines.append(f"        .module = {c_string(control['module'])},")
+            lines.append(f"        .unit = {c_string(control['unit'])},")
+            lines.append(f"        .min_value = {c_float(control['min'])},")
+            lines.append(f"        .max_value = {c_float(control['max'])},")
+            lines.append(f"        .default_value = {c_float(control['default'])},")
+            lines.append(f"        .step = {c_float(control['step'])},")
+            lines.append(f"        .display = {control['display']},")
+            lines.append("    },")
         lines.append("};")
         lines.append("")
 

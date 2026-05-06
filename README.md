@@ -1,16 +1,19 @@
 # nilamp
 
-A native C guitar amp model based on Helmut Keller's "A Tube Amp Modeling
-Project," extended toward a multi-amp platform. For fun.
+A native C CLAP guitar amp plugin based on Helmut Keller's "A Tube Amp
+Modeling Project," extended toward a multi-amp platform. For fun.
 
 The name is "no amp" — `nil` + `amp`.
 
 ## Status
 
 The active implementation is a native C DSP engine with Make-built offline
-renderers and a first-pass C CLAP plugin with an embedded GPU GUI shell. The
-current milestone is continuing ysfx-backed JSFX parity work while hardening
-the plugin host and editor surfaces.
+renderers and a C CLAP plugin with an embedded GPU GUI shell. The target format
+is CLAP. Linux and macOS are the primary targets right now, with Windows
+support to follow.
+
+Current editor backends are X11/XWayland on Linux and Cocoa on macOS. Native
+Wayland and Windows editor support are future work.
 
 ## Goals
 
@@ -33,6 +36,47 @@ the plugin host and editor surfaces.
 KDL parsing, Lua, Python, allocation, file I/O, and locks are not allowed in
 future audio callbacks.
 
+## Dependencies
+
+Required for the native CLAP/plugin build:
+
+- C11 compiler, C++ compiler, `make`, and `git`
+- `cmake` for building the external ysfx reference runner
+- Python 3 with `venv`/`pip`; `make setup-python` installs NumPy/SciPy into
+  `./.venv`
+- Linux only: X11/Xrandr/Xcursor/Xext and OpenGL development headers
+- macOS only: Xcode Command Line Tools; Cocoa/CoreVideo/OpenGL frameworks come
+  from the macOS SDK
+
+Install system packages:
+
+```bash
+# Void Linux
+sudo xbps-install -S base-devel git cmake python3 python3-pip python3-virtualenv \
+  libX11-devel libXrandr-devel libXcursor-devel libXext-devel MesaLib-devel
+
+# Arch Linux
+sudo pacman -S --needed base-devel git cmake python python-pip \
+  libx11 libxrandr libxcursor libxext mesa
+
+# Debian / Ubuntu
+sudo apt install build-essential git cmake python3 python3-venv python3-pip \
+  libx11-dev libxrandr-dev libxcursor-dev libxext-dev libgl1-mesa-dev
+
+# macOS
+xcode-select --install
+brew install cmake python git
+```
+
+The JSFX parity path uses Joep Vanlier's maintained ysfx checkout:
+
+```bash
+git clone https://github.com/JoepVanlier/ysfx.git ~/src/ysfx
+git -C ~/src/ysfx submodule update --init --recursive
+```
+
+Override the checkout location with `YSFX_ROOT=/path/to/ysfx`.
+
 ## Repository layout
 
 ```
@@ -50,6 +94,7 @@ docs/                 Current notes, research references, ABX notes
 make native
 make native-test
 make native-host-test
+make install-clap-user
 make setup-python
 make native-jsfx-test
 ```
@@ -63,10 +108,10 @@ This builds:
 - `native/bin/test_native`
 - `native/bin/test_clap_load`
 
-`native/bin/ysfx_render` is linked against the maintained ysfx checkout at
-`~/src/ysfx` by default. Override with `YSFX_ROOT=/path/to/ysfx` if needed.
-Initialize that checkout's submodules if the build reports missing
-`thirdparty/dr_libs` headers:
+`native/bin/ysfx_render` is linked against
+`https://github.com/JoepVanlier/ysfx.git` at `~/src/ysfx` by default. Override
+with `YSFX_ROOT=/path/to/ysfx` if needed. Initialize that checkout's submodules
+if the build reports missing `thirdparty/dr_libs` headers:
 
 ```bash
 git -C ~/src/ysfx submodule update --init
@@ -81,13 +126,6 @@ make setup-python
 
 `make native-jsfx-test` and the other Python validation targets prefer
 `./.venv/bin/python3` when it exists.
-
-## macOS notes
-
-- `make native`, `make native-test`, `make native-host-test`, and
-  `make native-jsfx-test` work on macOS.
-- The embedded CLAP editor supports Cocoa on macOS and X11/XWayland on Linux.
-  Native Wayland and Windows editor support are future work.
 
 Regenerate generated native tables after table-generator changes:
 
@@ -118,6 +156,8 @@ python3 tools/abx_compare.py --preset sweep
 `make native-host-test` is REAPER-free: it runs the native CLAP loader and
 optional `clap-validator` when that tool is installed. The old REAPER smoke
 test remains available as `make native-reaper-host-test` for manual host checks.
+`make install-clap-user` installs the CLAP to `~/.clap/nilamp.clap` by default;
+on macOS it also re-signs the copied dylib so hosts can load it.
 
 ## License
 

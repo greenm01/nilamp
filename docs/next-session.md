@@ -2,6 +2,38 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: KDL-backed CLAP options controls and two-screen editor
+
+**Context.** Added the JSFX-style options page and promoted the amp option
+settings into automatable CLAP parameters sourced from the KDL amp spec.
+
+**Edit summary.**
+
+- Added KDL-declared control specs for main and options controls, generated
+  into native model data and exposed through the DSP API.
+- Appended CLAP params for output gain, tone stack, speaker resonance,
+  speaker inductor, and gain compensation while preserving existing param IDs.
+- Reworked the editor to a main/options screen split, with output gain on the
+  main screen and sag moved to options.
+- Wired tone stack, speaker resonance, speaker inductor, output gain, and gain
+  compensation into the native DSP path with defaults matching Keller JSFX.
+- Added `make install-clap-user`, which installs to `~/.clap` by default and
+  re-signs the copied dylib on macOS. A plain `cp` can leave a stale
+  linker-generated ad-hoc signature and get killed by AMFI on `dlopen`.
+
+**Verification.**
+
+- `make native` passes.
+- `make native-test` passes.
+- `make native-host-test` passes (`clap-validator` absent, skipped).
+- `make install-clap-user` installs and re-signs
+  `~/.clap/nilamp.clap`; `native/bin/test_clap_load ~/.clap/nilamp.clap`
+  exits `0`.
+- `make native-jsfx-test` passes:
+  - sine ABX residual `-40.8 dB`, correlation `0.999919`;
+  - tap/public guard residual `-48.5 dB`, correlation `0.999986`;
+  - low-input regression: zero / `1e-6` / `1e-4` cases all pass.
+
 ### Session: amp-panel editor skin
 
 **Context.** Replaced the temporary vertical slider editor with an amp-panel

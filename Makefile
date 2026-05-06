@@ -2,6 +2,7 @@ CC ?= cc
 CXX ?= c++
 OBJC ?= $(CC)
 CMAKE ?= $(or $(shell command -v cmake 2>/dev/null),/opt/homebrew/bin/cmake)
+CODESIGN ?= codesign
 PYTHON_BOOTSTRAP ?= $(or $(wildcard /opt/homebrew/bin/python3.13),$(shell command -v python3 2>/dev/null),python3)
 PYTHON ?= $(or $(wildcard .venv/bin/python3),$(shell command -v python3 2>/dev/null),/opt/homebrew/bin/python3.13)
 UNAME_S := $(shell uname -s)
@@ -18,6 +19,7 @@ NUKLEAR_INCLUDE := third_party/nuklear
 YSFX_ROOT ?= $(HOME)/src/ysfx
 YSFX_BUILD := $(NATIVE_BUILD)/ysfx
 YSFX_LIB := $(YSFX_BUILD)/libysfx.a
+CLAP_INSTALL_DIR ?= $(HOME)/.clap
 
 CFLAGS ?= -std=c11 -O3 -Wall -Wextra -Wpedantic -Werror -I$(NATIVE_DIR)/src -I$(NATIVE_GENERATED)
 CLAP_CFLAGS := $(CFLAGS) -I$(CLAP_INCLUDE)
@@ -30,6 +32,7 @@ LDLIBS ?= -lm
 DL_LDLIBS :=
 PLUGIN_LDFLAGS := -shared
 GUI_LDLIBS :=
+CLAP_INSTALL_CODESIGN :=
 NILAMP_ENABLE_CLAP_GUI ?= $(if $(filter Linux Darwin,$(UNAME_S)),1,0)
 
 ifeq ($(UNAME_S),Linux)
@@ -38,8 +41,9 @@ GUI_LDLIBS := -lX11 -lXrandr -lXcursor -lXext -lGL -ldl
 endif
 
 ifeq ($(UNAME_S),Darwin)
-PLUGIN_LDFLAGS := -dynamiclib
+PLUGIN_LDFLAGS := -dynamiclib -Wl,-install_name,@rpath/nilamp.clap
 GUI_LDLIBS := -framework Cocoa -framework CoreVideo -framework OpenGL
+CLAP_INSTALL_CODESIGN := $(CODESIGN) --force --sign -
 endif
 
 CLAP_PLUGIN_CFLAGS := $(CLAP_CFLAGS) -DNILAMP_ENABLE_CLAP_GUI=$(NILAMP_ENABLE_CLAP_GUI)
@@ -99,11 +103,16 @@ ifeq ($(YSFX_AVAILABLE),1)
 NATIVE_TARGETS += $(NATIVE_BIN)/ysfx_render
 endif
 
-.PHONY: all native native-test native-bench native-host-test native-reaper-host-test native-jsfx-test native-loaded-clap-diagnose setup-python clean-native FORCE
+.PHONY: all native native-test native-bench native-host-test native-reaper-host-test native-jsfx-test native-loaded-clap-diagnose install-clap-user setup-python clean-native FORCE
 
 all: native
 
 native: $(NATIVE_TARGETS)
+
+install-clap-user: $(NATIVE_BIN)/nilamp.clap
+	mkdir -p $(CLAP_INSTALL_DIR)
+	cp -f $< $(CLAP_INSTALL_DIR)/nilamp.clap
+	$(if $(CLAP_INSTALL_CODESIGN),$(CLAP_INSTALL_CODESIGN) $(CLAP_INSTALL_DIR)/nilamp.clap)
 
 native-test: $(NATIVE_BIN)/test_native $(NATIVE_BIN)/test_clap_load $(NATIVE_BIN)/nilamp.clap
 	$(NATIVE_BIN)/test_native
