@@ -2,6 +2,25 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: CLAP selector and text box polish
+
+**Context.** Fixed Options screen selector layout and text-entry behavior from
+REAPER screenshots, and added a visual-only main Splitter dropdown placeholder.
+
+**Edit summary.**
+
+- Replaced the Options Gain Compensation control with a custom text dropdown.
+- Replaced the static main Splitter text with a visual-only `LTP 1` dropdown.
+- Restricted knob double-click reset to the knob circle, not the value box.
+- Made percent value boxes display/edit whole numbers and added an edit caret.
+
+**Verification.**
+
+- `make native-host-test` passes (`clap-validator` absent, skipped).
+- `make install-clap-user` installs and re-signs
+  `~/.clap/nilamp.clap`; `native/bin/test_clap_load ~/.clap/nilamp.clap`
+  exits `0`.
+
 ### Session: CLAP editor knob interaction and Options render hardening
 
 **Context.** Fixed follow-up GUI issues from REAPER testing: percent knob bubble
