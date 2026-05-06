@@ -978,10 +978,11 @@ static void nilamp_gui_enum_toggle(NilampGui *gui, struct nk_context *ctx,
     nilamp_gui_draw_text(ctx, canvas, nk_rect(bounds.x, bounds.y, bounds.w, 18.0f),
                          spec->name, gold, true);
 
-    const float track_w = fminf(bounds.w - 18.0f, 48.0f);
+    const float track_w = fminf(bounds.w - 28.0f, 36.0f);
+    const float track_h = 14.0f;
     const struct nk_rect switch_rect =
-        nk_rect(bounds.x + (bounds.w - track_w) * 0.5f, bounds.y + 31.0f,
-                track_w, 12.0f);
+        nk_rect(bounds.x + (bounds.w - track_w) * 0.5f, bounds.y + 30.0f,
+                track_w, track_h);
     const struct nk_rect hit_rect =
         nk_rect(switch_rect.x - 6.0f, switch_rect.y - 8.0f,
                 switch_rect.w + 12.0f, switch_rect.h + 31.0f);
@@ -989,7 +990,7 @@ static void nilamp_gui_enum_toggle(NilampGui *gui, struct nk_context *ctx,
 
     nk_fill_rect(canvas, switch_rect, 1.0f, track);
     nk_stroke_rect(canvas, switch_rect, 1.0f, 1.0f, border);
-    const float thumb_w = 10.0f;
+    const float thumb_w = switch_rect.w * 0.5f;
     const float thumb_x = safe_value == 0u ?
                               switch_rect.x + 1.0f :
                               switch_rect.x + switch_rect.w - thumb_w - 1.0f;
