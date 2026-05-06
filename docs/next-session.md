@@ -2,6 +2,85 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: in-process loaded-CLAP diagnostic (REAPER static still present)
+
+**Context.** User reports the REAPER static is NOT fixed by the prior
+`single-engine fold` commit (`ff0b8a4`). Built an in-process diagnostic that
+`dlopen`s `native/bin/nilamp.clap` and renders mono content through it without
+involving REAPER, to isolate the plugin from the host.
+
+**Edit summary.**
+
+- New `native/src/render_loaded_clap.c`: minimal CLAP host that `dlopen`s the
+  plugin, activates at SR 48000 / block 512, sets default params via params
+  flush, and renders a mono float32 WAV through the stereo input port in two
+  presentation modes:
+  - `shared`: both `data32[0]` and `data32[1]` point at the same buffer
+    (matches the REAPER mono-on-stereo case the previous fix targeted).
+  - `distinct`: two separate buffers holding identical samples (defeats
+    pointer-equality detection; what real hosts may actually do).
+- New `tools/clap_validate/render_loaded_clap.py`: synthesizes a mono
+  sweep+chord input, runs `nilamp_render` for the offline reference, runs the
+  C driver in both modes, then reports peak/RMS/residual-dB/correlation and
+  the >8 kHz residual-energy fraction per channel, and asserts L==R
+  bit-exactness for `shared` mode.
+- `Makefile`: added `make native-loaded-clap-diagnose` (manual; not in `all`
+  or `native-test`).
+
+**Verification (key result).**
+
+```
+=== mode=shared block=512 ===
+  L==R bit-exact: True  max|L-R|=0.000e+00
+  L: residual=-280.62 dB corr=1.000000 hi(>8k)=-377.26 dB
+  R: residual=-280.62 dB corr=1.000000 hi(>8k)=-377.26 dB
+
+=== mode=distinct block=512 ===
+  L==R bit-exact: True  max|L-R|=0.000e+00
+  L: residual=-280.62 dB corr=1.000000 hi(>8k)=-377.26 dB
+  R: residual=-280.62 dB corr=1.000000 hi(>8k)=-377.26 dB
+```
+
+The plugin is bit-exact match to the offline reference in both modes. The two
+independent engines, fed identical samples from a clean reset state, produce
+bit-exact identical output - so engine indeterminism / dual-engine drift is
+NOT the root cause of the static at default params. The previous
+`single-engine fold` is still correct as a defensive optimization but did not
+address the actual REAPER bug.
+
+**Next work.**
+
+The static the user hears in REAPER is therefore caused by something the
+in-process driver does not yet reproduce. Candidate triggers, in priority
+order:
+
+1. Variable / non-power-of-two block sizes (REAPER often dispatches odd
+   tail-blocks). Extend the diagnostic to randomize block sizes between
+   `process()` calls.
+2. Non-zero `steady_time` and `transport` info (we currently pass
+   `transport=NULL` and `steady_time=pos`).
+3. Sample-rate mismatches: try 44100, 88200, 96000.
+4. `audio_inputs_count == 1` with a mono input bus despite the plugin
+   declaring stereo - test what happens if a host passes a 1-channel input
+   buffer rather than stereo. If the wrapper's `input_channels` branch reads
+   `data32[1]` it will dereference an undefined pointer.
+5. State restore between activate/deactivate cycles (a host scan/load may
+   call set-state with stale data and then process before reset).
+6. Initial-sample weirdness: feed a buffer whose first samples are exactly
+   `1e-30f` (denormal) or large negative values.
+7. If 1-6 still don't reproduce: build a focused REAPER repro project with
+   only a mono guitar audio item, peakcache disabled, render to disk via
+   `-renderproject`, and diff that render against the in-process driver
+   render of the same WAV item.
+
+**Relevant files.**
+
+- `native/src/render_loaded_clap.c` (new) - the C driver.
+- `tools/clap_validate/render_loaded_clap.py` (new) - the Python harness.
+- `Makefile` - new `native-loaded-clap-diagnose` target.
+- `native/src/nilamp_clap.c` - `nilamp_process_segment` and the
+  `audio_inputs_count == 1` branch are the next inspection sites.
+
 ### Session: REAPER static (mono on stereo) -> SINGLE-ENGINE FOLD
 
 **Edit summary.**

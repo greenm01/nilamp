@@ -48,7 +48,7 @@ NATIVE_GUI_OBJS := \
 	$(NATIVE_BUILD)/pugl_x11.pic.o \
 	$(NATIVE_BUILD)/pugl_x11_gl.pic.o
 
-.PHONY: all native native-test native-bench native-host-test native-reaper-host-test native-jsfx-test clean-native FORCE
+.PHONY: all native native-test native-bench native-host-test native-reaper-host-test native-jsfx-test native-loaded-clap-diagnose clean-native FORCE
 
 all: native
 
@@ -152,6 +152,18 @@ $(NATIVE_BUILD)/test_clap_load.o: $(NATIVE_DIR)/tests/test_clap_load.c $(NATIVE_
 
 $(NATIVE_BIN)/test_clap_load: $(NATIVE_BUILD)/test_clap_load.o $(NATIVE_OBJS) | $(NATIVE_BIN)
 	$(CC) $(LDFLAGS) $^ $(LDLIBS) -ldl -o $@
+
+$(NATIVE_BUILD)/render_loaded_clap.o: $(NATIVE_DIR)/src/render_loaded_clap.c $(NATIVE_DIR)/src/nilamp_dsp.h $(CLAP_INCLUDE)/clap/clap.h | $(NATIVE_BUILD)
+	$(CC) $(CLAP_CFLAGS) -c $< -o $@
+
+$(NATIVE_BIN)/render_loaded_clap: $(NATIVE_BUILD)/render_loaded_clap.o | $(NATIVE_BIN)
+	$(CC) $(LDFLAGS) $^ $(LDLIBS) -ldl -o $@
+
+native-loaded-clap-diagnose: $(NATIVE_BIN)/render_loaded_clap $(NATIVE_BIN)/nilamp_render $(NATIVE_BIN)/nilamp.clap
+	$(PYTHON) tools/clap_validate/render_loaded_clap.py \
+	    --plugin $(NATIVE_BIN)/nilamp.clap \
+	    --render $(NATIVE_BIN)/nilamp_render \
+	    --driver $(NATIVE_BIN)/render_loaded_clap
 
 $(YSFX_BUILD)/CMakeCache.txt: | $(NATIVE_BUILD)
 	test -f $(YSFX_ROOT)/include/ysfx.h
