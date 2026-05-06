@@ -620,10 +620,6 @@ static void nilamp_gui_draw_panel(struct nk_context *ctx, struct nk_command_buff
     }
 }
 
-static void nilamp_gui_unit_text(struct nk_context *ctx, struct nk_command_buffer *canvas,
-                                 struct nk_rect bounds, const char *unit,
-                                 struct nk_color color);
-
 static void nilamp_gui_begin_edit(NilampGui *gui, uint32_t index)
 {
     if (!gui || index >= gui->param_count || index >= NILAMP_GUI_MAX_PARAMS) {
@@ -688,8 +684,7 @@ static bool nilamp_gui_edit_accepts_char(const NilampGuiParamSpec *param, char c
         return c >= '0' && c <= '9';
     }
     if (nilamp_gui_is_hz_param(param)) {
-        return (c >= '0' && c <= '9') || c == '.' || c == 'k' ||
-               c == 'K' || c == 'h' || c == 'H' || c == 'z' || c == 'Z';
+        return (c >= '0' && c <= '9') || c == '.';
     }
     if (nilamp_gui_is_db_param(param)) {
         return (c >= '0' && c <= '9') || c == '.' || c == '-' || c == '+';
@@ -776,17 +771,28 @@ static void nilamp_gui_value_box(NilampGui *gui, struct nk_context *ctx,
     const char *box_text = gui->model.edit_text[index];
     const struct nk_rect text_rect = nk_rect(bounds.x + 2.0f, bounds.y + 2.0f,
                                             bounds.w - 4.0f, bounds.h - 3.0f);
-    nilamp_gui_draw_text(ctx, canvas, text_rect, box_text, text, true);
+    char display_text[NILAMP_GUI_EDIT_TEXT_LEN + 16u];
+    if (unit && unit[0]) {
+        (void)snprintf(display_text, sizeof(display_text), "%s %s", box_text, unit);
+    } else {
+        (void)snprintf(display_text, sizeof(display_text), "%s", box_text);
+    }
+    nilamp_gui_draw_text(ctx, canvas, text_rect, display_text, text, true);
     if (active) {
         const struct nk_user_font *font = ctx->style.font;
         const int len = (int)nilamp_gui_bounded_strlen(box_text, NILAMP_GUI_EDIT_TEXT_LEN);
+        const int display_len =
+            (int)nilamp_gui_bounded_strlen(display_text, sizeof(display_text));
         float text_width = 0.0f;
+        float display_width = 0.0f;
         if (font && font->width) {
             text_width = font->width(font->userdata, font->height, box_text, len);
+            display_width = font->width(font->userdata, font->height,
+                                        display_text, display_len);
         }
         float text_x = text_rect.x;
-        if (text_width < text_rect.w) {
-            text_x += (text_rect.w - text_width) * 0.5f;
+        if (display_width < text_rect.w) {
+            text_x += (text_rect.w - display_width) * 0.5f;
         }
         const float caret_x = nilamp_gui_clampf(text_x + text_width + 1.0f,
                                                 bounds.x + 4.0f,
@@ -794,22 +800,6 @@ static void nilamp_gui_value_box(NilampGui *gui, struct nk_context *ctx,
         nk_stroke_line(canvas, caret_x, bounds.y + 4.0f, caret_x,
                        bounds.y + bounds.h - 4.0f, 1.0f, text);
     }
-    if (unit && unit[0]) {
-        nilamp_gui_unit_text(ctx, canvas,
-                             nk_rect(bounds.x + bounds.w + 3.0f, bounds.y + 2.0f,
-                                     28.0f, bounds.h - 3.0f),
-                             unit, nk_rgb(255, 205, 32));
-    }
-}
-
-static void nilamp_gui_unit_text(struct nk_context *ctx, struct nk_command_buffer *canvas,
-                                 struct nk_rect bounds, const char *unit,
-                                 struct nk_color color)
-{
-    if (!unit || !unit[0]) {
-        return;
-    }
-    nilamp_gui_draw_text(ctx, canvas, bounds, unit, color, false);
 }
 
 static float nilamp_gui_knob_noon_value(const NilampGuiParamSpec *param,
@@ -936,13 +926,9 @@ static bool nilamp_gui_knob(NilampGui *gui, struct nk_context *ctx,
 
     const char *unit = NULL;
     (void)nilamp_gui_display_box_value(param, value, &unit);
-    const bool has_unit = unit && unit[0];
-    const float box_w = 42.0f;
-    const float unit_gap = has_unit ? 3.0f : 0.0f;
-    const float unit_w = has_unit ? 28.0f : 0.0f;
-    const float group_w = box_w + unit_gap + unit_w;
+    const float box_w = 64.0f;
     const struct nk_rect edit_rect =
-        nk_rect(cx - group_w * 0.5f, bounds.y + bounds.h - 26.0f, box_w, 19.0f);
+        nk_rect(cx - box_w * 0.5f, bounds.y + bounds.h - 26.0f, box_w, 19.0f);
     nilamp_gui_value_box(gui, ctx, canvas, index, edit_rect, unit, outbox, outbox_count);
     return hovered || gui->active_knob == (int)index;
 }

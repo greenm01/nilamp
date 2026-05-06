@@ -91,13 +91,13 @@ amp "keller_twd_dlx_ii" {
       panel "Splitter" x=400 y=189 w=93 h=138
       text "$brand" x=0 y=73 w=500 h=50 style="title"
       text "$name" x=0 y=122 w=500 h=28 style="subtitle"
-      knob bind="input_gain" x=20.5 y=55 w=73 h=104 radius=23 style="gain_bipolar"
-      knob bind="output_gain" x=409.5 y=55 w=73 h=104 radius=23 style="gain_bipolar"
+      knob bind="input_gain" x=17 y=55 w=80 h=104 radius=23 style="gain_bipolar"
+      knob bind="output_gain" x=406 y=55 w=80 h=104 radius=23 style="gain_bipolar"
       enum bind="tube1" x=21 y=207 w=76 h=104
-      knob bind="volume" x=96.5 y=202 w=73 h=104 radius=23 style="percent"
-      knob bind="bass" x=172.5 y=202 w=73 h=104 radius=23 style="percent"
-      knob bind="mid" x=248.5 y=202 w=73 h=104 radius=23 style="percent"
-      knob bind="treble" x=324.5 y=202 w=73 h=104 radius=23 style="percent"
+      knob bind="volume" x=93 y=202 w=80 h=104 radius=23 style="percent"
+      knob bind="bass" x=169 y=202 w=80 h=104 radius=23 style="percent"
+      knob bind="mid" x=245 y=202 w=80 h=104 radius=23 style="percent"
+      knob bind="treble" x=321 y=202 w=80 h=104 radius=23 style="percent"
       enum bind="phase_splitter" x=407 y=207 w=79 h=104
     }
 
@@ -110,17 +110,17 @@ amp "keller_twd_dlx_ii" {
       panel "Power" x=10 y=189 w=78 h=138
       panel "Gain" x=97 y=189 w=94 h=138
       panel "Speaker Resonance" x=200 y=189 w=293 h=138
-      knob bind="tone_fmid" x=21.5 y=55 w=73 h=104 radius=23 style="percent"
-      knob bind="tone_qmid" x=96.5 y=55 w=73 h=104 radius=23 style="percent"
-      knob bind="speaker_ind_gain1" x=276.5 y=55 w=73 h=104 radius=23 style="percent"
-      knob bind="speaker_ind_gain2" x=348.5 y=55 w=73 h=104 radius=23 style="percent"
-      knob bind="speaker_ind_find" x=420.5 y=55 w=73 h=104 radius=23 style="percent"
-      knob bind="sag" x=12.5 y=202 w=73 h=104 radius=23 style="percent"
+      knob bind="tone_fmid" x=18 y=55 w=80 h=104 radius=23 style="percent"
+      knob bind="tone_qmid" x=93 y=55 w=80 h=104 radius=23 style="percent"
+      knob bind="speaker_ind_gain1" x=273 y=55 w=80 h=104 radius=23 style="percent"
+      knob bind="speaker_ind_gain2" x=345 y=55 w=80 h=104 radius=23 style="percent"
+      knob bind="speaker_ind_find" x=417 y=55 w=80 h=104 radius=23 style="percent"
+      knob bind="sag" x=9 y=202 w=80 h=104 radius=23 style="percent"
       enum bind="gain_comp" x=101 y=207 w=86 h=104
-      knob bind="speaker_res_gain1" x=206.5 y=202 w=73 h=104 radius=23 style="percent"
-      knob bind="speaker_res_gain2" x=278.5 y=202 w=73 h=104 radius=23 style="percent"
-      knob bind="speaker_res_fres" x=350.5 y=202 w=73 h=104 radius=23 style="percent"
-      knob bind="speaker_res_qts" x=422.5 y=202 w=73 h=104 radius=23 style="percent"
+      knob bind="speaker_res_gain1" x=203 y=202 w=80 h=104 radius=23 style="percent"
+      knob bind="speaker_res_gain2" x=275 y=202 w=80 h=104 radius=23 style="percent"
+      knob bind="speaker_res_fres" x=347 y=202 w=80 h=104 radius=23 style="percent"
+      knob bind="speaker_res_qts" x=419 y=202 w=80 h=104 radius=23 style="percent"
     }
 
     screen "about" id="NILAMP_GUI_SCREEN_ID_ABOUT" title="About" {
