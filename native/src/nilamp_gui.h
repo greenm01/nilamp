@@ -32,6 +32,7 @@ typedef struct NilampGuiCallbacks {
 NilampGui *nilamp_gui_create(const NilampGuiCallbacks *callbacks,
                              const NilampGuiParamSpec *params,
                              uint32_t param_count,
+                             const NilampGuiLayoutSpec *layout,
                              NilampGuiApi api,
                              bool is_floating);
 void nilamp_gui_destroy(NilampGui *gui);

@@ -85,6 +85,37 @@ KNOWN_CONTROL_DISPLAYS = {
     "enum": "NILAMP_CONTROL_DISPLAY_ENUM",
 }
 CLAP_FILENAME_RE = re.compile(r"[A-Za-z0-9._-]+\.clap")
+KNOWN_GUI_SCREENS = {
+    "main": "NILAMP_GUI_SCREEN_ID_MAIN",
+    "options": "NILAMP_GUI_SCREEN_ID_OPTIONS",
+    "about": "NILAMP_GUI_SCREEN_ID_ABOUT",
+}
+KNOWN_GUI_WIDGET_TYPES = {
+    "text": "NILAMP_GUI_WIDGET_TEXT",
+    "button": "NILAMP_GUI_WIDGET_BUTTON",
+    "panel": "NILAMP_GUI_WIDGET_PANEL",
+    "knob": "NILAMP_GUI_WIDGET_KNOB",
+    "enum": "NILAMP_GUI_WIDGET_ENUM",
+}
+KNOWN_GUI_TEXT_STYLES = {
+    "normal": "NILAMP_GUI_TEXT_NORMAL",
+    "title": "NILAMP_GUI_TEXT_TITLE",
+    "subtitle": "NILAMP_GUI_TEXT_SUBTITLE",
+    "about": "NILAMP_GUI_TEXT_ABOUT",
+}
+KNOWN_GUI_KNOB_STYLES = {
+    "percent": "NILAMP_GUI_KNOB_DISPLAY_PERCENT",
+    "gain_unipolar": "NILAMP_GUI_KNOB_DISPLAY_GAIN_UNIPOLAR",
+    "gain_bipolar": "NILAMP_GUI_KNOB_DISPLAY_GAIN_BIPOLAR",
+}
+GUI_THEME_FIELDS = (
+    "background",
+    "header",
+    "header_rule",
+    "panel",
+    "border",
+    "text",
+)
 
 
 @dataclass
@@ -250,6 +281,15 @@ def required_prop(node: Node, key: str, typ: type | tuple[type, ...]) -> Any:
     return value
 
 
+def optional_prop(node: Node, key: str, typ: type | tuple[type, ...], default: Any) -> Any:
+    if key not in node.props:
+        return default
+    value = node.props[key]
+    if not isinstance(value, typ):
+        fail(f"{node.name}.{key} on line {node.line} has wrong type")
+    return value
+
+
 def required_number(node: Node, key: str) -> float:
     value = required_prop(node, key, (int, float))
     value = float(value)
@@ -278,16 +318,155 @@ def c_float(value: float) -> str:
     return text + "f"
 
 
+def c_uint(value: int) -> str:
+    return f"0x{value:08x}u"
+
+
+def parse_color(node: Node, key: str) -> int:
+    value = required_prop(node, key, str)
+    if not re.fullmatch(r"#[0-9a-fA-F]{6}", value):
+        fail(f"{node.name}.{key} on line {node.line} must be #rrggbb")
+    return int(value[1:], 16)
+
+
+def validate_gui_rect(node: Node) -> dict[str, float]:
+    return {
+        "x": required_number(node, "x"),
+        "y": required_number(node, "y"),
+        "w": required_number(node, "w"),
+        "h": required_number(node, "h"),
+    }
+
+
+def resolve_metadata_label(amp_slug: str, label: str, metadata: dict[str, str]) -> str:
+    if not label.startswith("$"):
+        return label
+    key = label[1:]
+    if key not in metadata:
+        fail(f"{amp_slug} gui label {label!r} has no matching metadata field")
+    return metadata[key]
+
+
+def validate_gui(amp_slug: str, gui_node: Node,
+                 metadata: dict[str, str],
+                 controls_by_key: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    width = int(required_number(gui_node, "width"))
+    height = int(required_number(gui_node, "height"))
+    if width <= 0 or height <= 0:
+        fail(f"{amp_slug} gui width/height must be positive")
+    default_screen = required_prop(gui_node, "default_screen", str)
+    if default_screen not in KNOWN_GUI_SCREENS:
+        fail(f"{amp_slug} gui has unknown default_screen {default_screen!r}")
+
+    theme_node = node_child(gui_node, "theme")
+    theme = {field: parse_color(theme_node, field) for field in GUI_THEME_FIELDS}
+
+    screens: list[dict[str, Any]] = []
+    seen_screens: set[str] = set()
+    for screen in child_nodes(gui_node, "screen"):
+        key = required_arg(screen, 0, str)
+        if key in seen_screens:
+            fail(f"{amp_slug} duplicate gui screen {key!r}")
+        if key not in KNOWN_GUI_SCREENS:
+            fail(f"{amp_slug} unknown gui screen {key!r}")
+        seen_screens.add(key)
+        screen_id = required_prop(screen, "id", str)
+        if screen_id != KNOWN_GUI_SCREENS[key]:
+            fail(f"{amp_slug} gui screen {key!r} id must be {KNOWN_GUI_SCREENS[key]}")
+
+        widgets: list[dict[str, Any]] = []
+        for widget in screen.children:
+            if widget.name not in KNOWN_GUI_WIDGET_TYPES:
+                fail(f"{amp_slug} gui screen {key!r} has unknown widget {widget.name!r}")
+            label = ""
+            param_id = "NILAMP_PARAM_COUNT"
+            target = KNOWN_GUI_SCREENS[key]
+            text_style = "NILAMP_GUI_TEXT_NORMAL"
+            knob_style = "NILAMP_GUI_KNOB_DISPLAY_PERCENT"
+            radius = 0.0
+            rect = validate_gui_rect(widget)
+
+            if widget.name in {"text", "button", "panel"}:
+                label = resolve_metadata_label(
+                    amp_slug, required_arg(widget, 0, str), metadata)
+            if widget.name in {"knob", "enum"}:
+                bind = required_prop(widget, "bind", str)
+                if bind not in controls_by_key:
+                    fail(f"{amp_slug} gui widget bind={bind!r} has no matching control")
+                param_id = controls_by_key[bind]["id"]
+            if widget.name == "text":
+                style = required_prop(widget, "style", str)
+                if style not in KNOWN_GUI_TEXT_STYLES:
+                    fail(f"{amp_slug} text widget has unknown style {style!r}")
+                text_style = KNOWN_GUI_TEXT_STYLES[style]
+            if widget.name == "button":
+                target_key = required_prop(widget, "target", str)
+                if target_key not in KNOWN_GUI_SCREENS:
+                    fail(f"{amp_slug} button target {target_key!r} is unknown")
+                target = KNOWN_GUI_SCREENS[target_key]
+            if widget.name == "knob":
+                radius = required_number(widget, "radius")
+                style = required_prop(widget, "style", str)
+                if style not in KNOWN_GUI_KNOB_STYLES:
+                    fail(f"{amp_slug} knob widget has unknown style {style!r}")
+                knob_style = KNOWN_GUI_KNOB_STYLES[style]
+
+            widgets.append({
+                "type": KNOWN_GUI_WIDGET_TYPES[widget.name],
+                "screen": KNOWN_GUI_SCREENS[key],
+                "label": label,
+                "param_id": param_id,
+                "rect": rect,
+                "text_style": text_style,
+                "knob_style": knob_style,
+                "radius": radius,
+                "target": target,
+            })
+
+        screens.append({
+            "key": key,
+            "id": KNOWN_GUI_SCREENS[key],
+            "title": required_prop(screen, "title", str),
+            "widgets": widgets,
+        })
+
+    if default_screen not in seen_screens:
+        fail(f"{amp_slug} gui default_screen {default_screen!r} has no screen")
+
+    return {
+        "width": width,
+        "height": height,
+        "default_screen": KNOWN_GUI_SCREENS[default_screen],
+        "theme": theme,
+        "screens": screens,
+    }
+
+
 def validate_amp(node: Node) -> dict[str, Any]:
     if node.name != "amp":
         fail(f"top-level node on line {node.line} must be 'amp'")
     slug = required_arg(node, 0, str)
-    model_id = required_prop(node, "id", str)
-    name = required_prop(node, "name", str)
-    family = required_prop(node, "family", str)
-    topology = required_prop(node, "topology", str)
-    clap_name = required_prop(node, "clap_name", str)
-    clap_filename = required_prop(node, "clap_filename", str)
+    metadata = node_child(node, "metadata")
+    dsp = node_child(node, "dsp")
+    model_id = required_prop(metadata, "id", str)
+    name = required_prop(metadata, "name", str)
+    family = required_prop(metadata, "family", str)
+    brand = required_prop(metadata, "brand", str)
+    topology = required_prop(dsp, "topology", str)
+    clap_name = required_prop(metadata, "clap_name", str)
+    clap_filename = required_prop(metadata, "clap_filename", str)
+    metadata_values = {
+        "id": model_id,
+        "name": name,
+        "family": family,
+        "brand": brand,
+        "clap_name": clap_name,
+        "clap_filename": clap_filename,
+        "about_title": required_prop(metadata, "about_title", str),
+        "version": required_prop(metadata, "version", str),
+        "author": required_prop(metadata, "author", str),
+        "port": required_prop(metadata, "port", str),
+    }
     if topology not in KNOWN_TOPOLOGIES:
         fail(f"unknown topology {topology!r} for {slug}")
     if not clap_name:
@@ -295,12 +474,12 @@ def validate_amp(node: Node) -> dict[str, Any]:
     if not CLAP_FILENAME_RE.fullmatch(clap_filename):
         fail(f"{slug} clap_filename must be a bare .clap filename")
 
-    speaker = node_child(node, "speaker")
+    speaker = node_child(dsp, "speaker")
     speaker_source = required_number(speaker, "source_ohms")
     speaker_nominal = required_number(speaker, "nominal_ohms")
 
     stages: dict[str, dict[str, Any]] = {}
-    for stage in child_nodes(node, "stage"):
+    for stage in child_nodes(dsp, "stage"):
         stage_name = required_arg(stage, 0, str)
         if stage_name not in STAGE_ORDER:
             fail(f"unknown stage {stage_name!r}")
@@ -345,7 +524,7 @@ def validate_amp(node: Node) -> dict[str, Any]:
         if stage_name not in stages:
             fail(f"{slug} missing stage {stage_name}")
 
-    supply = node_child(node, "supply")
+    supply = node_child(dsp, "supply")
     supply_method = required_prop(supply, "method", str)
     if supply_method not in KNOWN_METHODS:
         fail(f"unknown supply method {supply_method!r}")
@@ -354,7 +533,7 @@ def validate_amp(node: Node) -> dict[str, Any]:
         if supply_name not in supply_nodes:
             fail(f"{slug} missing supply node {supply_name}")
 
-    process = node_child(node, "process")
+    process = node_child(dsp, "process")
     process_values = {
         "input_feed_gain": required_number(process, "input_feed_gain"),
         "input_keller_gain_sq": required_number(process, "input_keller_gain_sq"),
@@ -369,11 +548,14 @@ def validate_amp(node: Node) -> dict[str, Any]:
         "screen_current_feedback": required_number(process, "screen_current_feedback"),
     }
 
-    controls_node = node_child(node, "controls")
+    controls_node = node_child(dsp, "controls")
     controls: list[dict[str, Any]] = []
+    controls_by_key: dict[str, dict[str, Any]] = {}
     seen_ids: set[str] = set()
     for control in child_nodes(controls_node, "control"):
         key = required_arg(control, 0, str)
+        if key in controls_by_key:
+            fail(f"{slug} duplicate control key {key!r}")
         control_id = required_prop(control, "id", str)
         if control_id in seen_ids:
             fail(f"{slug} duplicate control id {control_id!r}")
@@ -398,7 +580,7 @@ def validate_amp(node: Node) -> dict[str, Any]:
                 fail(f"{slug} enum control {key!r} default/step must be integer and step=1")
         elif options:
             fail(f"{slug} non-enum control {key!r} must not contain options")
-        controls.append({
+        control_data = {
             "key": key,
             "id": control_id,
             "name": required_prop(control, "name", str),
@@ -410,7 +592,11 @@ def validate_amp(node: Node) -> dict[str, Any]:
             "step": required_number(control, "step"),
             "display": KNOWN_CONTROL_DISPLAYS[display],
             "options": options,
-        })
+        }
+        controls.append(control_data)
+        controls_by_key[key] = control_data
+
+    gui = validate_gui(slug, node_child(node, "gui"), metadata_values, controls_by_key)
 
     return {
         "slug": slug,
@@ -425,6 +611,7 @@ def validate_amp(node: Node) -> dict[str, Any]:
         "stages": stages,
         "process": process_values,
         "controls": controls,
+        "gui": gui,
     }
 
 
@@ -501,9 +688,62 @@ def render(models: list[dict[str, Any]]) -> str:
             lines.append("    },")
         lines.append("};")
         lines.append("")
+        for screen in model["gui"]["screens"]:
+            symbol = f"{model['slug'].upper()}_{screen['key'].upper()}_GUI_WIDGETS"
+            lines.append(f"static const NilampGuiWidgetSpec {symbol}[] = {{")
+            for widget in screen["widgets"]:
+                rect = widget["rect"]
+                lines.append("    {")
+                lines.append(f"        .type = {widget['type']},")
+                lines.append(f"        .screen = {widget['screen']},")
+                lines.append(f"        .label = {c_string(widget['label'])},")
+                lines.append(f"        .param_id = {widget['param_id']},")
+                lines.append(
+                    "        .bounds = {"
+                    f"{c_float(rect['x'])}, {c_float(rect['y'])}, "
+                    f"{c_float(rect['w'])}, {c_float(rect['h'])}" + "},"
+                )
+                lines.append(f"        .text_style = {widget['text_style']},")
+                lines.append(f"        .knob_display = {widget['knob_style']},")
+                lines.append(f"        .radius = {c_float(widget['radius'])},")
+                lines.append(f"        .target_screen = {widget['target']},")
+                lines.append("    },")
+            lines.append("};")
+            lines.append("")
+        screens_symbol = f"{model['slug'].upper()}_GUI_SCREENS"
+        lines.append(f"static const NilampGuiScreenSpec {screens_symbol}[] = {{")
+        for screen in model["gui"]["screens"]:
+            widget_symbol = f"{model['slug'].upper()}_{screen['key'].upper()}_GUI_WIDGETS"
+            lines.append("    {")
+            lines.append(f"        .id = {screen['id']},")
+            lines.append(f"        .title = {c_string(screen['title'])},")
+            lines.append(f"        .widgets = {widget_symbol},")
+            lines.append(
+                f"        .widget_count = (uint32_t)(sizeof({widget_symbol}) / sizeof({widget_symbol}[0])),"
+            )
+            lines.append("    },")
+        lines.append("};")
+        lines.append("")
+        layout_symbol = f"{model['slug'].upper()}_GUI_LAYOUT"
+        theme = model["gui"]["theme"]
+        lines.append(f"static const NilampGuiLayoutSpec {layout_symbol} = {{")
+        lines.append(f"    .design_width = {model['gui']['width']}u,")
+        lines.append(f"    .design_height = {model['gui']['height']}u,")
+        lines.append(f"    .default_screen = {model['gui']['default_screen']},")
+        lines.append("    .theme = {")
+        for field in GUI_THEME_FIELDS:
+            lines.append(f"        .{field} = {c_uint(theme[field])},")
+        lines.append("    },")
+        lines.append(f"    .screens = {screens_symbol},")
+        lines.append(
+            f"    .screen_count = (uint32_t)(sizeof({screens_symbol}) / sizeof({screens_symbol}[0])),"
+        )
+        lines.append("};")
+        lines.append("")
 
     lines.append("static const NilampModelSpec NILAMP_MODELS[] = {")
     for model in models:
+        layout_symbol = f"{model['slug'].upper()}_GUI_LAYOUT"
         lines.append("    {")
         lines.append(f"        .id = {model['id']},")
         lines.append(f"        .name = {c_string(model['name'])},")
@@ -512,6 +752,7 @@ def render(models: list[dict[str, Any]]) -> str:
         lines.append(f"        .clap_filename = {c_string(model['clap_filename'])},")
         lines.append(f"        .speaker_source_ohms = {c_float(model['speaker_source_ohms'])},")
         lines.append(f"        .speaker_nominal_ohms = {c_float(model['speaker_nominal_ohms'])},")
+        lines.append(f"        .gui_layout = &{layout_symbol},")
         lines.append("    },")
     lines.append("};")
     return "\n".join(lines) + "\n"

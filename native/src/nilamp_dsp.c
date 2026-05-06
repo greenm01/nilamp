@@ -121,6 +121,7 @@ typedef struct {
     const char *clap_filename;
     float speaker_source_ohms;
     float speaker_nominal_ohms;
+    const NilampGuiLayoutSpec *gui_layout;
 } NilampModelSpec;
 
 struct NilampEngine {
@@ -891,6 +892,12 @@ const char *nilamp_model_name(NilampModelId model_id)
 {
     const NilampModelSpec *model = nilamp_find_model(model_id);
     return model != NULL ? model->name : "";
+}
+
+const NilampGuiLayoutSpec *nilamp_model_gui_layout(NilampModelId model_id)
+{
+    const NilampModelSpec *model = nilamp_find_model(model_id);
+    return model != NULL ? model->gui_layout : NULL;
 }
 
 const NilampControlSpec *nilamp_control_specs(uint32_t *count)

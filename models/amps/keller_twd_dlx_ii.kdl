@@ -1,45 +1,48 @@
-amp "keller_twd_dlx_ii" id="NILAMP_MODEL_KELLER_TWD_DLX_II" name="Keller TWD DLX II" family="5E3 tweed deluxe" topology="tweed_5e3_cathodyne_pp" clap_name="nilamp TWD MKII" clap_filename="nilamp-twd-mkii.clap" {
-  speaker source_ohms=0.0 nominal_ohms=8.0
+amp "keller_twd_dlx_ii" {
+  metadata id="NILAMP_MODEL_KELLER_TWD_DLX_II" name="Keller TWD DLX II" family="5E3 tweed deluxe" brand="nilamp" clap_name="nilamp TWD MKII" clap_filename="nilamp-twd-mkii.clap" about_title="TWD DLX II" version="Version 1.0.4" author="by Helmut Keller" port="Ported to C by niltempus"
 
-  stage "t1" symbol="T1" kind="triode_ck" method="keller_glf_adaa" table="nilamp_t1_12ax7_table" len=13503 {
+  dsp topology="tweed_5e3_cathodyne_pp" {
+    speaker source_ohms=0.0 nominal_ohms=8.0
+
+    stage "t1" symbol="T1" kind="triode_ck" method="keller_glf_adaa" table="nilamp_t1_12ax7_table" len=13503 {
     coeffs kpre=0.372960373 isat=0.00165 rl=100000.0 rkl=0.0
     nonlinear kspre=0.004201680672 kspost=0.004201680672 ksva=0.3846153846 ksvk=0.0 ksib=0.000003193277311
     peak kfb=0.01515 kpk=0.0 xth=0.25 xdiode=0.25 attack=0.01 release=0.05 avg_tau=0.0375
   }
 
-  stage "t2" symbol="T2" kind="triode_ck" method="keller_glf_adaa" table="nilamp_t2_12ax7_table" len=13503 {
+    stage "t2" symbol="T2" kind="triode_ck" method="keller_glf_adaa" table="nilamp_t2_12ax7_table" len=13503 {
     coeffs kpre=0.3970223325 isat=0.00155 rl=100000.0 rkl=0.0
     nonlinear kspre=0.004201680672 kspost=0.004201680672 ksva=0.3846153846 ksvk=0.0 ksib=0.000003193277311
     peak kfb=0.01515 kpk=0.05 xth=0.255 xdiode=0.57 attack=0.015 release=0.05 avg_tau=0.0375
   }
 
-  stage "t3" symbol="T3" kind="cathodyne" method="keller_cd_adaa" table="nilamp_t3_cd_table" len=13503 {
+    stage "t3" symbol="T3" kind="cathodyne" method="keller_cd_adaa" table="nilamp_t3_cd_table" len=13503 {
     coeffs kpre=0.01054674317 isat=0.0016 rl=56000.0 rkl=57500.0
     nonlinear kspre=0.004201680672 kspost=0.004201680672 ksva=0.8282208589 ksvk=0.1763803681 ksib=0.000003067226891
     peak kfb=0.0 kpk=0.125 xth=0.272 xdiode=0.394 attack=0.00085 release=0.3872 avg_tau=0.0
   }
 
-  stage "t4" symbol="T4" kind="power_ck" method="keller_glf_adaa" table="nilamp_t4_6v6_table" len=13503 {
+    stage "t4" symbol="T4" kind="power_ck" method="keller_glf_adaa" table="nilamp_t4_6v6_table" len=13503 {
     coeffs kpre=0.02642706131 isat=0.11 rl=3000.0 rkl=0.0
     nonlinear kspre=0.0 kspost=0.00289017341 ksva=0.9302325581 ksvk=0.0 ksib=0.0001213872832
     peak kfb=0.18144 kpk=0.125 xth=0.309 xdiode=0.437 attack=0.00575 release=0.0276 avg_tau=0.00675
   }
 
-  stage "t5" symbol="T5" kind="power_ck" method="keller_glf_adaa" table="nilamp_t5_6v6_table" len=13503 {
+    stage "t5" symbol="T5" kind="power_ck" method="keller_glf_adaa" table="nilamp_t5_6v6_table" len=13503 {
     coeffs kpre=0.0242248062 isat=0.12 rl=3000.0 rkl=0.0
     nonlinear kspre=0.0 kspost=0.00289017341 ksva=0.9302325581 ksvk=0.0 ksib=0.0001213872832
     peak kfb=0.18144 kpk=0.18 xth=0.325 xdiode=0.388 attack=0.00155 release=0.0234 avg_tau=0.00675
   }
 
-  supply method="keller_pss" {
+    supply method="keller_pss" {
     node "p1" r=125.0 tau=0.008
     node "p2" r=5100.0 tau=0.0816
     node "p3" r_at_full_sag=22000.0 tau=0.352
   }
 
-  process input_feed_gain=0.5 input_keller_gain_sq=1.2 phase_t4_gain=0.797 phase_t5_gain=0.940 screen_current_feedback=0.025
+    process input_feed_gain=0.5 input_keller_gain_sq=1.2 phase_t4_gain=0.797 phase_t5_gain=0.940 screen_current_feedback=0.025
 
-  controls {
+    controls {
     control "input_gain" id="NILAMP_PARAM_GAIN_DB" name="Gain" module="Input" unit="dB" min=-12.0 max=12.0 default=0.0 step=0.5 display="linear"
     control "volume" id="NILAMP_PARAM_VOLUME_PCT" name="Volume" module="Pre Amp" unit="%" min=0.0 max=100.0 default=50.0 step=2.5 display="linear"
     control "bass" id="NILAMP_PARAM_BASS_PCT" name="Bass" module="Pre Amp" unit="%" min=0.0 max=100.0 default=50.0 step=2.5 display="linear"
@@ -72,6 +75,61 @@ amp "keller_twd_dlx_ii" id="NILAMP_MODEL_KELLER_TWD_DLX_II" name="Keller TWD DLX
       option "LTP 1"
       option "LTP 2"
       option "LTP 3"
+    }
+    }
+  }
+
+  gui width=500 height=340 default_screen="main" {
+    theme background="#1c2d3d" header="#182532" header_rule="#536777" panel="#223444" border="#697b89" text="#ffcd20"
+
+    screen "main" id="NILAMP_GUI_SCREEN_ID_MAIN" title="TWD DLX II" {
+      text "$about_title" x=0 y=10 w=500 h=18 style="normal"
+      button "Options" x=433 y=2 w=65 h=28 target="options"
+      panel "Input" x=10 y=43 w=93 h=139
+      panel "Output" x=400 y=43 w=93 h=139
+      panel "Pre Amp" x=10 y=189 w=381 h=138
+      panel "Splitter" x=400 y=189 w=93 h=138
+      text "$brand" x=0 y=73 w=500 h=50 style="title"
+      text "$name" x=0 y=122 w=500 h=28 style="subtitle"
+      knob bind="input_gain" x=24 y=60 w=66 h=104 radius=23 style="gain_bipolar"
+      knob bind="output_gain" x=413 y=60 w=66 h=104 radius=23 style="gain_bipolar"
+      enum bind="tube1" x=21 y=207 w=76 h=104
+      knob bind="volume" x=100 y=207 w=66 h=104 radius=23 style="percent"
+      knob bind="bass" x=176 y=207 w=66 h=104 radius=23 style="percent"
+      knob bind="mid" x=252 y=207 w=66 h=104 radius=23 style="percent"
+      knob bind="treble" x=328 y=207 w=66 h=104 radius=23 style="percent"
+      enum bind="phase_splitter" x=407 y=207 w=79 h=104
+    }
+
+    screen "options" id="NILAMP_GUI_SCREEN_ID_OPTIONS" title="Options" {
+      text "Options" x=0 y=10 w=500 h=18 style="normal"
+      button "< back" x=0 y=2 w=65 h=28 target="main"
+      button "About" x=435 y=2 w=63 h=28 target="about"
+      panel "Tone Stack" x=10 y=43 w=165 h=139
+      panel "Speaker Inductor" x=256 y=43 w=237 h=139
+      panel "Power" x=10 y=189 w=78 h=138
+      panel "Gain" x=97 y=189 w=94 h=138
+      panel "Speaker Resonance" x=200 y=189 w=293 h=138
+      knob bind="tone_fmid" x=25 y=60 w=66 h=104 radius=23 style="percent"
+      knob bind="tone_qmid" x=100 y=60 w=66 h=104 radius=23 style="percent"
+      knob bind="speaker_ind_gain1" x=280 y=60 w=66 h=104 radius=23 style="percent"
+      knob bind="speaker_ind_gain2" x=352 y=60 w=66 h=104 radius=23 style="percent"
+      knob bind="speaker_ind_find" x=424 y=60 w=66 h=104 radius=23 style="percent"
+      knob bind="sag" x=16 y=207 w=66 h=104 radius=23 style="percent"
+      enum bind="gain_comp" x=101 y=207 w=86 h=104
+      knob bind="speaker_res_gain1" x=210 y=207 w=66 h=104 radius=23 style="percent"
+      knob bind="speaker_res_gain2" x=282 y=207 w=66 h=104 radius=23 style="percent"
+      knob bind="speaker_res_fres" x=354 y=207 w=66 h=104 radius=23 style="percent"
+      knob bind="speaker_res_qts" x=426 y=207 w=66 h=104 radius=23 style="percent"
+    }
+
+    screen "about" id="NILAMP_GUI_SCREEN_ID_ABOUT" title="About" {
+      text "About" x=0 y=10 w=500 h=18 style="normal"
+      button "< back" x=0 y=2 w=65 h=28 target="options"
+      text "$about_title" x=0 y=72 w=500 h=25 style="about"
+      text "$version" x=0 y=104 w=500 h=25 style="about"
+      text "$author" x=0 y=136 w=500 h=25 style="about"
+      text "$port" x=0 y=168 w=500 h=25 style="about"
     }
   }
 }

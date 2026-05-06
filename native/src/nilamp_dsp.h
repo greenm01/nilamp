@@ -55,6 +55,77 @@ typedef struct NilampControlSpec {
     uint32_t enum_count;
 } NilampControlSpec;
 
+typedef enum NilampGuiScreenId {
+    NILAMP_GUI_SCREEN_ID_MAIN = 0,
+    NILAMP_GUI_SCREEN_ID_OPTIONS = 1,
+    NILAMP_GUI_SCREEN_ID_ABOUT = 2,
+} NilampGuiScreenId;
+
+typedef enum NilampGuiWidgetType {
+    NILAMP_GUI_WIDGET_TEXT = 0,
+    NILAMP_GUI_WIDGET_BUTTON = 1,
+    NILAMP_GUI_WIDGET_PANEL = 2,
+    NILAMP_GUI_WIDGET_KNOB = 3,
+    NILAMP_GUI_WIDGET_ENUM = 4,
+} NilampGuiWidgetType;
+
+typedef enum NilampGuiTextStyle {
+    NILAMP_GUI_TEXT_NORMAL = 0,
+    NILAMP_GUI_TEXT_TITLE = 1,
+    NILAMP_GUI_TEXT_SUBTITLE = 2,
+    NILAMP_GUI_TEXT_ABOUT = 3,
+} NilampGuiTextStyle;
+
+typedef enum NilampGuiKnobDisplay {
+    NILAMP_GUI_KNOB_DISPLAY_PERCENT = 0,
+    NILAMP_GUI_KNOB_DISPLAY_GAIN_UNIPOLAR = 1,
+    NILAMP_GUI_KNOB_DISPLAY_GAIN_BIPOLAR = 2,
+} NilampGuiKnobDisplay;
+
+typedef struct NilampGuiRectSpec {
+    float x;
+    float y;
+    float w;
+    float h;
+} NilampGuiRectSpec;
+
+typedef struct NilampGuiThemeSpec {
+    uint32_t background;
+    uint32_t header;
+    uint32_t header_rule;
+    uint32_t panel;
+    uint32_t border;
+    uint32_t text;
+} NilampGuiThemeSpec;
+
+typedef struct NilampGuiWidgetSpec {
+    NilampGuiWidgetType type;
+    NilampGuiScreenId screen;
+    const char *label;
+    uint32_t param_id;
+    NilampGuiRectSpec bounds;
+    NilampGuiTextStyle text_style;
+    NilampGuiKnobDisplay knob_display;
+    float radius;
+    NilampGuiScreenId target_screen;
+} NilampGuiWidgetSpec;
+
+typedef struct NilampGuiScreenSpec {
+    NilampGuiScreenId id;
+    const char *title;
+    const NilampGuiWidgetSpec *widgets;
+    uint32_t widget_count;
+} NilampGuiScreenSpec;
+
+typedef struct NilampGuiLayoutSpec {
+    uint32_t design_width;
+    uint32_t design_height;
+    NilampGuiScreenId default_screen;
+    NilampGuiThemeSpec theme;
+    const NilampGuiScreenSpec *screens;
+    uint32_t screen_count;
+} NilampGuiLayoutSpec;
+
 typedef struct NilampParams {
     float gain_db;
     float volume_pct;
@@ -104,6 +175,7 @@ NilampModelId nilamp_engine_model_id(const NilampEngine *engine);
 const char *nilamp_model_name(NilampModelId model_id);
 const NilampControlSpec *nilamp_control_specs(uint32_t *count);
 const NilampControlSpec *nilamp_control_spec(uint32_t id);
+const NilampGuiLayoutSpec *nilamp_model_gui_layout(NilampModelId model_id);
 float nilamp_control_display_value(const NilampControlSpec *spec, float raw_value);
 
 #ifdef NILAMP_ENABLE_TEST_API

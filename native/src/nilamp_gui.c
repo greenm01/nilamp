@@ -81,6 +81,7 @@ struct NilampGui {
     NilampGuiCallbacks callbacks;
     const NilampGuiParamSpec *params;
     uint32_t param_count;
+    const NilampGuiLayoutSpec *layout;
     NilampGuiApi api;
     NilampGuiModel model;
     double scale;
@@ -1074,6 +1075,174 @@ static const struct nk_user_font *nilamp_gui_custom_font(const NilampGui *gui,
     return gui && gui->custom_font_ready && font ? &font->handle : NULL;
 }
 
+static struct nk_color nilamp_gui_color(uint32_t rgb)
+{
+    return nk_rgb((int)((rgb >> 16) & 0xffu),
+                  (int)((rgb >> 8) & 0xffu),
+                  (int)(rgb & 0xffu));
+}
+
+static struct nk_rect nilamp_gui_scale_spec_rect(float sx, float sy,
+                                                 NilampGuiRectSpec rect)
+{
+    return nilamp_gui_scale_rect(sx, sy, rect.x, rect.y, rect.w, rect.h);
+}
+
+static const NilampGuiScreenSpec *nilamp_gui_current_screen_spec(const NilampGui *gui)
+{
+    if (!gui || !gui->layout) {
+        return NULL;
+    }
+    const NilampGuiScreenId id = (NilampGuiScreenId)gui->screen;
+    for (uint32_t i = 0; i < gui->layout->screen_count; i++) {
+        if (gui->layout->screens[i].id == id) {
+            return &gui->layout->screens[i];
+        }
+    }
+    return NULL;
+}
+
+static const struct nk_user_font *nilamp_gui_font_for_text(const NilampGui *gui,
+                                                           NilampGuiTextStyle style)
+{
+    switch (style) {
+    case NILAMP_GUI_TEXT_TITLE:
+        return nilamp_gui_custom_font(gui, gui ? gui->font_title : NULL);
+    case NILAMP_GUI_TEXT_SUBTITLE:
+        return nilamp_gui_custom_font(gui, gui ? gui->font_subtitle : NULL);
+    case NILAMP_GUI_TEXT_ABOUT:
+        return nilamp_gui_custom_font(gui, gui ? gui->font_about : NULL);
+    case NILAMP_GUI_TEXT_NORMAL:
+    default:
+        return NULL;
+    }
+}
+
+static NilampGuiKnobStyle nilamp_gui_knob_style_from_spec(NilampGuiKnobDisplay display)
+{
+    switch (display) {
+    case NILAMP_GUI_KNOB_DISPLAY_GAIN_UNIPOLAR:
+        return NILAMP_GUI_KNOB_GAIN_UNIPOLAR;
+    case NILAMP_GUI_KNOB_DISPLAY_GAIN_BIPOLAR:
+        return NILAMP_GUI_KNOB_GAIN_BIPOLAR;
+    case NILAMP_GUI_KNOB_DISPLAY_PERCENT:
+    default:
+        return NILAMP_GUI_KNOB_PERCENT;
+    }
+}
+
+static void nilamp_gui_draw_layout_widget(NilampGui *gui, struct nk_context *ctx,
+                                          struct nk_command_buffer *canvas,
+                                          const NilampGuiWidgetSpec *widget,
+                                          float sx, float sy, float s,
+                                          struct nk_color panel,
+                                          struct nk_color border,
+                                          struct nk_color text,
+                                          NilampGuiMsg *outbox,
+                                          uint32_t *outbox_count)
+{
+    if (!gui || !ctx || !canvas || !widget) {
+        return;
+    }
+    const struct nk_rect bounds = nilamp_gui_scale_spec_rect(sx, sy, widget->bounds);
+    switch (widget->type) {
+    case NILAMP_GUI_WIDGET_TEXT:
+        nilamp_gui_draw_text_with_font(
+            ctx, canvas, bounds, widget->label, text, true,
+            nilamp_gui_font_for_text(gui, widget->text_style));
+        break;
+    case NILAMP_GUI_WIDGET_BUTTON:
+        nk_layout_space_push(ctx, bounds);
+        if (nk_button_label(ctx, widget->label)) {
+            nilamp_gui_close_dropdown(gui);
+            if (gui->active_edit >= 0) {
+                nilamp_gui_end_edit(gui, true, outbox, outbox_count);
+            }
+            gui->screen = (NilampGuiScreen)widget->target_screen;
+            gui->model.dirty = true;
+        }
+        break;
+    case NILAMP_GUI_WIDGET_PANEL:
+        nilamp_gui_draw_panel(ctx, canvas, bounds, widget->label, panel, border, text);
+        break;
+    case NILAMP_GUI_WIDGET_KNOB:
+        (void)nilamp_gui_knob(gui, ctx, canvas,
+                              nilamp_gui_find_param_index(gui, widget->param_id),
+                              bounds, outbox, outbox_count,
+                              widget->radius * s,
+                              nilamp_gui_knob_style_from_spec(widget->knob_display));
+        break;
+    case NILAMP_GUI_WIDGET_ENUM:
+        nilamp_gui_enum_dropdown(gui, ctx, canvas,
+                                  nilamp_gui_find_param_index(gui, widget->param_id),
+                                  bounds, outbox, outbox_count);
+        break;
+    default:
+        break;
+    }
+}
+
+static bool nilamp_gui_build_generated(NilampGui *gui, struct nk_context *ctx,
+                                       struct nk_command_buffer *canvas,
+                                       float width, float height,
+                                       NilampGuiMsg *outbox,
+                                       uint32_t *outbox_count)
+{
+    if (!gui || !ctx || !canvas || !gui->layout ||
+        gui->layout->design_width == 0u || gui->layout->design_height == 0u) {
+        return false;
+    }
+
+    const NilampGuiScreenSpec *screen = nilamp_gui_current_screen_spec(gui);
+    if (!screen) {
+        gui->screen = (NilampGuiScreen)gui->layout->default_screen;
+        screen = nilamp_gui_current_screen_spec(gui);
+        if (!screen) {
+            return false;
+        }
+    }
+
+    const float sx = width / (float)gui->layout->design_width;
+    const float sy = height / (float)gui->layout->design_height;
+    const float s = nilamp_gui_minf(sx, sy);
+    const struct nk_color bg = nilamp_gui_color(gui->layout->theme.background);
+    const struct nk_color header = nilamp_gui_color(gui->layout->theme.header);
+    const struct nk_color header_rule = nilamp_gui_color(gui->layout->theme.header_rule);
+    const struct nk_color panel = nilamp_gui_color(gui->layout->theme.panel);
+    const struct nk_color border = nilamp_gui_color(gui->layout->theme.border);
+    const struct nk_color text = nilamp_gui_color(gui->layout->theme.text);
+
+    nk_fill_rect(canvas, nk_rect(0.0f, 0.0f, width, height), 0.0f, bg);
+    nk_fill_rect(canvas, nilamp_gui_scale_rect(sx, sy, 0.0f, 0.0f,
+                                               (float)gui->layout->design_width, 34.0f),
+                 0.0f, header);
+    nk_stroke_line(canvas, 0.0f, 33.0f * sy, width, 33.0f * sy, 1.0f, header_rule);
+
+    gui->value_box_hovered = false;
+    gui->dropdown_hovered = false;
+    if (gui->key_escape) {
+        nilamp_gui_close_dropdown(gui);
+    }
+    nilamp_gui_update_active_edit(gui, outbox, outbox_count);
+
+    nk_layout_space_begin(ctx, NK_STATIC, height, 80);
+    for (uint32_t i = 0; i < screen->widget_count; i++) {
+        nilamp_gui_draw_layout_widget(gui, ctx, canvas, &screen->widgets[i], sx, sy, s,
+                                      panel, border, text, outbox, outbox_count);
+    }
+    nk_layout_space_end(ctx);
+    nilamp_gui_draw_open_dropdown(gui, ctx, canvas, outbox, outbox_count);
+    if (gui->open_dropdown != NILAMP_GUI_DROPDOWN_NONE && !gui->dropdown_hovered &&
+        nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT)) {
+        nilamp_gui_close_dropdown(gui);
+    }
+    if (gui->active_edit >= 0 && !gui->value_box_hovered &&
+        nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT)) {
+        nilamp_gui_end_edit(gui, true, outbox, outbox_count);
+    }
+    return true;
+}
+
 static void nilamp_gui_build(NilampGui *gui, struct nk_context *ctx,
                              NilampGuiMsg *outbox, uint32_t *outbox_count)
 {
@@ -1086,6 +1255,12 @@ static void nilamp_gui_build(NilampGui *gui, struct nk_context *ctx,
     }
 
     struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
+    if (nilamp_gui_build_generated(gui, ctx, canvas, width, height,
+                                   outbox, outbox_count)) {
+        nk_end(ctx);
+        return;
+    }
+
     const float sx = width / (float)NILAMP_GUI_DEFAULT_WIDTH;
     const float sy = height / (float)NILAMP_GUI_DEFAULT_HEIGHT;
     const float s = nilamp_gui_minf(sx, sy);
@@ -1637,6 +1812,7 @@ static PuglStatus nilamp_gui_event(PuglView *view, const PuglEvent *event)
 NilampGui *nilamp_gui_create(const NilampGuiCallbacks *callbacks,
                              const NilampGuiParamSpec *params,
                              uint32_t param_count,
+                             const NilampGuiLayoutSpec *layout,
                              NilampGuiApi api,
                              bool is_floating)
 {
@@ -1654,14 +1830,20 @@ NilampGui *nilamp_gui_create(const NilampGuiCallbacks *callbacks,
     gui->callbacks = *callbacks;
     gui->params = params;
     gui->param_count = param_count;
+    gui->layout = layout;
     gui->api = api;
     gui->is_floating = is_floating;
-    gui->model.width = NILAMP_GUI_DEFAULT_WIDTH;
-    gui->model.height = NILAMP_GUI_DEFAULT_HEIGHT;
+    gui->model.width = layout && layout->design_width > 0u ?
+                           layout->design_width :
+                           NILAMP_GUI_DEFAULT_WIDTH;
+    gui->model.height = layout && layout->design_height > 0u ?
+                            layout->design_height :
+                            NILAMP_GUI_DEFAULT_HEIGHT;
     gui->model.dirty = true;
     gui->scale = 1.0;
     gui->active_knob = -1;
     gui->active_edit = -1;
+    gui->screen = layout ? (NilampGuiScreen)layout->default_screen : NILAMP_GUI_SCREEN_MAIN;
     nilamp_gui_refresh_params(gui);
 
     gui->world = puglNewWorld(PUGL_MODULE, 0u);

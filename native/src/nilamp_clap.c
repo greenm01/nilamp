@@ -1147,6 +1147,7 @@ static bool nilamp_gui_create_ext(const clap_plugin_t *plugin, const char *api,
         .model_name = nilamp_gui_model_name_cb,
     };
     plug->gui = nilamp_gui_create(&callbacks, nilamp_gui_param_specs, NILAMP_PARAM_COUNT,
+                                  nilamp_model_gui_layout(NILAMP_MODEL_DEFAULT),
                                   NILAMP_GUI_NATIVE_API, is_floating);
     const bool ok = plug->gui != NULL;
     plug->gui_is_floating = ok && is_floating;
