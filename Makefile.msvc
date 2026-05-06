@@ -2,6 +2,7 @@
 # for VS 2022" or any shell where vcvars64.bat has initialized the environment.
 
 PYTHON=python
+POWERSHELL=pwsh
 
 NATIVE_DIR=native
 NATIVE_BUILD=$(NATIVE_DIR)\build
@@ -17,6 +18,9 @@ CLAP_BUNDLE=nilamp-twd-mkii.clap
 CLAP_PLUGIN=$(NATIVE_BIN)\$(CLAP_BUNDLE)
 CLAP_INSTALL_DIR=C:\Program Files\Common Files\CLAP
 CLAP_USER_INSTALL_DIR=$(LOCALAPPDATA)\Programs\Common\CLAP
+DIST_DIR=dist
+RELEASE_VERSION=1.0.0
+RELEASE_GPG_KEY=C3504EE1EE38410CE1C433BC372B8AAACB867F13
 
 BASE_CFLAGS=/nologo /std:c11 /experimental:c11atomics /O2 /MT /W4 /WX /D_CRT_SECURE_NO_WARNINGS /I$(NATIVE_DIR)\src /I$(NATIVE_GENERATED)
 CLAP_CFLAGS=$(BASE_CFLAGS) /I$(CLAP_INCLUDE)
@@ -74,6 +78,9 @@ install-clap: $(CLAP_PLUGIN)
 install-clap-user: $(CLAP_PLUGIN)
 	if not exist "$(CLAP_USER_INSTALL_DIR)" mkdir "$(CLAP_USER_INSTALL_DIR)"
 	copy /Y "$(CLAP_PLUGIN)" "$(CLAP_USER_INSTALL_DIR)\$(CLAP_BUNDLE)"
+
+package-windows-release: $(CLAP_PLUGIN)
+	$(POWERSHELL) -NoProfile -ExecutionPolicy Bypass -File tools\package_windows_release.ps1 -Version "$(RELEASE_VERSION)" -Plugin "$(CLAP_PLUGIN)" -ClapBundle "$(CLAP_BUNDLE)" -DistDir "$(DIST_DIR)" -GpgKey "$(RELEASE_GPG_KEY)" -ExistingSums "$(DIST_DIR)\release-v$(RELEASE_VERSION)-current\SHA256SUMS"
 
 clean-native:
 	if exist "$(NATIVE_BUILD)" rmdir /S /Q "$(NATIVE_BUILD)"
