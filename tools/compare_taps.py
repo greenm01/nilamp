@@ -131,12 +131,7 @@ def render_native_taps(input_wav: Path, output_wav: Path, params: Params,
         str(renderer),
         "--input", str(input_wav),
         "--output", str(output_wav),
-        "--gain", str(params.gain_db),
-        "--volume", str(params.volume_pct),
-        "--bass", str(params.bass_pct),
-        "--mid", str(params.mid_pct),
-        "--treble", str(params.treble_pct),
-        "--sag", str(params.sag_pct),
+        *params.to_nilamp_args(),
     ]
     subprocess.run(cmd, check=True, capture_output=True)
 
@@ -239,6 +234,8 @@ def run(args: argparse.Namespace) -> list[TapMetrics]:
         mid_pct=args.mid,
         treble_pct=args.treble,
         sag_pct=args.sag,
+        tube1=args.tube1,
+        splitter=args.splitter,
     )
 
     input_wav = make_preset_wav(args.preset, out_dir) if args.input is None else args.input
@@ -305,6 +302,8 @@ def main() -> int:
     parser.add_argument("--mid", type=float, default=50.0)
     parser.add_argument("--treble", type=float, default=50.0)
     parser.add_argument("--sag", type=float, default=100.0)
+    parser.add_argument("--tube1", type=int, choices=[0, 1], default=1)
+    parser.add_argument("--splitter", type=int, choices=[0, 1, 2, 3, 4], default=2)
     parser.add_argument("--input-scale", type=float, default=1.0)
     parser.add_argument("--jsfx-timeout", type=float, default=60.0)
     parser.add_argument("--native-taps-render", type=Path, default=NATIVE_TAPS_RENDER)

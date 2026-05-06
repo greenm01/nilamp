@@ -289,6 +289,9 @@ static int test_nilamp_taps(void)
         return -1;
     }
     NilampEngine *engine = nilamp_engine_create(SAMPLE_RATE);
+    NilampParams params = nilamp_default_params();
+    params.phase_splitter = 0.0f;
+    nilamp_engine_set_params(engine, &params);
     float *outputs[NILAMP_NUM_TAPS] = { 0 };
     for (size_t i = 0; i < NILAMP_NUM_TAPS; i++) {
         outputs[i] = alloc_zero(n);

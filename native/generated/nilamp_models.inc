@@ -47,6 +47,26 @@ static const NilampTwdDlxIiData TWD_DLX_II_DATA = {
     .screen_current_feedback = 0.025f,
 };
 
+static const char *const KELLER_TWD_DLX_II_GAIN_COMP_OPTIONS[] = {
+    "Off",
+    "Tube 1",
+    "Splitter",
+    "Both",
+};
+
+static const char *const KELLER_TWD_DLX_II_TUBE1_OPTIONS[] = {
+    "12AY7",
+    "12AX7",
+};
+
+static const char *const KELLER_TWD_DLX_II_PHASE_SPLITTER_OPTIONS[] = {
+    "CD 5E3",
+    "CD BAL",
+    "LTP 1",
+    "LTP 2",
+    "LTP 3",
+};
+
 static const NilampControlSpec KELLER_TWD_DLX_II_CONTROLS[] = {
     {
         .id = NILAMP_PARAM_GAIN_DB,
@@ -58,6 +78,8 @@ static const NilampControlSpec KELLER_TWD_DLX_II_CONTROLS[] = {
         .default_value = 0.0f,
         .step = 0.5f,
         .display = NILAMP_CONTROL_DISPLAY_LINEAR,
+        .enum_names = NULL,
+        .enum_count = 0u,
     },
     {
         .id = NILAMP_PARAM_VOLUME_PCT,
@@ -69,6 +91,8 @@ static const NilampControlSpec KELLER_TWD_DLX_II_CONTROLS[] = {
         .default_value = 50.0f,
         .step = 2.5f,
         .display = NILAMP_CONTROL_DISPLAY_LINEAR,
+        .enum_names = NULL,
+        .enum_count = 0u,
     },
     {
         .id = NILAMP_PARAM_BASS_PCT,
@@ -80,6 +104,8 @@ static const NilampControlSpec KELLER_TWD_DLX_II_CONTROLS[] = {
         .default_value = 50.0f,
         .step = 2.5f,
         .display = NILAMP_CONTROL_DISPLAY_LINEAR,
+        .enum_names = NULL,
+        .enum_count = 0u,
     },
     {
         .id = NILAMP_PARAM_MID_PCT,
@@ -91,6 +117,8 @@ static const NilampControlSpec KELLER_TWD_DLX_II_CONTROLS[] = {
         .default_value = 50.0f,
         .step = 2.5f,
         .display = NILAMP_CONTROL_DISPLAY_LINEAR,
+        .enum_names = NULL,
+        .enum_count = 0u,
     },
     {
         .id = NILAMP_PARAM_TREBLE_PCT,
@@ -102,6 +130,8 @@ static const NilampControlSpec KELLER_TWD_DLX_II_CONTROLS[] = {
         .default_value = 50.0f,
         .step = 2.5f,
         .display = NILAMP_CONTROL_DISPLAY_LINEAR,
+        .enum_names = NULL,
+        .enum_count = 0u,
     },
     {
         .id = NILAMP_PARAM_SAG_PCT,
@@ -113,6 +143,8 @@ static const NilampControlSpec KELLER_TWD_DLX_II_CONTROLS[] = {
         .default_value = 50.0f,
         .step = 2.5f,
         .display = NILAMP_CONTROL_DISPLAY_LINEAR,
+        .enum_names = NULL,
+        .enum_count = 0u,
     },
     {
         .id = NILAMP_PARAM_OUTPUT_GAIN_DB,
@@ -124,6 +156,8 @@ static const NilampControlSpec KELLER_TWD_DLX_II_CONTROLS[] = {
         .default_value = 0.0f,
         .step = 0.5f,
         .display = NILAMP_CONTROL_DISPLAY_LINEAR,
+        .enum_names = NULL,
+        .enum_count = 0u,
     },
     {
         .id = NILAMP_PARAM_TONE_FMID_DBHZ,
@@ -135,6 +169,8 @@ static const NilampControlSpec KELLER_TWD_DLX_II_CONTROLS[] = {
         .default_value = 56.0f,
         .step = 0.5f,
         .display = NILAMP_CONTROL_DISPLAY_ISO266,
+        .enum_names = NULL,
+        .enum_count = 0u,
     },
     {
         .id = NILAMP_PARAM_TONE_QMID_DB,
@@ -146,6 +182,8 @@ static const NilampControlSpec KELLER_TWD_DLX_II_CONTROLS[] = {
         .default_value = -6.0f,
         .step = 0.5f,
         .display = NILAMP_CONTROL_DISPLAY_ISO266,
+        .enum_names = NULL,
+        .enum_count = 0u,
     },
     {
         .id = NILAMP_PARAM_SPK_RES_GAIN1_DB,
@@ -157,6 +195,8 @@ static const NilampControlSpec KELLER_TWD_DLX_II_CONTROLS[] = {
         .default_value = 1.0f,
         .step = 0.5f,
         .display = NILAMP_CONTROL_DISPLAY_LINEAR,
+        .enum_names = NULL,
+        .enum_count = 0u,
     },
     {
         .id = NILAMP_PARAM_SPK_RES_GAIN2_DB,
@@ -168,6 +208,8 @@ static const NilampControlSpec KELLER_TWD_DLX_II_CONTROLS[] = {
         .default_value = 2.0f,
         .step = 0.5f,
         .display = NILAMP_CONTROL_DISPLAY_LINEAR,
+        .enum_names = NULL,
+        .enum_count = 0u,
     },
     {
         .id = NILAMP_PARAM_SPK_RES_FRES_DBHZ,
@@ -179,6 +221,8 @@ static const NilampControlSpec KELLER_TWD_DLX_II_CONTROLS[] = {
         .default_value = 38.0f,
         .step = 0.5f,
         .display = NILAMP_CONTROL_DISPLAY_ISO266,
+        .enum_names = NULL,
+        .enum_count = 0u,
     },
     {
         .id = NILAMP_PARAM_SPK_RES_QTS_DB,
@@ -190,6 +234,8 @@ static const NilampControlSpec KELLER_TWD_DLX_II_CONTROLS[] = {
         .default_value = 6.0f,
         .step = 0.5f,
         .display = NILAMP_CONTROL_DISPLAY_ISO266,
+        .enum_names = NULL,
+        .enum_count = 0u,
     },
     {
         .id = NILAMP_PARAM_SPK_IND_GAIN1_DB,
@@ -201,6 +247,8 @@ static const NilampControlSpec KELLER_TWD_DLX_II_CONTROLS[] = {
         .default_value = 3.0f,
         .step = 0.5f,
         .display = NILAMP_CONTROL_DISPLAY_LINEAR,
+        .enum_names = NULL,
+        .enum_count = 0u,
     },
     {
         .id = NILAMP_PARAM_SPK_IND_GAIN2_DB,
@@ -212,6 +260,8 @@ static const NilampControlSpec KELLER_TWD_DLX_II_CONTROLS[] = {
         .default_value = 3.0f,
         .step = 0.5f,
         .display = NILAMP_CONTROL_DISPLAY_LINEAR,
+        .enum_names = NULL,
+        .enum_count = 0u,
     },
     {
         .id = NILAMP_PARAM_SPK_IND_FIND_DBHZ,
@@ -223,6 +273,8 @@ static const NilampControlSpec KELLER_TWD_DLX_II_CONTROLS[] = {
         .default_value = 62.0f,
         .step = 0.5f,
         .display = NILAMP_CONTROL_DISPLAY_ISO266,
+        .enum_names = NULL,
+        .enum_count = 0u,
     },
     {
         .id = NILAMP_PARAM_GAIN_COMP,
@@ -234,6 +286,34 @@ static const NilampControlSpec KELLER_TWD_DLX_II_CONTROLS[] = {
         .default_value = 2.0f,
         .step = 1.0f,
         .display = NILAMP_CONTROL_DISPLAY_ENUM,
+        .enum_names = KELLER_TWD_DLX_II_GAIN_COMP_OPTIONS,
+        .enum_count = (uint32_t)(sizeof(KELLER_TWD_DLX_II_GAIN_COMP_OPTIONS) / sizeof(KELLER_TWD_DLX_II_GAIN_COMP_OPTIONS[0])),
+    },
+    {
+        .id = NILAMP_PARAM_TUBE1,
+        .name = "Tube 1",
+        .module = "Pre Amp",
+        .unit = "",
+        .min_value = 0.0f,
+        .max_value = 1.0f,
+        .default_value = 1.0f,
+        .step = 1.0f,
+        .display = NILAMP_CONTROL_DISPLAY_ENUM,
+        .enum_names = KELLER_TWD_DLX_II_TUBE1_OPTIONS,
+        .enum_count = (uint32_t)(sizeof(KELLER_TWD_DLX_II_TUBE1_OPTIONS) / sizeof(KELLER_TWD_DLX_II_TUBE1_OPTIONS[0])),
+    },
+    {
+        .id = NILAMP_PARAM_PHASE_SPLITTER,
+        .name = "Circuit",
+        .module = "Splitter",
+        .unit = "",
+        .min_value = 0.0f,
+        .max_value = 4.0f,
+        .default_value = 2.0f,
+        .step = 1.0f,
+        .display = NILAMP_CONTROL_DISPLAY_ENUM,
+        .enum_names = KELLER_TWD_DLX_II_PHASE_SPLITTER_OPTIONS,
+        .enum_count = (uint32_t)(sizeof(KELLER_TWD_DLX_II_PHASE_SPLITTER_OPTIONS) / sizeof(KELLER_TWD_DLX_II_PHASE_SPLITTER_OPTIONS[0])),
     },
 };
 

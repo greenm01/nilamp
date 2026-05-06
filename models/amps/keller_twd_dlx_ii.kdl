@@ -56,6 +56,22 @@ amp "keller_twd_dlx_ii" id="NILAMP_MODEL_KELLER_TWD_DLX_II" name="Keller TWD DLX
     control "speaker_ind_gain1" id="NILAMP_PARAM_SPK_IND_GAIN1_DB" name="Gain 1" module="Speaker Inductor" unit="dB" min=0.0 max=24.0 default=3.0 step=0.5 display="linear"
     control "speaker_ind_gain2" id="NILAMP_PARAM_SPK_IND_GAIN2_DB" name="Gain 2" module="Speaker Inductor" unit="dB" min=0.0 max=24.0 default=3.0 step=0.5 display="linear"
     control "speaker_ind_find" id="NILAMP_PARAM_SPK_IND_FIND_DBHZ" name="Find" module="Speaker Inductor" unit="Hz" min=50.0 max=74.0 default=62.0 step=0.5 display="iso266"
-    control "gain_comp" id="NILAMP_PARAM_GAIN_COMP" name="Compens." module="Gain" unit="" min=0.0 max=3.0 default=2.0 step=1.0 display="enum"
+    control "gain_comp" id="NILAMP_PARAM_GAIN_COMP" name="Compens." module="Gain" unit="" min=0.0 max=3.0 default=2.0 step=1.0 display="enum" {
+      option "Off"
+      option "Tube 1"
+      option "Splitter"
+      option "Both"
+    }
+    control "tube1" id="NILAMP_PARAM_TUBE1" name="Tube 1" module="Pre Amp" unit="" min=0.0 max=1.0 default=1.0 step=1.0 display="enum" {
+      option "12AY7"
+      option "12AX7"
+    }
+    control "phase_splitter" id="NILAMP_PARAM_PHASE_SPLITTER" name="Circuit" module="Splitter" unit="" min=0.0 max=4.0 default=2.0 step=1.0 display="enum" {
+      option "CD 5E3"
+      option "CD BAL"
+      option "LTP 1"
+      option "LTP 2"
+      option "LTP 3"
+    }
   }
 }

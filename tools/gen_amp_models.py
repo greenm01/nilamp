@@ -381,6 +381,7 @@ def validate_amp(node: Node) -> dict[str, Any]:
         display = required_prop(control, "display", str)
         if display not in KNOWN_CONTROL_DISPLAYS:
             fail(f"{slug} control {key!r} has unknown display {display!r}")
+        options = [required_arg(option, 0, str) for option in child_nodes(control, "option")]
         minimum = required_number(control, "min")
         maximum = required_number(control, "max")
         default = required_number(control, "default")
@@ -388,6 +389,15 @@ def validate_amp(node: Node) -> dict[str, Any]:
             fail(f"{slug} control {key!r} min exceeds max")
         if default < minimum or default > maximum:
             fail(f"{slug} control {key!r} default outside range")
+        if display == "enum":
+            if not options:
+                fail(f"{slug} enum control {key!r} must contain option children")
+            if minimum != 0.0 or maximum != float(len(options) - 1):
+                fail(f"{slug} enum control {key!r} range must be 0..option_count-1")
+            if default != float(int(default)) or required_number(control, "step") != 1.0:
+                fail(f"{slug} enum control {key!r} default/step must be integer and step=1")
+        elif options:
+            fail(f"{slug} non-enum control {key!r} must not contain options")
         controls.append({
             "key": key,
             "id": control_id,
@@ -399,6 +409,7 @@ def validate_amp(node: Node) -> dict[str, Any]:
             "default": default,
             "step": required_number(control, "step"),
             "display": KNOWN_CONTROL_DISPLAYS[display],
+            "options": options,
         })
 
     return {
@@ -458,6 +469,16 @@ def render(models: list[dict[str, Any]]) -> str:
             lines.append(f"    .{field_name} = {c_float(model['process'][field_name])},")
         lines.append("};")
         lines.append("")
+        for control in model["controls"]:
+            if not control["options"]:
+                continue
+            lines.append(
+                f"static const char *const {model['slug'].upper()}_{control['key'].upper()}_OPTIONS[] = {{"
+            )
+            for option in control["options"]:
+                lines.append(f"    {c_string(option)},")
+            lines.append("};")
+            lines.append("")
         lines.append(f"static const NilampControlSpec {model['slug'].upper()}_CONTROLS[] = {{")
         for control in model["controls"]:
             lines.append("    {")
@@ -470,6 +491,13 @@ def render(models: list[dict[str, Any]]) -> str:
             lines.append(f"        .default_value = {c_float(control['default'])},")
             lines.append(f"        .step = {c_float(control['step'])},")
             lines.append(f"        .display = {control['display']},")
+            if control["options"]:
+                symbol = f"{model['slug'].upper()}_{control['key'].upper()}_OPTIONS"
+                lines.append(f"        .enum_names = {symbol},")
+                lines.append(f"        .enum_count = (uint32_t)(sizeof({symbol}) / sizeof({symbol}[0])),")
+            else:
+                lines.append("        .enum_names = NULL,")
+                lines.append("        .enum_count = 0u,")
             lines.append("    },")
         lines.append("};")
         lines.append("")

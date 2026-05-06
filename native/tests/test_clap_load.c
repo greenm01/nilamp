@@ -613,6 +613,31 @@ int main(int argc, char **argv)
     check(params->get_value(plugin, NILAMP_PARAM_TONE_FMID_DBHZ, &fmid),
           "Fmid read failed");
     check(fabs(fmid - 56.0) < 0.000001, "unexpected default Fmid");
+    check(params->get_info(plugin, NILAMP_PARAM_TUBE1, &param_info),
+          "tube1 info read failed");
+    check(fabs(param_info.default_value - 1.0) < 0.000001,
+          "unexpected default tube1 info");
+    check(params->get_info(plugin, NILAMP_PARAM_PHASE_SPLITTER, &param_info),
+          "splitter info read failed");
+    check(fabs(param_info.default_value - 2.0) < 0.000001,
+          "unexpected default splitter info");
+    double tube1 = -1.0;
+    double splitter = -1.0;
+    check(params->get_value(plugin, NILAMP_PARAM_TUBE1, &tube1), "tube1 read failed");
+    check(params->get_value(plugin, NILAMP_PARAM_PHASE_SPLITTER, &splitter),
+          "splitter read failed");
+    check(fabs(tube1 - 1.0) < 0.000001, "unexpected default tube1");
+    check(fabs(splitter - 2.0) < 0.000001, "unexpected default splitter");
+    char text[32];
+    check(params->value_to_text(plugin, NILAMP_PARAM_TUBE1, 0.0, text, sizeof(text)) &&
+              strcmp(text, "12AY7") == 0,
+          "tube1 value_to_text failed");
+    check(params->value_to_text(plugin, NILAMP_PARAM_PHASE_SPLITTER, 4.0, text, sizeof(text)) &&
+              strcmp(text, "LTP 3") == 0,
+          "splitter value_to_text failed");
+    check(params->text_to_value(plugin, NILAMP_PARAM_PHASE_SPLITTER, "CD BAL", &splitter) &&
+              fabs(splitter - 1.0) < 0.000001,
+          "splitter text_to_value failed");
 
     const clap_plugin_state_t *state =
         (const clap_plugin_state_t *)plugin->get_extension(plugin, CLAP_EXT_STATE);
@@ -764,6 +789,26 @@ int main(int argc, char **argv)
     check(params->get_value(plugin, NILAMP_PARAM_GAIN_DB, &gain), "gain reread failed");
     check(fabs(gain + 6.0) < 0.000001, "negative automation gain was not applied");
 
+    clap_event_param_value_t topology_events_raw[2];
+    init_param_event(&topology_events_raw[0], NILAMP_PARAM_TUBE1, 0.0);
+    init_param_event(&topology_events_raw[1], NILAMP_PARAM_PHASE_SPLITTER, 4.0);
+    const clap_event_header_t *topology_event_ptrs[2] = {
+        &topology_events_raw[0].header,
+        &topology_events_raw[1].header,
+    };
+    TestEvents topology_events = {.events = topology_event_ptrs, .count = 2u};
+    clap_input_events_t topology_input = {
+        .ctx = &topology_events,
+        .size = events_size,
+        .get = events_get,
+    };
+    params->flush(plugin, &topology_input, &out_events);
+    check(params->get_value(plugin, NILAMP_PARAM_TUBE1, &tube1), "tube1 reread failed");
+    check(params->get_value(plugin, NILAMP_PARAM_PHASE_SPLITTER, &splitter),
+          "splitter reread failed");
+    check(fabs(tube1) < 0.000001, "tube1 automation was not applied");
+    check(fabs(splitter - 4.0) < 0.000001, "splitter automation was not applied");
+
     MemoryStream memory = {0};
     clap_ostream_t ostream = {
         .ctx = &memory,
@@ -785,6 +830,11 @@ int main(int argc, char **argv)
     check(state->load(plugin, &istream), "state load failed");
     check(params->get_value(plugin, NILAMP_PARAM_GAIN_DB, &gain), "gain state reread failed");
     check(fabs(gain + 6.0) < 0.000001, "state did not restore negative gain");
+    check(params->get_value(plugin, NILAMP_PARAM_TUBE1, &tube1), "tube1 state reread failed");
+    check(params->get_value(plugin, NILAMP_PARAM_PHASE_SPLITTER, &splitter),
+          "splitter state reread failed");
+    check(fabs(tube1) < 0.000001, "state did not restore tube1");
+    check(fabs(splitter - 4.0) < 0.000001, "state did not restore splitter");
 
     struct {
         uint32_t magic;
@@ -808,6 +858,36 @@ int main(int argc, char **argv)
     check(params->get_value(plugin, NILAMP_PARAM_OUTPUT_GAIN_DB, &output_gain),
           "old state output gain reread failed");
     check(fabs(output_gain) < 0.000001, "old state output gain did not default");
+    check(params->get_value(plugin, NILAMP_PARAM_TUBE1, &tube1), "old state tube1 reread failed");
+    check(params->get_value(plugin, NILAMP_PARAM_PHASE_SPLITTER, &splitter),
+          "old state splitter reread failed");
+    check(fabs(tube1 - 1.0) < 0.000001, "old state tube1 did not backfill");
+    check(fabs(splitter) < 0.000001, "old state splitter did not backfill");
+
+    struct {
+        uint32_t magic;
+        uint32_t version;
+        float values[17];
+    } v2_state = {
+        .magic = 0x4e4c4150u,
+        .version = 2u,
+        .values = {4.0f, 55.0f, 45.0f, 50.0f, 65.0f, 30.0f,
+                   -2.0f, 56.0f, -6.0f, 1.0f, 2.0f, 38.0f,
+                   6.0f, 3.0f, 3.0f, 62.0f, 3.0f},
+    };
+    MemoryStream v2_memory = {0};
+    memcpy(v2_memory.data, &v2_state, sizeof(v2_state));
+    v2_memory.size = sizeof(v2_state);
+    clap_istream_t v2_istream = {
+        .ctx = &v2_memory,
+        .read = stream_read,
+    };
+    check(state->load(plugin, &v2_istream), "v2 state load failed");
+    check(params->get_value(plugin, NILAMP_PARAM_TUBE1, &tube1), "v2 state tube1 reread failed");
+    check(params->get_value(plugin, NILAMP_PARAM_PHASE_SPLITTER, &splitter),
+          "v2 state splitter reread failed");
+    check(fabs(tube1 - 1.0) < 0.000001, "v2 state tube1 did not backfill");
+    check(fabs(splitter) < 0.000001, "v2 state splitter did not backfill");
 
     run_clap_output_safety_test(plugin, params, &process, &out_events);
 

@@ -5,6 +5,7 @@
 #include "nilamp_tables.h"
 
 #include <math.h>
+#include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -60,6 +61,17 @@ typedef struct {
 } TubeCd;
 
 typedef struct {
+    Pkd pkd1;
+    Pkd pkd2;
+    Adnl adnl1;
+    Adnl adnl2;
+    Df2 neq1;
+    Df2 neq2;
+    float dia;
+    float vout2;
+} TubeLtp;
+
+typedef struct {
     Ii1 s_lp;
     Ii1 dvs_lp;
     float s;
@@ -69,6 +81,7 @@ typedef struct {
     TubeCk t1;
     TubeCk t2;
     TubeCd t3;
+    TubeLtp t6;
     TubeCk t4;
     TubeCk t5;
 
@@ -96,6 +109,8 @@ typedef struct {
     float prev_dia1;
     float prev_dig;
     float prev_dia3;
+    int active_tube1;
+    int active_splitter;
 } NilampTwdDlxIiState;
 
 typedef struct {
@@ -137,6 +152,45 @@ typedef struct {
     float pk_release;
     float avg_tau;
 } StageCfg;
+
+typedef struct {
+    const float *table1;
+    size_t len1;
+    const float *table2;
+    size_t len2;
+    float kpre11;
+    float kpre12;
+    float kpre22;
+    float kpre21;
+    float kprek1;
+    float kprek2;
+    float isat;
+    float rl1;
+    float rl2;
+    float kspre;
+    float kspost;
+    float ksv1;
+    float ksv2;
+    float ksib;
+    float kpk;
+    float pk_xth;
+    float pk_xdiode;
+    float pk_attack;
+    float pk_release;
+} LtpCfg;
+
+typedef struct {
+    bool is_ltp;
+    const StageCfg *t4;
+    const StageCfg *t5;
+    float k1;
+    float k2;
+    float hp2;
+    float hp3;
+    float hp4;
+    float kmst;
+    float k4;
+} SplitterModeCfg;
 
 typedef struct {
     float v_out;
@@ -197,6 +251,50 @@ typedef struct {
 } NilampTwdDlxIiData;
 
 #include "nilamp_models.inc"
+
+/* Keller TWD DLX II topology switches from
+ * vendor/keller-jsfx/TWD DLX  II.jsfx: Tube 1 lines 276-284,
+ * Splitter lines 292-334, LTP setup line 182.
+ */
+static const StageCfg T1_12AY7 = {
+    nilamp_t1_12ay7_table, 13503, 0.16f, 0.0022f, 100000.0f, 820.0f,
+    0.004201680672f, 0.004201680672f, 0.2f, 0.0f, 5.042016807e-06f,
+    0.008386363636f, 0.0f, 0.25f, 0.25f, 0.01f, 0.05f, 0.0205f,
+};
+
+static const StageCfg T5_CD_BAL = {
+    nilamp_t4_6v6_table, 13503, 0.02642706131f, 0.11f, 3000.0f, 540.0f,
+    0.0f, 0.00289017341f, 0.9302325581f, 0.0f, 0.0001213872832f,
+    0.18144f, 0.125f, 0.309f, 0.437f, 0.00575f, 0.0276f, 0.00675f,
+};
+
+static const StageCfg T4_LTP = {
+    nilamp_t4_6v6_table, 13503, 0.02642706131f, 0.11f, 3000.0f, 540.0f,
+    0.0f, 0.00289017341f, 0.9302325581f, 0.0f, 0.0001213872832f,
+    0.18144f, 0.125f, 0.309f, 0.439f, 0.00594f, 0.0278f, 0.00675f,
+};
+
+static const StageCfg T5_LTP = {
+    nilamp_t4_6v6_table, 13503, 0.02642706131f, 0.11f, 3000.0f, 540.0f,
+    0.0f, 0.00289017341f, 0.9302325581f, 0.0f, 0.0001213872832f,
+    0.18144f, 0.125f, 0.317f, 0.4442f, 0.00663f, 0.0285f, 0.00675f,
+};
+
+static const LtpCfg T6_LTP = {
+    nilamp_t6_ltp1_table, 13503, nilamp_t6_ltp2_table, 13503,
+    0.2060749075f, -0.2013672361f, 0.2055534423f, -0.2013672361f,
+    -0.004707671307f, -0.004186206178f, 0.0016f, 82000.0f, 100000.0f,
+    0.004201680672f, 0.004201680672f, 0.8090508876f, 0.7929294804f,
+    3.109243697e-06f, 0.05f, 0.269f, 0.602f, 0.015f, 0.05f,
+};
+
+static const SplitterModeCfg TWD_SPLITTER_MODES[] = {
+    {false, &T4, &T5, 0.797f, 0.940f, 0.41f, 5.8f, 6.4f, 0.0f, 0.0345f},
+    {false, &T4, &T5_CD_BAL, 0.797f, 0.797f, 0.41f, 5.8f, 5.8f, 0.0f, 0.0345f},
+    {true, &T4_LTP, &T5_LTP, 0.792f, 0.772f, 10.0f, 5.7f, 5.6f, 0.0f, 0.0345f},
+    {true, &T4_LTP, &T5_LTP, 0.792f, 0.772f, 10.0f, 5.7f, 5.6f, 0.5f, 0.185741756f},
+    {true, &T4_LTP, &T5_LTP, 0.792f, 0.772f, 10.0f, 5.7f, 5.6f, 1.0f, 1.0f},
+};
 
 static const NilampModelSpec *nilamp_find_model(NilampModelId model_id)
 {
@@ -519,6 +617,46 @@ static void tube_cd_process(TubeCd *st, const StageCfg *cfg, double sr, float v,
     *v_out = *dia * (-cfg->rl) + cfg->ksva * dvs;
 }
 
+static void tube_ltp_process(TubeLtp *st, const LtpCfg *cfg, double sr,
+                             float vin1, float vink, float vin2, float dvs,
+                             float *v_out, float *vout2, float *dia)
+{
+    float v = vin1 * cfg->kpre12 + vink * cfg->kprek2 + vin2 * cfg->kpre22;
+    v /= 1.0f + cfg->kspre * dvs;
+    if (cfg->kpk > 0.0f) {
+        const float pk = pkd_process(&st->pkd2, cfg->pk_xth, cfg->pk_xdiode,
+                                     pk_k1(cfg->pk_attack, sr),
+                                     pk_k2(cfg->pk_release, sr), v);
+        v -= cfg->kpk * pk;
+    }
+    v = adnl_process(&st->adnl2, cfg->table2, cfg->len2, v);
+    v = adnl_eq_process(&st->neq2, sr, v);
+    v *= 1.0f + cfg->kspost * dvs;
+    v *= cfg->isat;
+    v += cfg->ksib * dvs;
+    *dia = v;
+    *vout2 = v * (-cfg->rl2) + cfg->ksv2 * dvs;
+
+    v = vin1 * cfg->kpre11 + vink * cfg->kprek1 + vin2 * cfg->kpre21;
+    v /= 1.0f + cfg->kspre * dvs;
+    if (cfg->kpk > 0.0f) {
+        const float pk = pkd_process(&st->pkd1, cfg->pk_xth, cfg->pk_xdiode,
+                                     pk_k1(cfg->pk_attack, sr),
+                                     pk_k2(cfg->pk_release, sr), v);
+        v -= cfg->kpk * pk;
+    }
+    v = adnl_process(&st->adnl1, cfg->table1, cfg->len1, v);
+    v = adnl_eq_process(&st->neq1, sr, v);
+    v *= 1.0f + cfg->kspost * dvs;
+    v *= cfg->isat;
+    v += cfg->ksib * dvs;
+    *dia += v;
+    *v_out = v * (-cfg->rl1) + cfg->ksv1 * dvs;
+
+    st->dia = *dia;
+    st->vout2 = *vout2;
+}
+
 static float tube_pss_process(TubePss *st, float r, float tau, double sr, float snext, float dia, float dvs_in)
 {
     const float f = 1.0f / (float)(2.0 * M_PI * fmax(1e-10, (double)tau));
@@ -583,6 +721,12 @@ static void nilamp_params_set_raw(NilampParams *params, uint32_t id, float value
         break;
     case NILAMP_PARAM_GAIN_COMP:
         params->gain_comp = value;
+        break;
+    case NILAMP_PARAM_TUBE1:
+        params->tube1 = value;
+        break;
+    case NILAMP_PARAM_PHASE_SPLITTER:
+        params->phase_splitter = value;
         break;
     case NILAMP_PARAM_COUNT:
     default:
@@ -649,6 +793,67 @@ static void adnl_seed_at_zero(Adnl *st, const float *table)
     st->prev_z = table[base + 8u]; /* b0 at x=0 = z(0) */
 }
 
+static int nilamp_enum_param(float value, int count, int fallback)
+{
+    if (!isfinite(value)) {
+        return fallback;
+    }
+    const int index = (int)lroundf(value);
+    return index >= 0 && index < count ? index : fallback;
+}
+
+static const StageCfg *nilamp_tube1_cfg(int tube1)
+{
+    return tube1 == 0 ? &T1_12AY7 : TWD_DLX_II_DATA.t1;
+}
+
+static const SplitterModeCfg *nilamp_splitter_cfg(int splitter)
+{
+    const int count = (int)(sizeof(TWD_SPLITTER_MODES) / sizeof(TWD_SPLITTER_MODES[0]));
+    return &TWD_SPLITTER_MODES[nilamp_enum_param((float)splitter, count, 2)];
+}
+
+static void nilamp_twd_dlx_ii_seed_modes(NilampTwdDlxIiState *st,
+                                         const NilampParams *params,
+                                         bool force)
+{
+    const int tube1 = nilamp_enum_param(params->tube1, 2, 1);
+    const int splitter = nilamp_enum_param(params->phase_splitter,
+                                           (int)(sizeof(TWD_SPLITTER_MODES) /
+                                                 sizeof(TWD_SPLITTER_MODES[0])),
+                                           2);
+    const SplitterModeCfg *splitter_cfg = nilamp_splitter_cfg(splitter);
+
+    if (force || st->active_tube1 != tube1) {
+        memset(&st->t1, 0, sizeof(st->t1));
+        adnl_seed_at_zero(&st->t1.adnl, nilamp_tube1_cfg(tube1)->table);
+        st->active_tube1 = tube1;
+    }
+
+    if (force || st->active_splitter != splitter) {
+        memset(&st->t3, 0, sizeof(st->t3));
+        memset(&st->t6, 0, sizeof(st->t6));
+        memset(&st->t4, 0, sizeof(st->t4));
+        memset(&st->t5, 0, sizeof(st->t5));
+        memset(&st->hp2, 0, sizeof(st->hp2));
+        memset(&st->hp3, 0, sizeof(st->hp3));
+        memset(&st->hp4, 0, sizeof(st->hp4));
+        memset(&st->peq1_t4, 0, sizeof(st->peq1_t4));
+        memset(&st->peq1_t5, 0, sizeof(st->peq1_t5));
+        memset(&st->hs1_t4, 0, sizeof(st->hs1_t4));
+        memset(&st->hs1_t5, 0, sizeof(st->hs1_t5));
+        adnl_seed_at_zero(&st->t3.adnl, TWD_DLX_II_DATA.t3->table);
+        adnl_seed_at_zero(&st->t6.adnl1, T6_LTP.table1);
+        adnl_seed_at_zero(&st->t6.adnl2, T6_LTP.table2);
+        adnl_seed_at_zero(&st->t4.adnl, splitter_cfg->t4->table);
+        adnl_seed_at_zero(&st->t5.adnl, splitter_cfg->t5->table);
+        st->prev_dia1 = 0.0f;
+        st->prev_dig = 0.0f;
+        st->prev_dia3 = 0.0f;
+        st->active_splitter = splitter;
+    }
+}
+
 void nilamp_engine_reset(NilampEngine *engine)
 {
     if (engine == NULL) {
@@ -665,11 +870,8 @@ void nilamp_engine_reset(NilampEngine *engine)
     if (model != NULL && model->id == NILAMP_MODEL_KELLER_TWD_DLX_II) {
         NilampTwdDlxIiState *st = &engine->state.twd_dlx_ii;
         const NilampTwdDlxIiData *data = &TWD_DLX_II_DATA;
-        adnl_seed_at_zero(&st->t1.adnl, data->t1->table);
         adnl_seed_at_zero(&st->t2.adnl, data->t2->table);
-        adnl_seed_at_zero(&st->t3.adnl, data->t3->table);
-        adnl_seed_at_zero(&st->t4.adnl, data->t4->table);
-        adnl_seed_at_zero(&st->t5.adnl, data->t5->table);
+        nilamp_twd_dlx_ii_seed_modes(st, &engine->params, true);
     }
 }
 
@@ -723,6 +925,14 @@ float nilamp_control_display_value(const NilampControlSpec *spec, float raw_valu
 static NilampTapFrame nilamp_twd_dlx_ii_process_sample(NilampTwdDlxIiState *st, double sr, const NilampParams *params, float input)
 {
     const NilampTwdDlxIiData *model = &TWD_DLX_II_DATA;
+    nilamp_twd_dlx_ii_seed_modes(st, params, false);
+    const int tube1 = nilamp_enum_param(params->tube1, 2, 1);
+    const int splitter = nilamp_enum_param(params->phase_splitter,
+                                           (int)(sizeof(TWD_SPLITTER_MODES) /
+                                                 sizeof(TWD_SPLITTER_MODES[0])),
+                                           2);
+    const StageCfg *t1_cfg = nilamp_tube1_cfg(tube1);
+    const SplitterModeCfg *splitter_cfg = nilamp_splitter_cfg(splitter);
 
     /* Keller g1 uses sqrt(1.2); REAPER's mono JSFX render path contributes
        the 0.5 feed factor that the parity harness measures at the first tap. */
@@ -730,8 +940,11 @@ static NilampTapFrame nilamp_twd_dlx_ii_process_sample(NilampTwdDlxIiState *st, 
         db_to_linear(params->gain_db) * model->input_feed_gain * sqrtf(model->input_keller_gain_sq);
     float volume = params->volume_pct * 0.01f;
     const int gain_comp = (int)lroundf(params->gain_comp);
-    if (gain_comp == 1 || gain_comp == 3) {
+    if ((gain_comp == 1 || gain_comp == 3) && tube1 == 1) {
         volume *= 0.572f;
+    }
+    if ((gain_comp == 2 || gain_comp == 3) && splitter_cfg->is_ltp) {
+        volume *= powf(0.0345f, splitter_cfg->kmst);
     }
     const float bass = params->bass_pct * 0.01f;
     const float mid = params->mid_pct * 0.01f;
@@ -775,7 +988,7 @@ static NilampTapFrame nilamp_twd_dlx_ii_process_sample(NilampTwdDlxIiState *st, 
     const float p3_s = st->p3.s;
 
     float res1_v, res1_dia;
-    tube_ck_process(&st->t1, model->t1, sr, input * gain, dvs3, &res1_v, &res1_dia);
+    tube_ck_process(&st->t1, t1_cfg, sr, input * gain, dvs3, &res1_v, &res1_dia);
 
     float v2 = ii1_hp_process(&st->hp1, 10.0f, sr, res1_v);
     v2 *= volume * volume;
@@ -785,28 +998,33 @@ static NilampTapFrame nilamp_twd_dlx_ii_process_sample(NilampTwdDlxIiState *st, 
 
     float res3_v, res3_dia;
     tube_ck_process(&st->t2, model->t2, sr, v2, dvs3, &res3_v, &res3_dia);
-    const float res3_hp = ii1_hp_process(&st->hp2, 0.41f, sr, res3_v);
+    const float res3_hp = ii1_hp_process(&st->hp2, splitter_cfg->hp2, sr, res3_v);
 
-    float res4_v, res4_vk, res4_dia;
-    tube_cd_process(&st->t3, model->t3, sr, res3_hp, dvs3, &res4_v, &res4_vk, &res4_dia);
+    float res4_v, res4_aux, res4_dia;
+    if (splitter_cfg->is_ltp) {
+        tube_ltp_process(&st->t6, &T6_LTP, sr, res3_hp * splitter_cfg->k4, 0.0f, 0.0f,
+                         dvs3, &res4_v, &res4_aux, &res4_dia);
+    } else {
+        tube_cd_process(&st->t3, model->t3, sr, res3_hp, dvs3, &res4_v, &res4_aux, &res4_dia);
+    }
 
-    float drive_t4 = res4_v * model->phase_t4_gain;
-    drive_t4 = ii1_hp_process(&st->hp3, 5.8f, sr, drive_t4);
+    float drive_t4 = res4_v * splitter_cfg->k1;
+    drive_t4 = ii1_hp_process(&st->hp3, splitter_cfg->hp3, sr, drive_t4);
     drive_t4 = svf2_peq(&st->peq1_t4, sr, res_gain1, res_fres, res_q1, drive_t4);
     drive_t4 = svf1_hs(&st->hs1_t4, sr, ind_gain1, ind_f1, drive_t4);
 
     float res5_v, res5_dia;
-    tube_ck_process(&st->t4, model->t4, sr, drive_t4, dvs2, &res5_v, &res5_dia);
+    tube_ck_process(&st->t4, splitter_cfg->t4, sr, drive_t4, dvs2, &res5_v, &res5_dia);
     const float t4_advk_out = st->t4.advk;
 
-    float aux = res4_vk * model->phase_t5_gain;
-    aux = ii1_hp_process(&st->hp4, 6.4f, sr, aux);
+    float aux = res4_aux * splitter_cfg->k2;
+    aux = ii1_hp_process(&st->hp4, splitter_cfg->hp4, sr, aux);
     aux = svf2_peq(&st->peq1_t5, sr, res_gain1, res_fres, res_q1, aux);
     aux = svf1_hs(&st->hs1_t5, sr, ind_gain1, ind_f1, aux);
     const float drive_t5 = aux;
 
     float res_t5_v, res_t5_dia;
-    tube_ck_process(&st->t5, model->t5, sr, aux, dvs2, &res_t5_v, &res_t5_dia);
+    tube_ck_process(&st->t5, splitter_cfg->t5, sr, aux, dvs2, &res_t5_v, &res_t5_dia);
     const float t5_advk_out = st->t5.advk;
 
     const float post_pp = res5_v - res_t5_v;
@@ -815,7 +1033,8 @@ static NilampTapFrame nilamp_twd_dlx_ii_process_sample(NilampTwdDlxIiState *st, 
     const float post_hp5 = ii1_hp_process(&st->hp5, 40.0f, sr, post_hs3);
     float v_out = post_hp5;
     v_out = df2_lp(&st->lp2, sr, 10000.0f, sqrtf(0.5f), v_out);
-    v_out *= 0.5f / (model->t4->rl * model->t4->isat + model->t5->rl * model->t5->isat);
+    v_out *= 0.5f / (splitter_cfg->t4->rl * splitter_cfg->t4->isat +
+                      splitter_cfg->t5->rl * splitter_cfg->t5->isat);
 
     const float dia1_next = res5_dia + res_t5_dia;
     st->prev_dia1 = dia1_next;

@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 typedef struct {
     uint16_t channels;
@@ -233,6 +234,8 @@ static void usage(FILE *f)
             "  --mid     pct     Mid 0..100 (default 50)\n"
             "  --treble  pct     Treble 0..100 (default 50)\n"
             "  --sag     pct     Sag 0..100 (default 50)\n"
+            "  --tube1   mode    Tube 1: 0/12AY7 or 1/12AX7\n"
+            "  --splitter mode   Splitter: 0/CD 5E3, 1/CD BAL, 2/LTP 1, 3/LTP 2, 4/LTP 3\n"
             "  --block   n       Processing block size\n",
             program,
             extra);
@@ -248,6 +251,31 @@ static int parse_float_arg(const char *name, const char *value, float *out)
     }
     *out = v;
     return 0;
+}
+
+static int parse_enum_arg(const char *name, const char *value, NilampParamId id, float *out)
+{
+    const NilampControlSpec *spec = nilamp_control_spec((uint32_t)id);
+    if (!spec || spec->display != NILAMP_CONTROL_DISPLAY_ENUM ||
+        !spec->enum_names || spec->enum_count == 0u) {
+        fprintf(stderr, "error: %s: enum spec unavailable\n", name);
+        return -1;
+    }
+    for (uint32_t i = 0; i < spec->enum_count; i++) {
+        if (strcasecmp(value, spec->enum_names[i]) == 0) {
+            *out = (float)i;
+            return 0;
+        }
+    }
+    char *end = NULL;
+    const long parsed = strtol(value, &end, 10);
+    if (end != value && *end == '\0' && parsed >= (long)spec->min_value &&
+        parsed <= (long)spec->max_value) {
+        *out = (float)parsed;
+        return 0;
+    }
+    fprintf(stderr, "error: %s: invalid enum '%s'\n", name, value);
+    return -1;
 }
 
 static int parse_args(int argc, char **argv, Args *args)
@@ -282,6 +310,11 @@ static int parse_args(int argc, char **argv, Args *args)
             if (parse_float_arg(a, v, &args->params.treble_pct) != 0) return -1;
         } else if (strcmp(a, "--sag") == 0) {
             if (parse_float_arg(a, v, &args->params.sag_pct) != 0) return -1;
+        } else if (strcmp(a, "--tube1") == 0) {
+            if (parse_enum_arg(a, v, NILAMP_PARAM_TUBE1, &args->params.tube1) != 0) return -1;
+        } else if (strcmp(a, "--splitter") == 0) {
+            if (parse_enum_arg(a, v, NILAMP_PARAM_PHASE_SPLITTER,
+                               &args->params.phase_splitter) != 0) return -1;
         } else if (strcmp(a, "--block") == 0) {
             char *end = NULL;
             const unsigned long block = strtoul(v, &end, 10);

@@ -30,7 +30,9 @@ typedef enum NilampParamId {
     NILAMP_PARAM_SPK_IND_GAIN2_DB = 14,
     NILAMP_PARAM_SPK_IND_FIND_DBHZ = 15,
     NILAMP_PARAM_GAIN_COMP = 16,
-    NILAMP_PARAM_COUNT = 17,
+    NILAMP_PARAM_TUBE1 = 17,
+    NILAMP_PARAM_PHASE_SPLITTER = 18,
+    NILAMP_PARAM_COUNT = 19,
 } NilampParamId;
 
 typedef enum NilampControlDisplay {
@@ -49,6 +51,8 @@ typedef struct NilampControlSpec {
     float default_value;
     float step;
     NilampControlDisplay display;
+    const char *const *enum_names;
+    uint32_t enum_count;
 } NilampControlSpec;
 
 typedef struct NilampParams {
@@ -69,6 +73,8 @@ typedef struct NilampParams {
     float spk_ind_gain2_db;
     float spk_ind_find_dbhz;
     float gain_comp;
+    float tube1;
+    float phase_splitter;
 } NilampParams;
 
 enum {

@@ -9,6 +9,8 @@
 
 extern const float nilamp_t1_12ax7_table[13503];
 extern const size_t nilamp_t1_12ax7_table_len;
+extern const float nilamp_t1_12ay7_table[13503];
+extern const size_t nilamp_t1_12ay7_table_len;
 extern const float nilamp_t2_12ax7_table[13503];
 extern const size_t nilamp_t2_12ax7_table_len;
 extern const float nilamp_t3_cd_table[13503];
@@ -17,6 +19,10 @@ extern const float nilamp_t4_6v6_table[13503];
 extern const size_t nilamp_t4_6v6_table_len;
 extern const float nilamp_t5_6v6_table[13503];
 extern const size_t nilamp_t5_6v6_table_len;
+extern const float nilamp_t6_ltp1_table[13503];
+extern const size_t nilamp_t6_ltp1_table_len;
+extern const float nilamp_t6_ltp2_table[13503];
+extern const size_t nilamp_t6_ltp2_table_len;
 extern const float nilamp_t1_12ax7_table_dz[13503];
 extern const size_t nilamp_t1_12ax7_table_dz_len;
 extern const float nilamp_t2_12ax7_table_dz[13503];

@@ -165,6 +165,11 @@ def _apply_tap_patches(src: str) -> str:
             "tap_res4_v = spl0;",
         ),
         (
+            "spl0 = t6.tube_ltp_process(spl0, 0, 0, dvs3);",
+            "spl0 = t6.tube_ltp_process(spl0, 0, 0, dvs3);\n"
+            "tap_res4_v = spl0;",
+        ),
+        (
             "spl0 = hs1.flt_sv1_process(spl0);\nspl0 = t4.tube_ck_process(spl0, dvs2);",
             "spl0 = hs1.flt_sv1_process(spl0);\n"
             "tap_drive_t4 = spl0;\n"
@@ -300,6 +305,11 @@ def _apply_tap_select_patches(src: str) -> str:
         (
             "spl0 = t3.tube_cd_process(spl0, dvs3);",
             "spl0 = t3.tube_cd_process(spl0, dvs3);\n"
+            "tap_res4_v = spl0;",
+        ),
+        (
+            "spl0 = t6.tube_ltp_process(spl0, 0, 0, dvs3);",
+            "spl0 = t6.tube_ltp_process(spl0, 0, 0, dvs3);\n"
             "tap_res4_v = spl0;",
         ),
         (

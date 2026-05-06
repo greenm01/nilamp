@@ -43,9 +43,11 @@
 
 #define NILAMP_PLUGIN_ID "dev.niltempus.nilamp"
 #define NILAMP_STATE_MAGIC 0x4e4c4150u
-#define NILAMP_STATE_VERSION 2u
+#define NILAMP_STATE_VERSION 3u
 #define NILAMP_STATE_VERSION_1 1u
 #define NILAMP_STATE_VERSION_1_PARAM_COUNT 6u
+#define NILAMP_STATE_VERSION_2 2u
+#define NILAMP_STATE_VERSION_2_PARAM_COUNT 17u
 #define NILAMP_CLAP_OUTPUT_LIMIT 1.0f
 
 typedef NilampControlSpec NilampParamSpec;
@@ -228,6 +230,10 @@ static double nilamp_get_param_value(const NilampParams *params, clap_id id)
         return params->spk_ind_find_dbhz;
     case NILAMP_PARAM_GAIN_COMP:
         return params->gain_comp;
+    case NILAMP_PARAM_TUBE1:
+        return params->tube1;
+    case NILAMP_PARAM_PHASE_SPLITTER:
+        return params->phase_splitter;
     case NILAMP_PARAM_COUNT:
     default:
         return 0.0;
@@ -354,6 +360,12 @@ static bool nilamp_set_param_value(NilampParams *params, clap_id id, double valu
         return true;
     case NILAMP_PARAM_GAIN_COMP:
         params->gain_comp = clamped;
+        return true;
+    case NILAMP_PARAM_TUBE1:
+        params->tube1 = clamped;
+        return true;
+    case NILAMP_PARAM_PHASE_SPLITTER:
+        params->phase_splitter = clamped;
         return true;
     case NILAMP_PARAM_COUNT:
     default:
@@ -854,10 +866,12 @@ static bool nilamp_params_value_to_text(const clap_plugin_t *plugin, clap_id par
     }
 
     const double clamped = nilamp_clamp(value, spec);
-    if (spec->id == NILAMP_PARAM_GAIN_COMP) {
-        static const char *const names[] = {"Off", "Tube 1", "Splitter", "Both"};
+    if (spec->display == NILAMP_CONTROL_DISPLAY_ENUM && spec->enum_names &&
+        spec->enum_count > 0u) {
         const int index = (int)lround(clamped);
-        const char *name = (index >= 0 && index < 4) ? names[index] : "Splitter";
+        const char *name = (index >= 0 && (uint32_t)index < spec->enum_count) ?
+                               spec->enum_names[index] :
+                               spec->enum_names[(uint32_t)lround(spec->default_value)];
         const int written = snprintf(out_buffer, out_buffer_capacity, "%s", name);
         return written >= 0 && (uint32_t)written < out_buffer_capacity;
     }
@@ -875,21 +889,16 @@ static bool nilamp_params_text_to_value(const clap_plugin_t *plugin, clap_id par
         return false;
     }
 
-    if (spec->id == NILAMP_PARAM_GAIN_COMP) {
-        if (strcasecmp(param_value_text, "off") == 0) {
-            *out_value = 0.0;
-            return true;
+    if (spec->display == NILAMP_CONTROL_DISPLAY_ENUM && spec->enum_names &&
+        spec->enum_count > 0u) {
+        for (uint32_t i = 0; i < spec->enum_count; i++) {
+            if (strcasecmp(param_value_text, spec->enum_names[i]) == 0) {
+                *out_value = (double)i;
+                return true;
+            }
         }
-        if (strcasecmp(param_value_text, "tube 1") == 0 || strcasecmp(param_value_text, "tube1") == 0) {
+        if (spec->id == NILAMP_PARAM_GAIN_COMP && strcasecmp(param_value_text, "tube1") == 0) {
             *out_value = 1.0;
-            return true;
-        }
-        if (strcasecmp(param_value_text, "splitter") == 0) {
-            *out_value = 2.0;
-            return true;
-        }
-        if (strcasecmp(param_value_text, "both") == 0) {
-            *out_value = 3.0;
             return true;
         }
     }
@@ -1064,6 +1073,8 @@ static bool nilamp_state_load(const clap_plugin_t *plugin, const clap_istream_t 
     uint32_t value_count = 0u;
     if (header.version == NILAMP_STATE_VERSION_1) {
         value_count = NILAMP_STATE_VERSION_1_PARAM_COUNT;
+    } else if (header.version == NILAMP_STATE_VERSION_2) {
+        value_count = NILAMP_STATE_VERSION_2_PARAM_COUNT;
     } else if (header.version == NILAMP_STATE_VERSION) {
         value_count = NILAMP_PARAM_COUNT;
     } else {
@@ -1073,6 +1084,11 @@ static bool nilamp_state_load(const clap_plugin_t *plugin, const clap_istream_t 
     if (!nilamp_read_all(stream, values, sizeof(values[0]) * value_count) ||
         !nilamp_values_to_params(values, value_count, &params)) {
         return false;
+    }
+    if (header.version == NILAMP_STATE_VERSION_1 ||
+        header.version == NILAMP_STATE_VERSION_2) {
+        (void)nilamp_set_param_value(&params, NILAMP_PARAM_TUBE1, 1.0);
+        (void)nilamp_set_param_value(&params, NILAMP_PARAM_PHASE_SPLITTER, 0.0);
     }
     plug->params = params;
     nilamp_store_params(plug, &params);

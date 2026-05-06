@@ -25,9 +25,9 @@ Slider mapping (nilamp params <-> JSFX sliders), native units:
     sag     (0..100 %)    <->  (held at 100; JSFX has no counterpart slider,
                                 its 3-stage PSS is fixed-internal)
 
-Other JSFX sliders are pinned to match the native DSP topology:
-    tube1 = 1   (12AX7 path)
-    mode  = 0   (CD 5E3 cathodyne)
+Topology sliders are exposed by the native renderer and passed through to JSFX:
+    tube1 = 0/1  (12AY7/12AX7)
+    mode  = 0..4 (CD 5E3, CD BAL, LTP 1, LTP 2, LTP 3)
     gcomp, gp_*, gs_*, f*, q*, gout = JSFX slider defaults
 
 Why the 100 ms trim:
@@ -90,6 +90,8 @@ class Params:
     mid_pct: float = 50.0      # 0..100
     treble_pct: float = 50.0   # 0..100
     sag_pct: float = 100.0     # 0..100 (nilamp only; JSFX has no equivalent)
+    tube1: int = 1             # 0=12AY7, 1=12AX7
+    splitter: int = 2          # JSFX TWD DLX II default: LTP 1
 
     def to_nilamp_args(self) -> list[str]:
         return [
@@ -99,6 +101,8 @@ class Params:
             "--mid", str(self.mid_pct),
             "--treble", str(self.treble_pct),
             "--sag", str(self.sag_pct),
+            "--tube1", str(self.tube1),
+            "--splitter", str(self.splitter),
         ]
 
     def jsfx_gin(self) -> float:
@@ -125,9 +129,8 @@ class Params:
             "-s", f"bass={self.bass_pct}",
             "-s", f"mid={self.mid_pct}",
             "-s", f"treble={self.treble_pct}",
-            # Topology pins:
-            "-s", "tube1=1",   # 12AX7 path.
-            "-s", "mode=0",    # CD 5E3 cathodyne.
+            "-s", f"tube1={self.tube1}",
+            "-s", f"mode={self.splitter}",
             "-s", "gcomp=2",
             "-s", "fm=56",
             "-s", "qm=-6",
@@ -521,6 +524,8 @@ def main() -> int:
     ap.add_argument("--mid", type=float, default=50.0)
     ap.add_argument("--treble", type=float, default=50.0)
     ap.add_argument("--sag", type=float, default=100.0)
+    ap.add_argument("--tube1", type=int, choices=[0, 1], default=1)
+    ap.add_argument("--splitter", type=int, choices=[0, 1, 2, 3, 4], default=2)
     ap.add_argument("--input-scale", type=float, default=1.0,
                     help="Pre-scale input WAV by this factor before rendering. "
                          "Use small values (e.g. 1e-3) to keep all stages in "
@@ -538,7 +543,7 @@ def main() -> int:
     params = Params(
         gain_db=args.gain, volume_pct=args.volume,
         bass_pct=args.bass, mid_pct=args.mid, treble_pct=args.treble,
-        sag_pct=args.sag,
+        sag_pct=args.sag, tube1=args.tube1, splitter=args.splitter,
     )
 
     if args.input is None and args.preset is None:

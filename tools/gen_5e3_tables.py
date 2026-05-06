@@ -168,6 +168,114 @@ class CdConfig:
         return self.ibias / self.vs
 
 
+@dataclass
+class LtpConfig:
+    """Long-tail-pair tube stage parameters.
+
+    Mirrors ``tube_ltp_set`` in HK_LIB_TUBE.jsfx-inc lines 338-409.
+    The stage has two GLF branches with distinct local loop gains, so it emits
+    two ADNL tables and keeps the cross-feed gains as runtime constants.
+    """
+
+    name: str
+    mu: float
+    ra: float
+    isat: float
+    ibias: float
+    b: float
+    type_b: float
+    vs: float
+    rl1: float
+    rk: float
+    kcomp: float
+    kpk: float
+    pk_xth: float
+    pk_xdrop: float
+    tattack: float
+    trelease: float
+    neq: float
+    rl2: float
+    rb: float
+
+    @property
+    def kbias(self) -> float:
+        return self.ibias / self.isat
+
+    @property
+    def rk1(self) -> float:
+        return (self.rk + self.rb) * (self.ra + self.rl2) / (
+            (1 + self.mu) * (self.rk + self.rb) + (self.ra + self.rl2)
+        )
+
+    @property
+    def rk2(self) -> float:
+        return (self.rk + self.rb) * (self.ra + self.rl1) / (
+            (1 + self.mu) * (self.rk + self.rb) + (self.ra + self.rl1)
+        )
+
+    @property
+    def kpre11(self) -> float:
+        return self.mu / self.isat / (self.ra + self.rl1 + (1 + self.mu) * self.rk1)
+
+    @property
+    def kpre12(self) -> float:
+        return -self.kpre11 * (1 + self.mu) * self.rk1 / (self.ra + self.rl2)
+
+    @property
+    def kpre22(self) -> float:
+        return self.mu / self.isat / (self.ra + self.rl2 + (1 + self.mu) * self.rk2)
+
+    @property
+    def kpre21(self) -> float:
+        return -self.kpre22 * (1 + self.mu) * self.rk2 / (self.ra + self.rl1)
+
+    @property
+    def kprek1(self) -> float:
+        return -self.mu / self.isat * (self.ra + self.rl2) / (
+            (1 + self.mu) * (self.rk + self.rb) * (2 * self.ra + self.rl1 + self.rl2)
+            + (self.ra + self.rl1) * (self.ra + self.rl2)
+        )
+
+    @property
+    def kprek2(self) -> float:
+        return -self.mu / self.isat * (self.ra + self.rl1) / (
+            (1 + self.mu) * (self.rk + self.rb) * (2 * self.ra + self.rl1 + self.rl2)
+            + (self.ra + self.rl1) * (self.ra + self.rl2)
+        )
+
+    @property
+    def kloop1(self) -> float:
+        return self.rk1 * (1 + self.mu) / (self.ra + self.rl1)
+
+    @property
+    def kloop2(self) -> float:
+        return self.rk2 * (1 + self.mu) / (self.ra + self.rl2)
+
+    @property
+    def ksv1(self) -> float:
+        rp = (self.ra + self.rl1) * (self.ra + self.rl2) / (2 * self.ra + self.rl1 + self.rl2)
+        rt = self.rb + (1 + self.mu) * self.rk
+        return (self.ra / (self.ra + self.rl1) * rp + rt) / (rp + rt)
+
+    @property
+    def ksv2(self) -> float:
+        rp = (self.ra + self.rl1) * (self.ra + self.rl2) / (2 * self.ra + self.rl1 + self.rl2)
+        rt = self.rb + (1 + self.mu) * self.rk
+        return (self.ra / (self.ra + self.rl2) * rp + rt) / (rp + rt)
+
+    @property
+    def kspre(self) -> float:
+        return (1 - self.kcomp) / self.vs
+
+    @property
+    def kspost(self) -> float:
+        return 1.0 / self.vs
+
+    @property
+    def ksib(self) -> float:
+        return self.ibias / self.vs
+
+
 # 5E3 stage definitions.  Each stage's set of *physical* tube parameters
 # (mu/ra/isat/ibias/b/type/vs/rl/rk/kcomp) and runtime detector params
 # (kpk/xth/xdrop/tattack/trelease/neq/tck) is taken verbatim from
@@ -181,6 +289,15 @@ T1_12AX7 = CkConfig(
     b=0, type_b=0.5, vs=238, rl=100000, rk=1500, kcomp=0.0,
     kpk=0.0, pk_xth=0.25, pk_xdrop=0.250,
     tattack=0.01, trelease=0.05, neq=2.0, tck=0.0375,
+)
+
+T1_12AY7 = CkConfig(
+    # TWD-DLX-II line 281. Original lower-gain 12AY7 first preamp tube.
+    name="t1_12ay7_table",
+    mu=44, ra=25000, isat=0.00220, ibias=0.00120,
+    b=0, type_b=0.5, vs=238, rl=100000, rk=820, kcomp=0.0,
+    kpk=0.0, pk_xth=0.25, pk_xdrop=0.250,
+    tattack=0.01, trelease=0.05, neq=2.0, tck=0.0205,
 )
 
 T2_12AX7 = CkConfig(
@@ -222,25 +339,48 @@ T5_6V6 = CkConfig(
     tattack=0.00155, trelease=0.0234, neq=2.0, tck=0.00675,
 )
 
+T6_LTP = LtpConfig(
+    # TWD-DLX-II line 182.
+    name="t6_ltp",
+    mu=100, ra=62500, isat=0.00160, ibias=0.00074,
+    b=0, type_b=0.5, vs=238, rl1=82000, rk=820, kcomp=0.0,
+    kpk=0.05, pk_xth=0.269, pk_xdrop=0.602,
+    tattack=0.015, trelease=0.05, neq=2.0, rl2=100000, rb=68000,
+)
+
 
 def _print_constants(cfg):
     """Echo derived runtime constants for human inspection."""
     print(f"--- {cfg.name} ---")
     print(f"  kbias  = {cfg.kbias:.6f}")
-    print(f"  kloop  = {cfg.kloop:.6f}")
-    print(f"  kpre   = {cfg.kpre:.6f}")
-    print(f"  ksva   = {cfg.ksva:.6f}")
+    if hasattr(cfg, "kloop"):
+        print(f"  kloop  = {cfg.kloop:.6f}")
+    if hasattr(cfg, "kpre"):
+        print(f"  kpre   = {cfg.kpre:.6f}")
+    if hasattr(cfg, "ksva"):
+        print(f"  ksva   = {cfg.ksva:.6f}")
     if hasattr(cfg, "ksvk"):
         print(f"  ksvk   = {cfg.ksvk:.6f}")
     if hasattr(cfg, "kfb"):
         print(f"  kfb    = {cfg.kfb:.6f}")
+    if hasattr(cfg, "kpre11"):
+        print(f"  kpre11 = {cfg.kpre11:.6f}")
+        print(f"  kpre12 = {cfg.kpre12:.6f}")
+        print(f"  kpre22 = {cfg.kpre22:.6f}")
+        print(f"  kpre21 = {cfg.kpre21:.6f}")
+        print(f"  kprek1 = {cfg.kprek1:.6f}")
+        print(f"  kprek2 = {cfg.kprek2:.6f}")
+        print(f"  kloop1 = {cfg.kloop1:.6f}")
+        print(f"  kloop2 = {cfg.kloop2:.6f}")
+        print(f"  ksv1   = {cfg.ksv1:.6f}")
+        print(f"  ksv2   = {cfg.ksv2:.6f}")
     print(f"  kspre  = {cfg.kspre:.6f}")
     print(f"  kspost = {cfg.kspost:.6f}")
     print(f"  ksib   = {cfg.ksib:.6f}")
 
 
 def main():
-    stages = [T1_12AX7, T2_12AX7, T3_CD, T4_6V6, T5_6V6]
+    stages = [T1_12AX7, T1_12AY7, T2_12AX7, T3_CD, T4_6V6, T5_6V6]
 
     # ECC83/12AX7 stages eligible for DZ load-line replacement.  6V6 (T4)
     # stages stay GLF: they are pentodes, not modeled by Dempwolf-Zölzer's ECC83
@@ -264,6 +404,15 @@ def main():
         table_specs.append((cfg.name, spec))
         _print_constants(cfg)
         print()
+
+    for name, kloop in (
+        ("t6_ltp1_table", T6_LTP.kloop1),
+        ("t6_ltp2_table", T6_LTP.kloop2),
+    ):
+        spec = gen_adnl_table(T6_LTP.kbias, T6_LTP.b, T6_LTP.type_b, kloop)
+        table_specs.append((name, spec))
+    _print_constants(T6_LTP)
+    print()
 
     # DZ tables (v2, physical — replace symmetric tanh with real ECC83 curves).
     for tbl_name, cfg, topology in dz_stages:

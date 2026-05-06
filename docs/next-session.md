@@ -2,6 +2,39 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: Tube 1 and Splitter DSP controls
+
+**Context.** Implemented the Keller TWD DLX II Tube 1 and Splitter topology
+switches in the native DSP engine instead of leaving the GUI selectors static.
+
+**Edit summary.**
+
+- Added KDL-backed enum controls for `Tube 1` and `Circuit`, appending CLAP
+  params so existing parameter IDs remain stable.
+- Added the 12AY7 T1 table and LTP branch ADNL tables to the generated 5E3
+  table set.
+- Implemented Tube 1 selection, cathodyne modes, balanced cathodyne, and LTP
+  modes 1-3 in the C sample path, including JSFX gain-comp behavior.
+- Bumped CLAP state to v3; v1/v2 states backfill `Tube 1=12AX7` and
+  `Splitter=CD 5E3` to preserve old native session sound.
+- Replaced the main-screen static Tube 1/Splitter labels with real enum
+  dropdowns and generalized enum labels through generated KDL metadata.
+- Updated native/JSFX comparison tools so topology params pass through to both
+  renderers, and fixed the staged tap harness to capture LTP `res4_v`.
+
+**Verification.**
+
+- `make native-test` passes.
+- `make native-host-test` passes (`clap-validator` absent, skipped).
+- `make native-jsfx-test` passes:
+  - sine ABX residual `-40.6 dB`, correlation `0.999919`;
+  - all staged taps within diagnostic threshold;
+  - low-input regression passes.
+- `git diff --check` passes.
+- `make install-clap-user` installs and re-signs
+  `~/.clap/nilamp-twd-mkii.clap`.
+- `native/bin/test_clap_load ~/.clap/nilamp-twd-mkii.clap` exits `0`.
+
 ### Session: CLAP About screen and main title sizing
 
 **Context.** Matched the CLAP main-screen title hierarchy more closely to the
