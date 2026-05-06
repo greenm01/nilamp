@@ -65,6 +65,15 @@ This writes `~/Library/Audio/Plug-Ins/CLAP/nilamp-twd-mkii.clap` on macOS and
 `~/.clap/nilamp-twd-mkii.clap` on Linux by default. The macOS install also
 re-signs the copied dylib.
 
+Build the macOS release package with:
+
+```bash
+make package-macos-release
+```
+
+The ZIP includes `install.command` for per-user CLAP installation, plus GPG
+signatures and checksums in `dist/`.
+
 Quick native throughput benchmark:
 
 ```bash

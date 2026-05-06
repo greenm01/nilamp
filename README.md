@@ -161,6 +161,19 @@ test remains available as `make native-reaper-host-test` for manual host checks.
 `~/.clap/nilamp-twd-mkii.clap` on Linux. On macOS it also re-signs the copied
 dylib so hosts can load it.
 
+Build a macOS release ZIP with:
+
+```bash
+make package-macos-release
+```
+
+The package includes `install.command`, which installs to
+`~/Library/Audio/Plug-Ins/CLAP`, plus detached GPG signatures and checksums in
+`dist/`. Release signatures use fingerprint
+`C3504EE1EE38410CE1C433BC372B8AAACB867F13`. nilamp is based on Helmut Keller's
+"A Tube Amp Modeling Project"; see <https://www.helmutkelleraudio.de/> for
+Keller's original work.
+
 ## License
 
 MIT — see `LICENSE`.

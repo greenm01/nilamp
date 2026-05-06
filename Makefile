@@ -20,6 +20,9 @@ YSFX_ROOT ?= $(HOME)/src/ysfx
 YSFX_BUILD := $(NATIVE_BUILD)/ysfx
 YSFX_LIB := $(YSFX_BUILD)/libysfx.a
 CLAP_INSTALL_DIR_DEFAULT := $(HOME)/.clap
+DIST_DIR ?= dist
+RELEASE_VERSION ?= 1.0.0
+RELEASE_GPG_KEY ?= C3504EE1EE38410CE1C433BC372B8AAACB867F13
 AMP_MODELS := models/amps/keller_twd_dlx_ii.kdl
 CLAP_NAME_C := $(strip $(shell $(PYTHON) tools/gen_amp_models.py --print-clap-name-c $(AMP_MODELS)))
 CLAP_BUNDLE := $(strip $(shell $(PYTHON) tools/gen_amp_models.py --print-clap-filename $(AMP_MODELS)))
@@ -119,7 +122,7 @@ ifeq ($(YSFX_AVAILABLE),1)
 NATIVE_TARGETS += $(NATIVE_BIN)/ysfx_render
 endif
 
-.PHONY: all native native-test native-bench native-host-test native-reaper-host-test native-jsfx-test native-loaded-clap-diagnose install-clap-user setup-python clean-native FORCE
+.PHONY: all native native-test native-bench native-host-test native-reaper-host-test native-jsfx-test native-loaded-clap-diagnose install-clap-user package-macos-release setup-python clean-native FORCE
 
 all: native
 
@@ -129,6 +132,14 @@ install-clap-user: $(CLAP_PLUGIN)
 	mkdir -p $(CLAP_INSTALL_DIR)
 	cp -f $< $(CLAP_INSTALL_DIR)/$(CLAP_BUNDLE)
 	$(if $(CLAP_INSTALL_CODESIGN),$(CLAP_INSTALL_CODESIGN) $(CLAP_INSTALL_DIR)/$(CLAP_BUNDLE))
+
+package-macos-release: $(CLAP_PLUGIN)
+	tools/package_macos_release.sh \
+	    --version $(RELEASE_VERSION) \
+	    --plugin $(CLAP_PLUGIN) \
+	    --clap-bundle $(CLAP_BUNDLE) \
+	    --dist-dir $(DIST_DIR) \
+	    --gpg-key $(RELEASE_GPG_KEY)
 
 native-test: $(NATIVE_BIN)/test_native $(NATIVE_BIN)/test_clap_load $(CLAP_PLUGIN)
 	$(NATIVE_BIN)/test_native
