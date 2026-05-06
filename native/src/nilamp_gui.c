@@ -926,7 +926,7 @@ static bool nilamp_gui_knob(NilampGui *gui, struct nk_context *ctx,
 
     const char *unit = NULL;
     (void)nilamp_gui_display_box_value(param, value, &unit);
-    const float box_w = 64.0f;
+    const float box_w = 54.0f;
     const struct nk_rect edit_rect =
         nk_rect(cx - box_w * 0.5f, bounds.y + bounds.h - 26.0f, box_w, 19.0f);
     nilamp_gui_value_box(gui, ctx, canvas, index, edit_rect, unit, outbox, outbox_count);
