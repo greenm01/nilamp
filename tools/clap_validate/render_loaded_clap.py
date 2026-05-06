@@ -34,23 +34,25 @@ class Metrics:
     high_band_noise_db: float
 
 
-def gen_mono_test(path: Path) -> int:
-    """Mono float32 WAV: log sweep + decaying chord, peak ~0.15.
+def gen_mono_test(path: Path, sr: int, amp: float) -> int:
+    """Mono float32 WAV: log sweep + decaying chord scaled to peak ~amp.
 
-    Defaults make the amp gentle, so output stays well below clip and the
-    sanitizer in the CLAP wrapper is a no-op.
+    A real DI guitar typically peaks at 0.3..0.8 fullscale.
     """
-    n = int(SAMPLE_RATE * DURATION_SEC)
-    t = np.arange(n, dtype=np.float64) / SAMPLE_RATE
+    n = int(sr * DURATION_SEC)
+    t = np.arange(n, dtype=np.float64) / sr
     f0, f1 = 80.0, 4000.0
     k = (f1 / f0) ** (1.0 / DURATION_SEC)
     phase = 2.0 * math.pi * f0 * (k**t - 1.0) / math.log(k)
-    sweep = 0.10 * np.sin(phase)
+    sweep = np.sin(phase)
     chord = sum(np.sin(2.0 * math.pi * f * t) for f in (110.0, 220.0, 330.0))
-    chord *= 0.05 * np.exp(-1.5 * t)
-    sig = (sweep + chord).astype(np.float32)
-
-    write_mono_f32_wav(path, sig, SAMPLE_RATE)
+    chord *= np.exp(-1.5 * t)
+    sig = 0.65 * sweep + 0.35 * chord
+    peak = float(np.max(np.abs(sig)))
+    if peak > 0:
+        sig *= amp / peak
+    sig = sig.astype(np.float32)
+    write_mono_f32_wav(path, sig, sr)
     return n
 
 
@@ -136,6 +138,17 @@ def main() -> int:
     ap.add_argument("--render", required=True, help="path to nilamp_render")
     ap.add_argument("--driver", required=True, help="path to render_loaded_clap")
     ap.add_argument("--block", type=int, default=512)
+    ap.add_argument("--sample-rate", type=int, default=SAMPLE_RATE,
+                    help="render sample rate (Hz)")
+    ap.add_argument("--input-amp", type=float, default=0.5,
+                    help="peak amplitude of synthesized mono input (0..1)")
+    ap.add_argument("--gain", type=float, default=0.0,
+                    help="amp Gain (dB)")
+    ap.add_argument("--volume", type=float, default=50.0)
+    ap.add_argument("--bass", type=float, default=50.0)
+    ap.add_argument("--mid", type=float, default=50.0)
+    ap.add_argument("--treble", type=float, default=50.0)
+    ap.add_argument("--sag", type=float, default=50.0)
     ap.add_argument("--keep", action="store_true",
                     help="keep temp dir for inspection")
     ap.add_argument(
@@ -153,66 +166,101 @@ def main() -> int:
 
     in_wav = tmpdir / "input.wav"
     ref_wav = tmpdir / "ref_offline.wav"
-    n = gen_mono_test(in_wav)
-    print(f"[input] mono float32, {n} frames @ {SAMPLE_RATE} Hz", file=sys.stderr)
+    sr = int(args.sample_rate)
+    n = gen_mono_test(in_wav, sr, args.input_amp)
+    print(f"[input] mono float32, {n} frames @ {sr} Hz, peak={args.input_amp}",
+          file=sys.stderr)
+
+    # Common parameter args.
+    param_args = [
+        "--gain", str(args.gain),
+        "--volume", str(args.volume),
+        "--bass", str(args.bass),
+        "--mid", str(args.mid),
+        "--treble", str(args.treble),
+        "--sag", str(args.sag),
+    ]
 
     # Offline reference (mono out).
     run([args.render, "--input", str(in_wav), "--output", str(ref_wav),
-         "--block", str(args.block)])
+         "--block", str(args.block)] + param_args)
     ref, ref_sr = read_f32_wav(ref_wav)
     if ref.ndim != 1:
         raise SystemExit("reference must be mono")
-    if ref_sr != SAMPLE_RATE:
+    if ref_sr != sr:
         raise SystemExit(f"sr mismatch ref={ref_sr}")
 
     failures: list[str] = []
 
-    for mode in ("shared", "distinct"):
-        out_l = tmpdir / f"loaded_{mode}_L.wav"
-        out_r = tmpdir / f"loaded_{mode}_R.wav"
-        run([args.driver,
-             "--plugin", args.plugin,
-             "--input", str(in_wav),
-             "--output-l", str(out_l), "--output-r", str(out_r),
-             "--mode", mode,
-             "--block", str(args.block),
-             "--sample-rate", str(SAMPLE_RATE)])
+    cases = [
+        ("shared",       args.block, 0),
+        ("distinct",     args.block, 0),
+        ("mono_input",   args.block, 0),
+        ("inplace_mono", args.block, 0),
+        ("shared",       args.block, 1),
+        ("distinct",     args.block, 1),
+        ("mono_input",   args.block, 1),
+        ("inplace_mono", args.block, 1),
+    ]
+
+    for mode, block, vary in cases:
+        tag = f"{mode}{'_vary' if vary else ''}"
+        out_l = tmpdir / f"loaded_{tag}_L.wav"
+        out_r = tmpdir / f"loaded_{tag}_R.wav"
+        cmd = [args.driver,
+               "--plugin", args.plugin,
+               "--input", str(in_wav),
+               "--output-l", str(out_l), "--output-r", str(out_r),
+               "--mode", mode,
+               "--block", str(block),
+               "--sample-rate", str(sr)] + param_args
+        if vary:
+            cmd += ["--vary-block", "1", "--vary-seed", "1"]
+        run(cmd)
         L, _ = read_f32_wav(out_l)
         R, _ = read_f32_wav(out_r)
 
-        # Bit-exact check.
+        # Bit-exact L==R check.
         l_eq_r = bool(np.array_equal(L, R))
         max_l_minus_r = float(np.max(np.abs(L.astype(np.float64) - R.astype(np.float64))))
-        ml = metrics(ref, L, SAMPLE_RATE)
-        mr = metrics(ref, R, SAMPLE_RATE)
+        ml = metrics(ref, L, sr)
+        mr = metrics(ref, R, sr)
 
         print()
-        print(f"=== mode={mode} block={args.block} ===")
+        print(f"=== mode={mode} block={block} vary={vary} ===")
         print(f"  L==R bit-exact: {l_eq_r}  max|L-R|={max_l_minus_r:.3e}")
-        for tag, m in (("L", ml), ("R", mr)):
-            print(f"  {tag}: peak={m.peak:.4f} rms={m.rms:.4f} "
+        for ch_tag, m in (("L", ml), ("R", mr)):
+            print(f"  {ch_tag}: peak={m.peak:.4f} rms={m.rms:.4f} "
                   f"residual={m.residual_db:6.2f} dB "
                   f"corr={m.correlation:.6f} "
                   f"hi(>8k)={m.high_band_noise_db:6.2f} dB")
 
-        if mode == "shared" and not l_eq_r:
-            failures.append(f"{mode}: L != R (max diff {max_l_minus_r:.3e})")
-        if ml.residual_db > args.residual_db:
+        # We treat L==R as the headline pass criterion in mono-equivalent
+        # input modes. Variable-block can perturb sample-level FP results
+        # vs the offline reference (different block boundaries reorder some
+        # state-update fences); use loose residual threshold there but
+        # keep the L==R requirement strict.
+        residual_threshold = args.residual_db if not vary else max(args.residual_db, -40.0)
+        hi_threshold = args.high_band_db if not vary else max(args.high_band_db, -30.0)
+
+        if not l_eq_r:
+            failures.append(f"{tag}: L != R (max diff {max_l_minus_r:.3e})")
+        if ml.residual_db > residual_threshold:
             failures.append(
-                f"{mode} L: residual {ml.residual_db:.2f} dB "
-                f"> threshold {args.residual_db} dB")
-        if mr.residual_db > args.residual_db:
+                f"{tag} L: residual {ml.residual_db:.2f} dB "
+                f"> threshold {residual_threshold} dB")
+        if mr.residual_db > residual_threshold:
             failures.append(
-                f"{mode} R: residual {mr.residual_db:.2f} dB "
-                f"> threshold {args.residual_db} dB")
-        if ml.high_band_noise_db > args.high_band_db:
+                f"{tag} R: residual {mr.residual_db:.2f} dB "
+                f"> threshold {residual_threshold} dB")
+        if ml.high_band_noise_db > hi_threshold:
             failures.append(
-                f"{mode} L: hi-band residual {ml.high_band_noise_db:.2f} dB "
-                f"> threshold {args.high_band_db} dB")
-        if mr.high_band_noise_db > args.high_band_db:
+                f"{tag} L: hi-band residual {ml.high_band_noise_db:.2f} dB "
+                f"> threshold {hi_threshold} dB")
+        if mr.high_band_noise_db > hi_threshold:
             failures.append(
-                f"{mode} R: hi-band residual {mr.high_band_noise_db:.2f} dB "
-                f"> threshold {args.high_band_db} dB")
+                f"{tag} R: hi-band residual {mr.high_band_noise_db:.2f} dB "
+                f"> threshold {hi_threshold} dB")
 
     print()
     if failures:

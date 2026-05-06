@@ -26,6 +26,8 @@
 typedef enum {
     MODE_SHARED = 0,
     MODE_DISTINCT = 1,
+    MODE_MONO_INPUT = 2,
+    MODE_INPLACE_MONO = 3,
 } Mode;
 
 typedef struct {
@@ -35,6 +37,8 @@ typedef struct {
     const char *output_r_path;
     Mode mode;
     uint32_t block;
+    int vary_block;
+    uint32_t vary_seed;
     double sample_rate;
     float gain_db;
     float volume_pct;
@@ -248,9 +252,13 @@ static int parse_args(int argc, char **argv, Args *args)
         else if (strcmp(a, "--mode") == 0) {
             if (strcmp(v, "shared") == 0) args->mode = MODE_SHARED;
             else if (strcmp(v, "distinct") == 0) args->mode = MODE_DISTINCT;
+            else if (strcmp(v, "mono_input") == 0) args->mode = MODE_MONO_INPUT;
+            else if (strcmp(v, "inplace_mono") == 0) args->mode = MODE_INPLACE_MONO;
             else { fprintf(stderr, "bad mode '%s'\n", v); return -1; }
         }
         else if (strcmp(a, "--block") == 0) args->block = (uint32_t)strtoul(v, NULL, 10);
+        else if (strcmp(a, "--vary-block") == 0) args->vary_block = (int)strtol(v, NULL, 10);
+        else if (strcmp(a, "--vary-seed") == 0) args->vary_seed = (uint32_t)strtoul(v, NULL, 10);
         else if (strcmp(a, "--sample-rate") == 0) args->sample_rate = strtod(v, NULL);
         else if (strcmp(a, "--gain") == 0) args->gain_db = strtof(v, NULL);
         else if (strcmp(a, "--volume") == 0) args->volume_pct = strtof(v, NULL);
@@ -353,7 +361,7 @@ int main(int argc, char **argv)
     // Allocate output buffers.
     float *out_l = (float *)calloc(frames, sizeof(float));
     float *out_r = (float *)calloc(frames, sizeof(float));
-    // For DISTINCT mode we need a second input buffer holding identical samples.
+    // Distinct/inplace_mono modes need a second input copy.
     float *in_r = NULL;
     if (args.mode == MODE_DISTINCT) {
         in_r = (float *)malloc(frames * sizeof(float));
@@ -364,20 +372,50 @@ int main(int argc, char **argv)
     clap_input_events_t in_events = { .ctx = &empty, .size = evt_size, .get = evt_get };
     clap_output_events_t out_events = { .ctx = NULL, .try_push = evt_try_push };
 
+    // Tiny LCG for reproducible block-size jitter.
+    uint32_t rng = args.vary_seed ? args.vary_seed : 0xC0FFEEu;
+
     size_t pos = 0;
     while (pos < frames) {
-        uint32_t n = args.block;
+        uint32_t n;
+        if (args.vary_block) {
+            rng = rng * 1664525u + 1013904223u;
+            // Range [1 .. 2*block-1]
+            uint32_t span = (args.block * 2u) - 1u;
+            n = 1u + (rng % span);
+        } else {
+            n = args.block;
+        }
         if (n > (uint32_t)(frames - pos)) n = (uint32_t)(frames - pos);
 
         float *in_left_block = mono + pos;
-        float *in_right_block = (args.mode == MODE_SHARED) ? in_left_block : in_r + pos;
+        float *in_right_block = NULL;
+        switch (args.mode) {
+        case MODE_SHARED:        in_right_block = in_left_block; break;
+        case MODE_DISTINCT:      in_right_block = in_r + pos; break;
+        case MODE_MONO_INPUT:    in_right_block = NULL; break;
+        case MODE_INPLACE_MONO:  in_right_block = NULL; break;
+        }
 
         float *input_channels[2] = { in_left_block, in_right_block };
         float *output_channels[2] = { out_l + pos, out_r + pos };
 
+        // INPLACE_MONO: declare 1-channel input AND alias output[0] to that
+        // input buffer, mimicking REAPER's mono-track-on-stereo-bus pattern
+        // where the host hands the same scratch to both directions.
+        if (args.mode == MODE_INPLACE_MONO) {
+            // Copy input into output[0] up front so input/output[0] share
+            // memory (the engine reads input then writes output[0]).
+            memcpy(out_l + pos, mono + pos, n * sizeof(float));
+            input_channels[0] = out_l + pos;
+        }
+
+        uint32_t input_ch_count =
+            (args.mode == MODE_MONO_INPUT || args.mode == MODE_INPLACE_MONO) ? 1u : 2u;
+
         clap_audio_buffer_t input = {
             .data32 = input_channels, .data64 = NULL,
-            .channel_count = 2, .latency = 0, .constant_mask = 0,
+            .channel_count = input_ch_count, .latency = 0, .constant_mask = 0,
         };
         clap_audio_buffer_t output = {
             .data32 = output_channels, .data64 = NULL,
@@ -416,10 +454,14 @@ int main(int argc, char **argv)
     if (write_stereo_channels_f32(args.output_r_path, out_r, frames,
                                   (uint32_t)args.sample_rate) != 0) rc = 1;
 
+    const char *mode_str =
+        args.mode == MODE_SHARED ? "shared" :
+        args.mode == MODE_DISTINCT ? "distinct" :
+        args.mode == MODE_MONO_INPUT ? "mono_input" : "inplace_mono";
     fprintf(stderr,
-            "render_loaded_clap: mode=%s block=%u sr=%u frames=%zu -> %s, %s\n",
-            args.mode == MODE_SHARED ? "shared" : "distinct",
-            args.block, (uint32_t)args.sample_rate, frames,
+            "render_loaded_clap: mode=%s block=%u%s sr=%u frames=%zu -> %s, %s\n",
+            mode_str, args.block, args.vary_block ? "(varying)" : "",
+            (uint32_t)args.sample_rate, frames,
             args.output_l_path, args.output_r_path);
 
     free(out_l); free(out_r); free(in_r); free(mono);
