@@ -1,10 +1,17 @@
 # nilamp
 
 nilamp is a native C CLAP guitar amp plugin based on Helmut Keller's
-"A Tube Amp Modeling Project." The current model is Keller TWD DLX II, with
-the code shaped for more amps later.
+["A Tube Amp Modeling Project"](https://www.helmutkelleraudio.de/). The current
+model is Keller TWD DLX II, modeled after a Fender Tweed Deluxe with a more
+versatile tone stack. The code is shaped for more amps later.
 
 The name means "no amp": `nil` + `amp`.
+
+## Screenshots
+
+![nilamp TWD DLX MKII main screen](docs/images/nilamp-twd-dlx-mkii-main.png)
+
+![nilamp TWD DLX MKII options screen](docs/images/nilamp-twd-dlx-mkii-options.png)
 
 ## Status
 
@@ -14,16 +21,6 @@ macOS are the main targets; Windows can follow later.
 
 Current editor backends are X11/XWayland on Linux and Cocoa on macOS. Native
 Wayland and Windows editor support are future work.
-
-## Screenshots
-
-Main screen:
-
-![nilamp TWD DLX MKII main screen](docs/images/nilamp-twd-dlx-mkii-main.png)
-
-Options screen:
-
-![nilamp TWD DLX MKII options screen](docs/images/nilamp-twd-dlx-mkii-options.png)
 
 ## Goals
 
