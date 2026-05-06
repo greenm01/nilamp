@@ -1,19 +1,29 @@
 # nilamp
 
-A native C CLAP guitar amp plugin based on Helmut Keller's "A Tube Amp
-Modeling Project," extended toward a multi-amp platform. For fun.
+nilamp is a native C CLAP guitar amp plugin based on Helmut Keller's
+"A Tube Amp Modeling Project." The current model is Keller TWD DLX II, with
+the code shaped for more amps later.
 
-The name is "no amp" — `nil` + `amp`.
+The name means "no amp": `nil` + `amp`.
 
 ## Status
 
-The active implementation is a native C DSP engine with Make-built offline
-renderers and a C CLAP plugin with an embedded GPU GUI shell. The target format
-is CLAP. Linux and macOS are the primary targets right now, with Windows
-support to follow.
+The active build is a native C DSP engine, Make-built offline renderers, and a
+C CLAP plugin with an embedded GPU editor. The target format is CLAP. Linux and
+macOS are the main targets; Windows can follow later.
 
 Current editor backends are X11/XWayland on Linux and Cocoa on macOS. Native
 Wayland and Windows editor support are future work.
+
+## Screenshots
+
+Main screen:
+
+![nilamp TWD DLX MKII main screen](docs/images/nilamp-twd-dlx-mkii-main.png)
+
+Options screen:
+
+![nilamp TWD DLX MKII options screen](docs/images/nilamp-twd-dlx-mkii-options.png)
 
 ## Goals
 
@@ -28,24 +38,24 @@ Wayland and Windows editor support are future work.
 - **ysfx** for headless Keller JSFX reference renders
 - **KDL 2** for build-time amp model data
 - **Pugl + sokol_gfx + Nuklear** for the C-only embedded plugin editor
-- **Python** with NumPy/SciPy for table generation, oracle fixtures, and ABX
-  analysis, plus KDL-to-C model generation
+- **Python** with NumPy/SciPy for table generation, oracle fixtures, ABX
+  analysis, and KDL-to-C model generation
 - **Make** as the build system
 - **JSFX** reference renders from Keller's source for equivalence checks
 
-KDL parsing, Lua, Python, allocation, file I/O, and locks are not allowed in
-future audio callbacks.
+KDL parsing, Lua, Python, allocation, file I/O, and locks do not belong in
+audio callbacks.
 
 ## Dependencies
 
-Required for the native CLAP/plugin build:
+The native CLAP build requires:
 
 - C11 compiler, C++ compiler, `make`, and `git`
 - `cmake` for building the external ysfx reference runner
-- Python 3 with `venv`/`pip`; `make setup-python` installs NumPy/SciPy into
+- Python 3 with `venv`/`pip`; `make setup-python` installs NumPy and SciPy into
   `./.venv`
 - Linux only: X11/Xrandr/Xcursor/Xext and OpenGL development headers
-- macOS only: Xcode Command Line Tools; Cocoa/CoreVideo/OpenGL frameworks come
+- macOS only: Xcode Command Line Tools; Cocoa, CoreVideo, and OpenGL come
   from the macOS SDK
 
 Install system packages:
@@ -68,14 +78,14 @@ xcode-select --install
 brew install cmake python git
 ```
 
-The JSFX parity path uses Joep Vanlier's maintained ysfx checkout:
+The JSFX parity path uses Joep Vanlier's maintained ysfx checkout.
 
 ```bash
 git clone https://github.com/JoepVanlier/ysfx.git ~/src/ysfx
 git -C ~/src/ysfx submodule update --init --recursive
 ```
 
-Override the checkout location with `YSFX_ROOT=/path/to/ysfx`.
+To use a different checkout, set `YSFX_ROOT=/path/to/ysfx`.
 
 ## Repository layout
 
@@ -108,17 +118,17 @@ This builds:
 - `native/bin/test_native`
 - `native/bin/test_clap_load`
 
-`native/bin/ysfx_render` is linked against
-`https://github.com/JoepVanlier/ysfx.git` at `~/src/ysfx` by default. Override
-with `YSFX_ROOT=/path/to/ysfx` if needed. Initialize that checkout's submodules
-if the build reports missing `thirdparty/dr_libs` headers:
+`native/bin/ysfx_render` links against
+`https://github.com/JoepVanlier/ysfx.git` at `~/src/ysfx` by default. Set
+`YSFX_ROOT=/path/to/ysfx` to use another checkout. If the build reports missing
+`thirdparty/dr_libs` headers, initialize the ysfx submodules:
 
 ```bash
 git -C ~/src/ysfx submodule update --init
 ```
 
-The JSFX/parity tools use Python with NumPy/SciPy. Bootstrap a local virtualenv
-with:
+The JSFX parity tools use Python with NumPy and SciPy. Bootstrap a local
+virtualenv with:
 
 ```bash
 make setup-python
@@ -153,10 +163,11 @@ python3 tools/abx_compare.py --preset sine
 python3 tools/abx_compare.py --preset sweep
 ```
 
-`make native-host-test` is REAPER-free: it runs the native CLAP loader and
-optional `clap-validator` when that tool is installed. The old REAPER smoke
-test remains available as `make native-reaper-host-test` for manual host checks.
-`make install-clap-user` installs the CLAP to the platform user plugin path by default:
+`make native-host-test` does not need REAPER. It runs the native CLAP loader
+and, when installed, `clap-validator`. The older REAPER smoke test remains
+available as `make native-reaper-host-test` for manual host checks.
+
+`make install-clap-user` installs the CLAP to the platform user plugin path:
 `~/Library/Audio/Plug-Ins/CLAP/nilamp-twd-mkii.clap` on macOS and
 `~/.clap/nilamp-twd-mkii.clap` on Linux. On macOS it also re-signs the copied
 dylib so hosts can load it.
@@ -167,16 +178,17 @@ Build a macOS release ZIP with:
 make package-macos-release
 ```
 
-The package includes `install.command`, which installs to
+The package includes `install.command`, which installs the plugin to
 `~/Library/Audio/Plug-Ins/CLAP`, plus detached GPG signatures and checksums in
 `dist/`. Release signatures use fingerprint
 `C3504EE1EE38410CE1C433BC372B8AAACB867F13`. nilamp is based on Helmut Keller's
-"A Tube Amp Modeling Project"; see <https://www.helmutkelleraudio.de/> for
-Keller's original work.
+"A Tube Amp Modeling Project"; see
+[Helmut Keller Audio](https://www.helmutkelleraudio.de/) for Keller's original
+work.
 
 ## License
 
-MIT — see `LICENSE`.
+MIT. See `LICENSE`.
 
 **Exception**: `vendor/keller-jsfx/` contains Helmut Keller's JSFX source as
 reference material, licensed for non-commercial use only. See
