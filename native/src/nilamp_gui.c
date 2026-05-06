@@ -39,6 +39,7 @@
 typedef enum NilampGuiScreen {
     NILAMP_GUI_SCREEN_MAIN = 0,
     NILAMP_GUI_SCREEN_OPTIONS = 1,
+    NILAMP_GUI_SCREEN_ABOUT = 2,
 } NilampGuiScreen;
 
 typedef enum NilampGuiMsgType {
@@ -108,6 +109,10 @@ struct NilampGui {
     struct nk_rect open_dropdown_selector;
     NilampGuiScreen screen;
     struct nk_font_atlas font_atlas;
+    struct nk_font *font_default;
+    struct nk_font *font_about;
+    struct nk_font *font_subtitle;
+    struct nk_font *font_title;
     sg_image font_img;
     sg_view font_tex_view;
     sg_sampler font_sampler;
@@ -548,15 +553,19 @@ static struct nk_rect nilamp_gui_scale_rect(float sx, float sy, float x, float y
     return nk_rect(x * sx, y * sy, w * sx, h * sy);
 }
 
-static void nilamp_gui_draw_text(struct nk_context *ctx, struct nk_command_buffer *canvas,
-                                 struct nk_rect bounds, const char *text,
-                                 struct nk_color color, bool centered)
+static void nilamp_gui_draw_text_with_font(struct nk_context *ctx,
+                                           struct nk_command_buffer *canvas,
+                                           struct nk_rect bounds, const char *text,
+                                           struct nk_color color, bool centered,
+                                           const struct nk_user_font *font)
 {
     if (!ctx || !canvas || !text || bounds.w <= 0.0f || bounds.h <= 0.0f) {
         return;
     }
 
-    const struct nk_user_font *font = ctx->style.font;
+    if (!font) {
+        font = ctx->style.font;
+    }
     if (!font) {
         return;
     }
@@ -572,6 +581,13 @@ static void nilamp_gui_draw_text(struct nk_context *ctx, struct nk_command_buffe
         }
     }
     nk_draw_text(canvas, bounds, text, len, font, nk_rgba(0, 0, 0, 0), color);
+}
+
+static void nilamp_gui_draw_text(struct nk_context *ctx, struct nk_command_buffer *canvas,
+                                 struct nk_rect bounds, const char *text,
+                                 struct nk_color color, bool centered)
+{
+    nilamp_gui_draw_text_with_font(ctx, canvas, bounds, text, color, centered, NULL);
 }
 
 static void nilamp_gui_draw_panel(struct nk_context *ctx, struct nk_command_buffer *canvas,
@@ -1044,6 +1060,12 @@ static uint32_t nilamp_gui_find_param_index(const NilampGui *gui, uint32_t param
     return index < gui->param_count ? index : NILAMP_GUI_MAX_PARAMS;
 }
 
+static const struct nk_user_font *nilamp_gui_custom_font(const NilampGui *gui,
+                                                         const struct nk_font *font)
+{
+    return gui && gui->custom_font_ready && font ? &font->handle : NULL;
+}
+
 static void nilamp_gui_build(NilampGui *gui, struct nk_context *ctx,
                              NilampGuiMsg *outbox, uint32_t *outbox_count)
 {
@@ -1100,15 +1122,17 @@ static void nilamp_gui_build(NilampGui *gui, struct nk_context *ctx,
         nilamp_gui_draw_panel(ctx, canvas, nilamp_gui_scale_rect(sx, sy, 400.0f, 189.0f, 93.0f, 138.0f),
                               "Splitter", panel, border, gold);
 
-        nilamp_gui_draw_text(ctx, canvas,
-                             nilamp_gui_scale_rect(sx, sy, 0.0f, 82.0f, 500.0f, 34.0f),
-                             "nilamp", gold, true);
+        nilamp_gui_draw_text_with_font(
+            ctx, canvas, nilamp_gui_scale_rect(sx, sy, 0.0f, 73.0f, 500.0f, 50.0f),
+            "nilamp", gold, true,
+            nilamp_gui_custom_font(gui, gui->font_title));
         const char *model = gui->callbacks.model_name ?
                                 gui->callbacks.model_name(gui->callbacks.user) :
                                 "Keller TWD DLX II";
-        nilamp_gui_draw_text(ctx, canvas,
-                             nilamp_gui_scale_rect(sx, sy, 0.0f, 125.0f, 500.0f, 18.0f),
-                             model, gold, true);
+        nilamp_gui_draw_text_with_font(
+            ctx, canvas, nilamp_gui_scale_rect(sx, sy, 0.0f, 122.0f, 500.0f, 28.0f),
+            model, gold, true,
+            nilamp_gui_custom_font(gui, gui->font_subtitle));
 
         const uint32_t input_gain = nilamp_gui_find_param_index(gui, NILAMP_PARAM_GAIN_DB);
         const uint32_t output_gain = nilamp_gui_find_param_index(gui, NILAMP_PARAM_OUTPUT_GAIN_DB);
@@ -1152,7 +1176,7 @@ static void nilamp_gui_build(NilampGui *gui, struct nk_context *ctx,
                                    nilamp_gui_scale_rect(sx, sy, 407.0f, 207.0f,
                                                          79.0f, 104.0f),
                                    "Circuit", "LTP 1");
-    } else {
+    } else if (gui->screen == NILAMP_GUI_SCREEN_OPTIONS) {
         nilamp_gui_draw_text(ctx, canvas,
                              nilamp_gui_scale_rect(sx, sy, 0.0f, 10.0f, 500.0f, 18.0f),
                              "Options", gold, true);
@@ -1163,7 +1187,14 @@ static void nilamp_gui_build(NilampGui *gui, struct nk_context *ctx,
             gui->model.dirty = true;
         }
         nk_layout_space_push(ctx, nilamp_gui_scale_rect(sx, sy, 435.0f, 2.0f, 63.0f, 28.0f));
-        (void)nk_button_label(ctx, "About");
+        if (nk_button_label(ctx, "About")) {
+            nilamp_gui_close_dropdown(gui);
+            if (gui->active_edit >= 0) {
+                nilamp_gui_end_edit(gui, true, outbox, outbox_count);
+            }
+            gui->screen = NILAMP_GUI_SCREEN_ABOUT;
+            gui->model.dirty = true;
+        }
 
         nilamp_gui_draw_panel(ctx, canvas, nilamp_gui_scale_rect(sx, sy, 10.0f, 43.0f, 165.0f, 139.0f),
                               "Tone Stack", panel, border, gold);
@@ -1221,6 +1252,31 @@ static void nilamp_gui_build(NilampGui *gui, struct nk_context *ctx,
                               nilamp_gui_find_param_index(gui, NILAMP_PARAM_SPK_RES_QTS_DB),
                               nilamp_gui_scale_rect(sx, sy, 426.0f, 207.0f, 66.0f, 104.0f),
                               outbox, outbox_count, radius, NILAMP_GUI_KNOB_PERCENT);
+    } else {
+        nilamp_gui_draw_text(ctx, canvas,
+                             nilamp_gui_scale_rect(sx, sy, 0.0f, 10.0f, 500.0f, 18.0f),
+                             "About", gold, true);
+        nk_layout_space_push(ctx, nilamp_gui_scale_rect(sx, sy, 0.0f, 2.0f, 65.0f, 28.0f));
+        if (nk_button_label(ctx, "< back")) {
+            nilamp_gui_close_dropdown(gui);
+            gui->screen = NILAMP_GUI_SCREEN_OPTIONS;
+            gui->model.dirty = true;
+        }
+
+        const struct nk_user_font *about_font =
+            nilamp_gui_custom_font(gui, gui->font_about);
+        nilamp_gui_draw_text_with_font(
+            ctx, canvas, nilamp_gui_scale_rect(sx, sy, 0.0f, 72.0f, 500.0f, 25.0f),
+            "TWD DLX II", gold, true, about_font);
+        nilamp_gui_draw_text_with_font(
+            ctx, canvas, nilamp_gui_scale_rect(sx, sy, 0.0f, 104.0f, 500.0f, 25.0f),
+            "Version 1.0.4", gold, true, about_font);
+        nilamp_gui_draw_text_with_font(
+            ctx, canvas, nilamp_gui_scale_rect(sx, sy, 0.0f, 136.0f, 500.0f, 25.0f),
+            "by Helmut Keller", gold, true, about_font);
+        nilamp_gui_draw_text_with_font(
+            ctx, canvas, nilamp_gui_scale_rect(sx, sy, 0.0f, 168.0f, 500.0f, 25.0f),
+            "Ported to C by niltempus", gold, true, about_font);
     }
     nk_layout_space_end(ctx);
     nilamp_gui_draw_open_dropdown(gui, ctx, canvas, outbox, outbox_count);
@@ -1286,7 +1342,10 @@ static bool nilamp_gui_init_custom_font(NilampGui *gui)
     nk_font_atlas_init_default(&gui->font_atlas);
     gui->custom_font_atlas_ready = true;
     nk_font_atlas_begin(&gui->font_atlas);
-    (void)nk_font_atlas_add_default(&gui->font_atlas, 15.0f, NULL);
+    gui->font_default = nk_font_atlas_add_default(&gui->font_atlas, 15.0f, NULL);
+    gui->font_about = nk_font_atlas_add_default(&gui->font_atlas, 18.0f, NULL);
+    gui->font_subtitle = nk_font_atlas_add_default(&gui->font_atlas, 20.0f, NULL);
+    gui->font_title = nk_font_atlas_add_default(&gui->font_atlas, 40.0f, NULL);
 
     int font_width = 0;
     int font_height = 0;
@@ -1333,10 +1392,10 @@ static bool nilamp_gui_init_custom_font(NilampGui *gui)
     nk_font_atlas_cleanup(&gui->font_atlas);
 
     struct nk_context *ctx = snk_new_frame();
-    if (!ctx || !gui->font_atlas.default_font) {
+    if (!ctx || !gui->font_default) {
         return false;
     }
-    nk_style_set_font(ctx, &gui->font_atlas.default_font->handle);
+    nk_style_set_font(ctx, &gui->font_default->handle);
     gui->custom_font_ready = true;
     return true;
 }

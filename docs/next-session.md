@@ -2,6 +2,26 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: CLAP About screen and main title sizing
+
+**Context.** Matched the CLAP main-screen title hierarchy more closely to the
+Keller JSFX and implemented the JSFX-style About screen from Options.
+
+**Edit summary.**
+
+- Added larger custom Nuklear font handles for title/subtitle/about text with
+  fallback to the normal GUI font if the custom atlas is unavailable.
+- Increased the centered `nilamp` and `Keller TWD DLX II` main-screen text
+  sizes to match the JSFX visual hierarchy.
+- Added an About screen reachable from Options, including `Ported to C by
+  niltempus`, with `< back` returning to Options.
+
+**Verification.**
+
+- `make native-host-test` passes (`clap-validator` absent, skipped).
+- `make install-clap-user` installs and re-signs `~/.clap/nilamp.clap`;
+  `native/bin/test_clap_load ~/.clap/nilamp.clap` exits `0`.
+
 ### Session: CLAP text-key hardening and bipolar input gain
 
 **Context.** Backspace in CLAP value boxes could still crash REAPER, and the
