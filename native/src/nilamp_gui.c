@@ -99,6 +99,7 @@ struct NilampGui {
     bool key_backspace;
     bool value_box_hovered;
     bool dropdown_hovered;
+    bool edit_replace_on_type;
     int active_knob;
     int active_edit;
     NilampGuiDropdown open_dropdown;
@@ -216,6 +217,57 @@ static bool nilamp_gui_is_percent_param(const NilampGuiParamSpec *param)
     return param && param->unit && strcmp(param->unit, "%") == 0;
 }
 
+static bool nilamp_gui_is_db_param(const NilampGuiParamSpec *param)
+{
+    return param && param->unit && strcmp(param->unit, "dB") == 0;
+}
+
+static const char *nilamp_gui_skip_spaces(const char *text)
+{
+    if (!text) {
+        return NULL;
+    }
+    while (*text == ' ' || *text == '\t') {
+        text++;
+    }
+    return text;
+}
+
+static bool nilamp_gui_is_text_end(const char *text)
+{
+    text = nilamp_gui_skip_spaces(text);
+    return text && *text == '\0';
+}
+
+static bool nilamp_gui_accept_hz_suffix(const char **end)
+{
+    const char *text = nilamp_gui_skip_spaces(*end);
+    if (!text) {
+        return false;
+    }
+
+    if (*text == 'k' || *text == 'K') {
+        text++;
+        if (*text == 'h' || *text == 'H') {
+            text++;
+            if (*text == 'z' || *text == 'Z') {
+                text++;
+            }
+        }
+        *end = text;
+        return true;
+    }
+    if (*text == 'h' || *text == 'H') {
+        text++;
+        if (*text == 'z' || *text == 'Z') {
+            text++;
+        }
+        *end = text;
+        return true;
+    }
+    return false;
+}
+
 static float nilamp_gui_display_box_value(const NilampGuiParamSpec *param, float value,
                                           const char **unit)
 {
@@ -241,22 +293,55 @@ static float nilamp_gui_parse_box_value(const NilampGuiParamSpec *param, const c
     if (!param || !text) {
         return 0.0f;
     }
+    char safe_text[NILAMP_GUI_EDIT_TEXT_LEN];
+    const size_t len = nilamp_gui_bounded_strlen(text, NILAMP_GUI_EDIT_TEXT_LEN);
+    if (len == 0u || len >= sizeof(safe_text)) {
+        return 0.0f;
+    }
+    memcpy(safe_text, text, len);
+    safe_text[len] = '\0';
+
+    const char *start = nilamp_gui_skip_spaces(safe_text);
+    if (!start || *start == '\0') {
+        return 0.0f;
+    }
+
+    if (nilamp_gui_is_percent_param(param)) {
+        float display = 0.0f;
+        const char *scan = start;
+        while (*scan >= '0' && *scan <= '9') {
+            display = display * 10.0f + (float)(*scan - '0');
+            scan++;
+        }
+        if (scan == start || !nilamp_gui_is_text_end(scan)) {
+            return 0.0f;
+        }
+        if (ok) {
+            *ok = true;
+        }
+        return display;
+    }
+
     char *end = NULL;
-    float display = strtof(text, &end);
-    if (end == text || !isfinite(display)) {
+    float display = strtof(start, &end);
+    if (end == start || !isfinite(display)) {
         return 0.0f;
     }
     if (nilamp_gui_is_hz_param(param)) {
-        while (*end == ' ' || *end == '\t') {
-            end++;
-        }
-        if (*end == 'k' || *end == 'K') {
+        const char *suffix = end;
+        if (nilamp_gui_accept_hz_suffix(&suffix) &&
+            (*(nilamp_gui_skip_spaces(end)) == 'k' ||
+             *(nilamp_gui_skip_spaces(end)) == 'K')) {
             display *= 1000.0f;
-        } else if (*end == 'h' || *end == 'H') {
-            display *= 1.0f;
+            end = (char *)suffix;
+        } else if (suffix != end) {
+            end = (char *)suffix;
         } else if (current_unit_khz) {
             display *= 1000.0f;
         }
+    }
+    if (!nilamp_gui_is_text_end(end)) {
+        return 0.0f;
     }
     if (ok) {
         *ok = true;
@@ -512,6 +597,7 @@ static void nilamp_gui_begin_edit(NilampGui *gui, uint32_t index)
     }
     gui->active_edit = (int)index;
     gui->model.edit_active[index] = true;
+    gui->edit_replace_on_type = true;
     nilamp_gui_format_edit_value(&gui->params[index], gui->model.param_values[index],
                                  gui->model.edit_text[index],
                                  sizeof(gui->model.edit_text[index]));
@@ -552,7 +638,26 @@ static void nilamp_gui_end_edit(NilampGui *gui, bool commit, NilampGuiMsg *outbo
     gui->model.param_values[index] = raw;
     gui->model.edit_active[index] = false;
     gui->active_edit = -1;
+    gui->edit_replace_on_type = false;
     nilamp_gui_sync_edit_text(gui, index);
+}
+
+static bool nilamp_gui_edit_accepts_char(const NilampGuiParamSpec *param, char c)
+{
+    if (!param || c < 32 || c > 126) {
+        return false;
+    }
+    if (nilamp_gui_is_percent_param(param)) {
+        return c >= '0' && c <= '9';
+    }
+    if (nilamp_gui_is_hz_param(param)) {
+        return (c >= '0' && c <= '9') || c == '.' || c == 'k' ||
+               c == 'K' || c == 'h' || c == 'H' || c == 'z' || c == 'Z';
+    }
+    if (nilamp_gui_is_db_param(param)) {
+        return (c >= '0' && c <= '9') || c == '.' || c == '-' || c == '+';
+    }
+    return (c >= '0' && c <= '9') || c == '.';
 }
 
 static void nilamp_gui_update_active_edit(NilampGui *gui, NilampGuiMsg *outbox,
@@ -577,18 +682,27 @@ static void nilamp_gui_update_active_edit(NilampGui *gui, NilampGuiMsg *outbox,
     text[NILAMP_GUI_EDIT_TEXT_LEN - 1u] = '\0';
     const NilampGuiParamSpec *param = &gui->params[gui->active_edit];
     size_t len = nilamp_gui_bounded_strlen(text, NILAMP_GUI_EDIT_TEXT_LEN);
-    if (gui->key_backspace && len > 0) {
-        text[len - 1u] = '\0';
-        len--;
+    if (gui->key_backspace) {
+        if (gui->edit_replace_on_type) {
+            text[0] = '\0';
+            len = 0u;
+            gui->edit_replace_on_type = false;
+        } else if (len > 0) {
+            text[len - 1u] = '\0';
+            len--;
+        }
     }
     for (uint32_t i = 0; i < gui->text_input_len && i < NILAMP_GUI_TEXT_INPUT_LEN; i++) {
         const char c = gui->text_input[i];
-        const bool allowed = nilamp_gui_is_percent_param(param) ?
-                                 (c >= '0' && c <= '9') :
-                                 ((c >= '0' && c <= '9') || c == '.' ||
-                                  c == '-' || c == '+' || c == 'k' ||
-                                  c == 'K' || c == 'h' || c == 'H');
-        if (allowed && len + 1u < NILAMP_GUI_EDIT_TEXT_LEN) {
+        if (nilamp_gui_edit_accepts_char(param, c)) {
+            if (gui->edit_replace_on_type) {
+                text[0] = '\0';
+                len = 0u;
+                gui->edit_replace_on_type = false;
+            }
+            if (len + 1u >= NILAMP_GUI_EDIT_TEXT_LEN) {
+                break;
+            }
             text[len++] = c;
             text[len] = '\0';
         }
@@ -610,7 +724,9 @@ static void nilamp_gui_value_box(NilampGui *gui, struct nk_context *ctx,
         if (gui->active_edit >= 0 && gui->active_edit != (int)index) {
             nilamp_gui_end_edit(gui, true, outbox, outbox_count);
         }
-        nilamp_gui_begin_edit(gui, index);
+        if (gui->active_edit != (int)index) {
+            nilamp_gui_begin_edit(gui, index);
+        }
     }
 
     const bool active = gui->active_edit == (int)index;
@@ -1418,8 +1534,11 @@ static PuglStatus nilamp_gui_event(PuglView *view, const PuglEvent *event)
         break;
     }
     case PUGL_TEXT:
-        if (event->text.string[0] >= 32 && gui->text_input_len + 1u < NILAMP_GUI_TEXT_INPUT_LEN) {
+        if ((unsigned char)event->text.string[0] >= 32u &&
+            (unsigned char)event->text.string[0] <= 126u &&
+            gui->text_input_len + 1u < NILAMP_GUI_TEXT_INPUT_LEN) {
             gui->text_input[gui->text_input_len++] = event->text.string[0];
+            gui->text_input[gui->text_input_len] = '\0';
             nilamp_gui_request_redraw(gui);
         }
         break;

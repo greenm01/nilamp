@@ -570,6 +570,18 @@ int main(int argc, char **argv)
           "output gain info read failed");
     check(fabs(param_info.default_value) < 0.000001,
           "unexpected default output gain info");
+    const clap_id preamp_ids[] = {
+        NILAMP_PARAM_VOLUME_PCT,
+        NILAMP_PARAM_BASS_PCT,
+        NILAMP_PARAM_MID_PCT,
+        NILAMP_PARAM_TREBLE_PCT,
+    };
+    for (uint32_t i = 0; i < sizeof(preamp_ids) / sizeof(preamp_ids[0]); i++) {
+        check(params->get_info(plugin, preamp_ids[i], &param_info),
+              "preamp info read failed");
+        check(fabs(param_info.default_value - 50.0) < 0.000001,
+              "unexpected default preamp info");
+    }
     double gain = -1.0;
     check(params->get_value(plugin, NILAMP_PARAM_GAIN_DB, &gain), "gain read failed");
     check(fabs(gain) < 0.000001, "unexpected default gain");
@@ -577,6 +589,12 @@ int main(int argc, char **argv)
     check(params->get_value(plugin, NILAMP_PARAM_OUTPUT_GAIN_DB, &output_gain),
           "output gain read failed");
     check(fabs(output_gain) < 0.000001, "unexpected default output gain");
+    for (uint32_t i = 0; i < sizeof(preamp_ids) / sizeof(preamp_ids[0]); i++) {
+        double value = -1.0;
+        check(params->get_value(plugin, preamp_ids[i], &value),
+              "preamp value read failed");
+        check(fabs(value - 50.0) < 0.000001, "unexpected default preamp value");
+    }
     double fmid = 0.0;
     check(params->get_value(plugin, NILAMP_PARAM_TONE_FMID_DBHZ, &fmid),
           "Fmid read failed");
