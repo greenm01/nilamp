@@ -96,6 +96,7 @@ KNOWN_GUI_WIDGET_TYPES = {
     "panel": "NILAMP_GUI_WIDGET_PANEL",
     "knob": "NILAMP_GUI_WIDGET_KNOB",
     "enum": "NILAMP_GUI_WIDGET_ENUM",
+    "toggle": "NILAMP_GUI_WIDGET_TOGGLE",
 }
 KNOWN_GUI_TEXT_STYLES = {
     "normal": "NILAMP_GUI_TEXT_NORMAL",
@@ -389,11 +390,17 @@ def validate_gui(amp_slug: str, gui_node: Node,
             if widget.name in {"text", "button", "panel"}:
                 label = resolve_metadata_label(
                     amp_slug, required_arg(widget, 0, str), metadata)
-            if widget.name in {"knob", "enum"}:
+            if widget.name in {"knob", "enum", "toggle"}:
                 bind = required_prop(widget, "bind", str)
                 if bind not in controls_by_key:
                     fail(f"{amp_slug} gui widget bind={bind!r} has no matching control")
-                param_id = controls_by_key[bind]["id"]
+                control = controls_by_key[bind]
+                param_id = control["id"]
+                if widget.name == "toggle" and (
+                    control["display"] != "NILAMP_CONTROL_DISPLAY_ENUM" or
+                    len(control["options"]) != 2
+                ):
+                    fail(f"{amp_slug} toggle widget bind={bind!r} must target a two-option enum control")
             if widget.name == "text":
                 style = required_prop(widget, "style", str)
                 if style not in KNOWN_GUI_TEXT_STYLES:

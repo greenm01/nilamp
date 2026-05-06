@@ -952,6 +952,69 @@ static void nilamp_gui_dropdown_box(struct nk_context *ctx,
                      ax, ay + 3.0f, gold);
 }
 
+static void nilamp_gui_close_dropdown(NilampGui *gui);
+
+static void nilamp_gui_enum_toggle(NilampGui *gui, struct nk_context *ctx,
+                                   struct nk_command_buffer *canvas, uint32_t index,
+                                   struct nk_rect bounds, NilampGuiMsg *outbox,
+                                   uint32_t *outbox_count)
+{
+    if (!gui || !ctx || !canvas || index >= gui->param_count ||
+        index >= NILAMP_GUI_MAX_PARAMS || !gui->params[index].enum_names ||
+        gui->params[index].enum_count != 2u) {
+        return;
+    }
+
+    const NilampGuiParamSpec *spec = &gui->params[index];
+    const struct nk_color gold = nk_rgb(255, 205, 32);
+    const struct nk_color gold_hi = nk_rgb(255, 232, 116);
+    const struct nk_color track = nk_rgb(20, 32, 43);
+    const struct nk_color border = nk_rgb(105, 123, 137);
+    const int value = (int)lroundf(gui->model.param_values[index]);
+    const uint32_t safe_value = (value >= 0 && (uint32_t)value < spec->enum_count) ?
+                                    (uint32_t)value :
+                                    (uint32_t)lroundf(spec->default_value);
+
+    nilamp_gui_draw_text(ctx, canvas, nk_rect(bounds.x, bounds.y, bounds.w, 18.0f),
+                         spec->name, gold, true);
+
+    const float track_w = fminf(bounds.w - 18.0f, 48.0f);
+    const struct nk_rect switch_rect =
+        nk_rect(bounds.x + (bounds.w - track_w) * 0.5f, bounds.y + 31.0f,
+                track_w, 12.0f);
+    const struct nk_rect hit_rect =
+        nk_rect(switch_rect.x - 6.0f, switch_rect.y - 8.0f,
+                switch_rect.w + 12.0f, switch_rect.h + 31.0f);
+    const bool hovered = nk_input_is_mouse_hovering_rect(&ctx->input, hit_rect);
+
+    nk_fill_rect(canvas, switch_rect, 1.0f, track);
+    nk_stroke_rect(canvas, switch_rect, 1.0f, 1.0f, border);
+    const float thumb_w = 10.0f;
+    const float thumb_x = safe_value == 0u ?
+                              switch_rect.x + 1.0f :
+                              switch_rect.x + switch_rect.w - thumb_w - 1.0f;
+    nk_fill_rect(canvas, nk_rect(thumb_x, switch_rect.y + 1.0f,
+                                 thumb_w, switch_rect.h - 2.0f),
+                 1.0f, hovered ? gold_hi : gold);
+
+    nilamp_gui_draw_text(ctx, canvas,
+                         nk_rect(bounds.x, bounds.y + 52.0f, bounds.w, 18.0f),
+                         spec->enum_names[safe_value], gold, true);
+
+    if (hovered && nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT)) {
+        nilamp_gui_close_dropdown(gui);
+        if (gui->active_edit >= 0) {
+            nilamp_gui_end_edit(gui, true, outbox, outbox_count);
+        }
+        nilamp_gui_emit(outbox, outbox_count, NILAMP_GUI_MAX_PARAMS,
+                        (NilampGuiMsg){
+                            .type = NILAMP_GUI_MSG_PARAM_CHANGED,
+                            .param_id = spec->id,
+                            .value = safe_value == 0u ? 1.0f : 0.0f,
+                        });
+    }
+}
+
 static void nilamp_gui_close_dropdown(NilampGui *gui)
 {
     if (!gui) {
@@ -1167,6 +1230,11 @@ static void nilamp_gui_draw_layout_widget(NilampGui *gui, struct nk_context *ctx
         nilamp_gui_enum_dropdown(gui, ctx, canvas,
                                   nilamp_gui_find_param_index(gui, widget->param_id),
                                   bounds, outbox, outbox_count);
+        break;
+    case NILAMP_GUI_WIDGET_TOGGLE:
+        nilamp_gui_enum_toggle(gui, ctx, canvas,
+                               nilamp_gui_find_param_index(gui, widget->param_id),
+                               bounds, outbox, outbox_count);
         break;
     default:
         break;

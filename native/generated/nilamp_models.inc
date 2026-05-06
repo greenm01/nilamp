@@ -367,7 +367,7 @@ static const NilampGuiWidgetSpec KELLER_TWD_DLX_II_MAIN_GUI_WIDGETS[] = {
         .screen = NILAMP_GUI_SCREEN_ID_MAIN,
         .label = "Pre Amp",
         .param_id = NILAMP_PARAM_COUNT,
-        .bounds = {10.0f, 189.0f, 381.0f, 138.0f},
+        .bounds = {10.0f, 189.0f, 386.0f, 138.0f},
         .text_style = NILAMP_GUI_TEXT_NORMAL,
         .knob_display = NILAMP_GUI_KNOB_DISPLAY_PERCENT,
         .radius = 0.0f,
@@ -429,7 +429,7 @@ static const NilampGuiWidgetSpec KELLER_TWD_DLX_II_MAIN_GUI_WIDGETS[] = {
         .target_screen = NILAMP_GUI_SCREEN_ID_MAIN,
     },
     {
-        .type = NILAMP_GUI_WIDGET_ENUM,
+        .type = NILAMP_GUI_WIDGET_TOGGLE,
         .screen = NILAMP_GUI_SCREEN_ID_MAIN,
         .label = "",
         .param_id = NILAMP_PARAM_TUBE1,

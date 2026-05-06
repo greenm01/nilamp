@@ -67,6 +67,7 @@ typedef enum NilampGuiWidgetType {
     NILAMP_GUI_WIDGET_PANEL = 2,
     NILAMP_GUI_WIDGET_KNOB = 3,
     NILAMP_GUI_WIDGET_ENUM = 4,
+    NILAMP_GUI_WIDGET_TOGGLE = 5,
 } NilampGuiWidgetType;
 
 typedef enum NilampGuiTextStyle {
