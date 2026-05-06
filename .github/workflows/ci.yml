@@ -7,95 +7,35 @@ on:
   pull_request:
     branches: [main]
 
-env:
-  CARGO_TERM_COLOR: always
-  RUSTFLAGS: -D warnings
-
 jobs:
-  build-and-test:
-    name: build + tests (linux / faust ${{ matrix.faust }})
+  native:
+    name: native build + host tests (linux)
     runs-on: ubuntu-24.04
-    strategy:
-      fail-fast: false
-      matrix:
-        # Ubuntu 24.04 ships Faust 2.70.3 in `universe`.  We develop against
-        # 2.85.x locally; the `-lang rust` codegen has stayed compatible so
-        # 2.70 is a reasonable lower bound for CI.  When a newer Faust
-        # becomes available we can extend the matrix.
-        faust: ["2.70-apt"]
 
     steps:
       - uses: actions/checkout@v4
-        with:
-          # Sub-modules are not yet used by the project, but if the
-          # vendor/ directory is ever moved into one this will keep CI
-          # working without further changes.
-          submodules: recursive
 
       - name: Install system deps
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            faust \
-            libasound2-dev \
+            build-essential \
+            python3 \
             libgl1-mesa-dev \
-            libxcb1-dev libxcb-icccm4-dev libxcb-dri2-0-dev libxcb-shape0-dev \
-            libxcb-xkb-dev libxcb-cursor-dev libxcb-xrandr0-dev libxkbcommon-dev \
-            libxkbcommon-x11-dev
-          faust --version
+            libx11-dev \
+            libxcursor-dev \
+            libxext-dev \
+            libxrandr-dev
 
-      - name: Install Python (oracle)
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.x"
-          cache: pip
-
-      - name: Install Python deps
+      - name: Regenerate amp models
         run: |
-          python -m pip install --upgrade pip
-          pip install numpy
+          python3 tools/gen_amp_models.py \
+            native/generated/nilamp_models.inc \
+            models/amps/keller_twd_dlx_ii.kdl
+          git diff --exit-code -- native/generated/nilamp_models.inc
 
-      - name: Cache cargo registry + target
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'Cargo.toml') }}
-          restore-keys: |
-            cargo-${{ runner.os }}-
+      - name: Native host tests
+        run: make native-host-test
 
-      - name: Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-
-      - name: Cargo fmt --check
-        run: cargo fmt --all -- --check
-
-      - name: Cargo clippy
-        # Plugin code is gated; clippy still runs across all configurations.
-        run: cargo clippy --all-targets -- -D warnings
-
-      - name: Regenerate fixtures (sanity check; should be a no-op)
-        run: |
-          python tools/gen_fixtures.py
-          if ! git diff --quiet -- tests/fixtures; then
-            echo "::error::tests/fixtures changed after running gen_fixtures.py"
-            git --no-pager diff --stat -- tests/fixtures
-            exit 1
-          fi
-
-      - name: Cargo build
-        # Top-level nilamp.dsp is enabled by default (build.rs); plugin
-        # entry-points come along for free.
-        run: cargo build --all-targets
-
-      - name: Cargo test
-        run: cargo test --all-targets -- --nocapture
-
-      # Skip building the .clap/.vst3 bundle here; xtask depends on the
-      # nih_plug_xtask runtime which has its own Linux GUI deps.  Build-only
-      # is enough to catch ABI / codegen drift; we add bundle artifacts in
-      # a follow-up workflow once we have an integration test for them.
+      - name: Diff whitespace check
+        run: git diff --check
