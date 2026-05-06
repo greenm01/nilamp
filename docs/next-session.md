@@ -2,6 +2,139 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: REAPER static root-caused to low-input DSP instability
+
+**Context.** Continuing from the loaded-CLAP diagnostic session below. The
+in-process driver had exonerated the CLAP wrapper for every buffer-shape
+variant we could think of, so we instrumented `nilamp_clap.c` with an
+env-gated stdio logger (`NILAMP_DEBUG_LOG=<path>`, captures the first N
+`process()` calls' frames / port shape / channel pointer aliasing /
+`constant_mask` / first input samples / post-process L/R peaks / first+last
+output samples) and asked the user to capture REAPER traces under three
+conditions:
+
+1. Live mono guitar track, strings touched before launch.
+2. Live mono guitar track, hands off the strings.
+3. Track input fully muted in REAPER.
+
+Logger raised `max_calls` to 4096 (~5 s @ 64-frame blocks) for the longer
+captures.
+
+**Findings from REAPER traces.**
+
+- All REAPER blocks: `frames=64 in_ports=1 out_ports=1`, both input pointers
+  distinct (`in0 != in1`), `constant_mask=0`, single shape throughout. No
+  buffer aliasing or shape variation.
+- Output `peakL == peakR` bit-exactly in all 3989 captured blocks. The
+  stereo path is fine.
+- Run #1 (strings touched): peak 0.366 on block 0, smooth decay matching
+  offline `nilamp_render` of a mid-stream sine bit-for-bit. Normal engine
+  startup transient on a non-silent input. Not the static.
+- Run #2 (hands off strings): input first-sample noise floor ~1e-4. Output
+  median peak 0.0127, max 0.354, 54 % of blocks above 0.01 for the entire
+  5 s capture. Continuous hash audible as "static."
+- Run #3 (track input muted): silent. Confirms the plugin requires a
+  non-zero input to misbehave.
+
+**Offline reproduction and root cause.**
+
+Reproduced bit-for-bit offline with `nilamp_render` on synthetic gaussian
+noise inputs at varying amplitudes:
+
+| Input peak  | Native peak | JSFX peak | Status                             |
+| ----------- | ----------- | --------- | ---------------------------------- |
+| 0 (exact)   | 4.5e-14     | 5.8e-13   | both stable                        |
+| 1e-8 noise  | 2.6e+17     | 1.3e-5    | native explodes within 3 samples   |
+| 1e-6 noise  | 3.2e+5      | 4.3e-5    | native explodes within 5 samples   |
+| 1e-4 noise  | 0.33        | 4.3e-3    | native ~80x louder than reference  |
+| 1e-2 noise  | 0.37        | 0.34      | comparable                         |
+| ABX sine 0.15 | passes    | passes    | (ABX gate amplitude; no regression)|
+
+The native engine is numerically unstable for input magnitudes between
+roughly 1e-9 and 1e-3. Above ~1e-2 it converges with the JSFX reference.
+At exact zero the per-sample feedback paths stay at zero. This is why:
+
+- The offline ABX gate at amp=0.08-0.15 passes.
+- Hosts feeding silence (or our in-process driver feeding silence) see no
+  problem.
+- REAPER feeding ~1e-4 input noise produces audible hash even with hands
+  off the strings.
+- Once the user actually plays (input >= 1e-2), the native and JSFX
+  outputs become similar in level and the static is masked by signal.
+
+Both `nilamp_render` and the CLAP wrapper call
+`nilamp_cpu_enable_realtime_float_mode` (DAZ + FTZ on), so this is not
+a denormal-flushing toggle. Most likely candidates:
+
+1. A self-driving feedback path (PSS or tube DC working point) whose
+   linearization around zero state has spectral radius > 1, so any tiny
+   non-zero excitation grows until a saturating element clamps it.
+2. ADNL extrapolation outside the table support producing astronomical
+   currents on the first non-zero step.
+3. Numerical NR convergence path near zero choosing a wrong root.
+
+**Edit summary.**
+
+- Reverted the env-gated logger from `native/src/nilamp_clap.c`. The
+  rebuilt `~/.clap/nilamp.clap` is back to `f58f25b6...`. No code shipped
+  from this diagnostic.
+- This log entry added to `docs/next-session.md`.
+
+**Next work.**
+
+Highest priority - lock in the regression as a test before fixing:
+
+1. Add a low-input ABX/regression test that fails on the current native
+   engine. Suggested cases:
+   - Pure zero in for >= 1 s; assert native output peak < 1e-10.
+   - Gaussian noise at 1e-4 RMS for >= 1 s; assert native output peak <
+     10x JSFX output peak.
+   - Gaussian noise at 1e-6 RMS for >= 0.5 s; assert native output peak
+     < 1e-3 (no overflow).
+   Decide whether to wire into `make native-test` (cheap, no ysfx) or
+   gate behind `make native-jsfx-test` (uses the existing harness).
+
+Then DSP investigation:
+
+2. Add per-stage probe taps (PSS state, tube currents, NR iteration count,
+   filter feedback states) at the engine boundary. Render the 1e-6 case
+   and find which stage produces the first |x| > 1.0 sample.
+3. Compare the same per-stage taps with the JSFX harness through ysfx to
+   pin the divergent block.
+4. Read Keller's JSFX reference for that block under `vendor/keller-jsfx/`
+   and `tools/keller_oracle.py`; check whether the native port has a
+   bias / state-reset / damping difference that only manifests at low
+   amplitude.
+5. Fix the smallest possible thing in `native/src/nilamp_dsp.c` (or the
+   model data) to restore parity. Re-run the new low-input tests and the
+   existing ABX gate. Both must pass.
+6. Optionally bump the public ABX gate to also exercise low amplitudes
+   so this category of regression is caught in CI.
+
+**Relevant files.**
+
+- `native/src/nilamp_dsp.c` - hot zone for the actual fix, especially the
+  PSS/tube ordering loop around line 689 and `nilamp_engine_reset` line
+  543.
+- `native/src/nilamp_render.c` - offline renderer used for repro.
+- `tools/abx_compare.py` - existing public gate (sine 0.15, sweep 0.08).
+- `tools/keller_oracle.py` - numerical reference for JSFX behaviour.
+- `native/build/jsfx/Effects/nilamp_abx/twd_dlx_ii_harness.jsfx` - JSFX
+  reference (regenerate via `python3 -m tools.jsfx_render.stage_jsfx`).
+- `native/src/render_loaded_clap.c` + `tools/clap_validate/render_loaded_clap.py`
+  - in-process driver from the previous session; useful as a CLAP-side
+  bit-exactness sanity check after any DSP fix.
+
+**Critical context.**
+
+- The two prior fixes (`ff0b8a4` "Fold mono-on-stereo" and `1229f14`
+  "in-process diagnostic") remain valid; they did not address this bug
+  but they are not wrong.
+- The CLAP wrapper has been thoroughly cleared. Do not chase wrapper
+  bugs further until the DSP low-input issue is fixed.
+- Branch `main` is 5 commits ahead of `origin/main`; nothing from this
+  diagnostic session is committed.
+
 ### Session: in-process loaded-CLAP diagnostic (REAPER static still present)
 
 **Context.** User reports the REAPER static is NOT fixed by the prior

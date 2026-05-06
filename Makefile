@@ -71,6 +71,10 @@ native-jsfx-test: $(NATIVE_BIN)/nilamp_render $(NATIVE_BIN)/nilamp_taps_render $
 	python3 -m tools.jsfx_render.stage_jsfx
 	python3 tools/abx_compare.py --preset sine --rms-threshold-db -16
 	python3 tools/compare_taps.py --preset sine
+	python3 tools/low_input_regression.py --require-jsfx
+
+native-low-input-test: $(NATIVE_BIN)/nilamp_render
+	python3 tools/low_input_regression.py
 
 $(NATIVE_BUILD) $(NATIVE_BIN) $(NATIVE_GENERATED):
 	mkdir -p $@
