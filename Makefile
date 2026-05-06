@@ -122,7 +122,7 @@ ifeq ($(YSFX_AVAILABLE),1)
 NATIVE_TARGETS += $(NATIVE_BIN)/ysfx_render
 endif
 
-.PHONY: all native native-test native-bench native-host-test native-reaper-host-test native-jsfx-test native-loaded-clap-diagnose install-clap-user package-macos-release setup-python clean-native FORCE
+.PHONY: all native native-test native-bench native-host-test native-reaper-host-test native-jsfx-test native-loaded-clap-diagnose install-clap-user package-linux-release package-macos-release setup-python clean-native FORCE
 
 all: native
 
@@ -132,6 +132,15 @@ install-clap-user: $(CLAP_PLUGIN)
 	mkdir -p $(CLAP_INSTALL_DIR)
 	cp -f $< $(CLAP_INSTALL_DIR)/$(CLAP_BUNDLE)
 	$(if $(CLAP_INSTALL_CODESIGN),$(CLAP_INSTALL_CODESIGN) $(CLAP_INSTALL_DIR)/$(CLAP_BUNDLE))
+
+package-linux-release: $(CLAP_PLUGIN)
+	tools/package_linux_release.sh \
+	    --version $(RELEASE_VERSION) \
+	    --plugin $(CLAP_PLUGIN) \
+	    --clap-bundle $(CLAP_BUNDLE) \
+	    --dist-dir $(DIST_DIR) \
+	    --gpg-key $(RELEASE_GPG_KEY) \
+	    --existing-sums $(DIST_DIR)/SHA256SUMS
 
 package-macos-release: $(CLAP_PLUGIN)
 	tools/package_macos_release.sh \

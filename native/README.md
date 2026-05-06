@@ -78,13 +78,15 @@ The system install target, `install-clap`, copies to
 `C:\Program Files\Common Files\CLAP`; run the prompt elevated or set
 `CLAP_INSTALL_DIR=...`.
 
-Build the macOS release package with:
+Build Linux and macOS release packages with:
 
 ```bash
+make package-linux-release
 make package-macos-release
 ```
 
-The ZIP includes `install.command` for per-user CLAP installation, plus GPG
+The Linux tarball includes `install.sh` for `~/.clap` installation. The macOS
+ZIP includes `install.command` for per-user CLAP installation. Both write GPG
 signatures and checksums in `dist/`.
 
 Quick native throughput benchmark:

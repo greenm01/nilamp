@@ -189,15 +189,17 @@ copies `native\bin\nilamp-twd-mkii.clap` to `%LOCALAPPDATA%\Programs\Common\CLAP
 `C:\Program Files\Common Files\CLAP`; run the shell elevated for that system
 path or set `CLAP_INSTALL_DIR=...`.
 
-Build a macOS release ZIP with:
+Build Linux and macOS release packages with:
 
 ```bash
+make package-linux-release
 make package-macos-release
 ```
 
-The package includes `install.command`, which installs the plugin to
-`~/Library/Audio/Plug-Ins/CLAP`, plus detached GPG signatures and checksums in
-`dist/`. Release signatures use fingerprint
+The Linux package includes `install.sh`, which installs the plugin to
+`~/.clap`. The macOS package includes `install.command`, which installs the
+plugin to `~/Library/Audio/Plug-Ins/CLAP`. Both write detached GPG signatures
+and checksums in `dist/`. Release signatures use fingerprint
 `C3504EE1EE38410CE1C433BC372B8AAACB867F13`. nilamp is based on Helmut Keller's
 "A Tube Amp Modeling Project"; see
 [Helmut Keller Audio](https://www.helmutkelleraudio.de/) for Keller's original
