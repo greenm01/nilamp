@@ -52,6 +52,11 @@ typedef enum NilampGuiKnobStyle {
     NILAMP_GUI_KNOB_GAIN_BIPOLAR = 2,
 } NilampGuiKnobStyle;
 
+typedef enum NilampGuiDropdown {
+    NILAMP_GUI_DROPDOWN_NONE = 0,
+    NILAMP_GUI_DROPDOWN_GAIN_COMP = 1,
+} NilampGuiDropdown;
+
 typedef struct NilampGuiMsg {
     NilampGuiMsgType type;
     uint32_t param_id;
@@ -93,8 +98,12 @@ struct NilampGui {
     bool key_escape;
     bool key_backspace;
     bool value_box_hovered;
+    bool dropdown_hovered;
     int active_knob;
     int active_edit;
+    NilampGuiDropdown open_dropdown;
+    uint32_t open_dropdown_param;
+    struct nk_rect open_dropdown_selector;
     NilampGuiScreen screen;
     struct nk_font_atlas font_atlas;
     sg_image font_img;
@@ -144,6 +153,18 @@ static float nilamp_gui_clampf(float value, float min_value, float max_value)
         return max_value;
     }
     return value;
+}
+
+static size_t nilamp_gui_bounded_strlen(const char *text, size_t max_len)
+{
+    size_t len = 0u;
+    if (!text) {
+        return 0u;
+    }
+    while (len < max_len && text[len] != '\0') {
+        len++;
+    }
+    return len;
 }
 
 static uint32_t nilamp_gui_param_index(const NilampGui *gui, uint32_t param_id)
@@ -400,9 +421,6 @@ static void nilamp_gui_feed_input(NilampGui *gui, struct nk_context *ctx)
     for (uint32_t i = 0; i < NK_KEY_MAX; i++) {
         nk_input_key(ctx, (enum nk_keys)i, gui->key_down[i] ? 1 : 0);
     }
-    for (uint32_t i = 0; i < gui->text_input_len && i < NILAMP_GUI_TEXT_INPUT_LEN; i++) {
-        nk_input_char(ctx, gui->text_input[i]);
-    }
     for (uint32_t i = 0; i < 3; i++) {
         if (gui->mouse_down[i]) {
             nk_input_button(ctx, (enum nk_buttons)i, gui->mouse_x, gui->mouse_y, 1);
@@ -449,7 +467,10 @@ static void nilamp_gui_draw_text(struct nk_context *ctx, struct nk_command_buffe
     }
 
     const struct nk_user_font *font = ctx->style.font;
-    const int len = (int)strlen(text);
+    if (!font) {
+        return;
+    }
+    const int len = (int)nilamp_gui_bounded_strlen(text, NILAMP_GUI_TEXT_INPUT_LEN);
     if (centered && font && font->width) {
         const float text_width = font->width(font->userdata, font->height, text, len);
         if (text_width < bounds.w) {
@@ -553,8 +574,9 @@ static void nilamp_gui_update_active_edit(NilampGui *gui, NilampGuiMsg *outbox,
     }
 
     char *text = gui->model.edit_text[gui->active_edit];
+    text[NILAMP_GUI_EDIT_TEXT_LEN - 1u] = '\0';
     const NilampGuiParamSpec *param = &gui->params[gui->active_edit];
-    size_t len = strlen(text);
+    size_t len = nilamp_gui_bounded_strlen(text, NILAMP_GUI_EDIT_TEXT_LEN);
     if (gui->key_backspace && len > 0) {
         text[len - 1u] = '\0';
         len--;
@@ -597,13 +619,14 @@ static void nilamp_gui_value_box(NilampGui *gui, struct nk_context *ctx,
     const struct nk_color text = active ? nk_rgb(255, 232, 116) : nk_rgb(255, 205, 32);
     nk_fill_rect(canvas, bounds, 2.0f, fill);
     nk_stroke_rect(canvas, bounds, 2.0f, 1.0f, border);
+    gui->model.edit_text[index][NILAMP_GUI_EDIT_TEXT_LEN - 1u] = '\0';
     const char *box_text = gui->model.edit_text[index];
     const struct nk_rect text_rect = nk_rect(bounds.x + 2.0f, bounds.y + 2.0f,
                                             bounds.w - 4.0f, bounds.h - 3.0f);
     nilamp_gui_draw_text(ctx, canvas, text_rect, box_text, text, true);
     if (active) {
         const struct nk_user_font *font = ctx->style.font;
-        const int len = (int)strlen(box_text);
+        const int len = (int)nilamp_gui_bounded_strlen(box_text, NILAMP_GUI_EDIT_TEXT_LEN);
         float text_width = 0.0f;
         if (font && font->width) {
             text_width = font->width(font->userdata, font->height, box_text, len);
@@ -785,6 +808,15 @@ static void nilamp_gui_dropdown_box(struct nk_context *ctx,
                      ax, ay + 3.0f, gold);
 }
 
+static void nilamp_gui_close_dropdown(NilampGui *gui)
+{
+    if (!gui) {
+        return;
+    }
+    gui->open_dropdown = NILAMP_GUI_DROPDOWN_NONE;
+    gui->open_dropdown_param = 0u;
+}
+
 static void nilamp_gui_enum_dropdown(NilampGui *gui, struct nk_context *ctx,
                                      struct nk_command_buffer *canvas, uint32_t index,
                                      struct nk_rect bounds, NilampGuiMsg *outbox,
@@ -803,15 +835,68 @@ static void nilamp_gui_enum_dropdown(NilampGui *gui, struct nk_context *ctx,
     const struct nk_rect selector =
         nk_rect(bounds.x + 4.0f, bounds.y + 47.0f, bounds.w - 8.0f, 25.0f);
     const bool hovered = nk_input_is_mouse_hovering_rect(&ctx->input, selector);
+    const bool is_open = gui->open_dropdown == NILAMP_GUI_DROPDOWN_GAIN_COMP &&
+                         gui->open_dropdown_param == gui->params[index].id;
+    gui->dropdown_hovered = gui->dropdown_hovered || hovered;
     nilamp_gui_dropdown_box(ctx, canvas, selector, names[safe_value], hovered);
     if (hovered && nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT)) {
-        const float next = (float)((safe_value + 1) % 4);
-        nilamp_gui_emit(outbox, outbox_count, NILAMP_GUI_MAX_PARAMS,
-                        (NilampGuiMsg){
-                            .type = NILAMP_GUI_MSG_PARAM_CHANGED,
-                            .param_id = gui->params[index].id,
-                            .value = next,
-                        });
+        if (gui->active_edit >= 0) {
+            nilamp_gui_end_edit(gui, true, outbox, outbox_count);
+        }
+        if (is_open) {
+            nilamp_gui_close_dropdown(gui);
+        } else {
+            gui->open_dropdown = NILAMP_GUI_DROPDOWN_GAIN_COMP;
+            gui->open_dropdown_param = gui->params[index].id;
+            gui->open_dropdown_selector = selector;
+        }
+    }
+}
+
+static void nilamp_gui_draw_open_dropdown(NilampGui *gui, struct nk_context *ctx,
+                                          struct nk_command_buffer *canvas,
+                                          NilampGuiMsg *outbox, uint32_t *outbox_count)
+{
+    static const char *const names[] = {"Off", "Tube 1", "Splitter", "Both"};
+    if (!gui || !ctx || !canvas ||
+        gui->open_dropdown != NILAMP_GUI_DROPDOWN_GAIN_COMP) {
+        return;
+    }
+
+    const struct nk_color fill = nk_rgb(32, 51, 68);
+    const struct nk_color fill_hover = nk_rgb(57, 84, 107);
+    const struct nk_color border = nk_rgb(105, 123, 137);
+    const struct nk_color gold = nk_rgb(255, 205, 32);
+    const float row_h = 23.0f;
+    const float gap = 3.0f;
+    const struct nk_rect selector = gui->open_dropdown_selector;
+    const struct nk_rect list = nk_rect(selector.x, selector.y - row_h * 4.0f - gap,
+                                       selector.w, row_h * 4.0f);
+    const bool list_hovered = nk_input_is_mouse_hovering_rect(&ctx->input, list);
+    gui->dropdown_hovered = gui->dropdown_hovered || list_hovered;
+
+    nk_fill_rect(canvas, list, 5.0f, fill);
+    nk_stroke_rect(canvas, list, 5.0f, 1.0f, border);
+    for (uint32_t i = 0; i < 4u; i++) {
+        const struct nk_rect item = nk_rect(list.x + 1.0f, list.y + (float)i * row_h + 1.0f,
+                                           list.w - 2.0f, row_h - 2.0f);
+        const bool item_hovered = nk_input_is_mouse_hovering_rect(&ctx->input, item);
+        if (item_hovered) {
+            nk_fill_rect(canvas, item, 4.0f, fill_hover);
+        }
+        nilamp_gui_draw_text(ctx, canvas, nk_rect(item.x + 4.0f, item.y + 4.0f,
+                                                 item.w - 8.0f, item.h - 6.0f),
+                             names[i], gold, true);
+        if (item_hovered && nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT)) {
+            nilamp_gui_emit(outbox, outbox_count, NILAMP_GUI_MAX_PARAMS,
+                            (NilampGuiMsg){
+                                .type = NILAMP_GUI_MSG_PARAM_CHANGED,
+                                .param_id = gui->open_dropdown_param,
+                                .value = (float)i,
+                            });
+            nilamp_gui_close_dropdown(gui);
+            break;
+        }
     }
 }
 
@@ -864,6 +949,10 @@ static void nilamp_gui_build(NilampGui *gui, struct nk_context *ctx,
                    nk_rgb(83, 103, 119));
 
     gui->value_box_hovered = false;
+    gui->dropdown_hovered = false;
+    if (gui->key_escape) {
+        nilamp_gui_close_dropdown(gui);
+    }
     nilamp_gui_update_active_edit(gui, outbox, outbox_count);
 
     nk_layout_space_begin(ctx, NK_STATIC, height, 80);
@@ -873,6 +962,7 @@ static void nilamp_gui_build(NilampGui *gui, struct nk_context *ctx,
                              "TWD DLX II", gold, true);
         nk_layout_space_push(ctx, nilamp_gui_scale_rect(sx, sy, 433.0f, 2.0f, 65.0f, 28.0f));
         if (nk_button_label(ctx, "Options")) {
+            nilamp_gui_close_dropdown(gui);
             gui->screen = NILAMP_GUI_SCREEN_OPTIONS;
             gui->model.dirty = true;
         }
@@ -944,6 +1034,7 @@ static void nilamp_gui_build(NilampGui *gui, struct nk_context *ctx,
                              "Options", gold, true);
         nk_layout_space_push(ctx, nilamp_gui_scale_rect(sx, sy, 0.0f, 2.0f, 65.0f, 28.0f));
         if (nk_button_label(ctx, "< back")) {
+            nilamp_gui_close_dropdown(gui);
             gui->screen = NILAMP_GUI_SCREEN_MAIN;
             gui->model.dirty = true;
         }
@@ -1008,6 +1099,11 @@ static void nilamp_gui_build(NilampGui *gui, struct nk_context *ctx,
                               outbox, outbox_count, radius, NILAMP_GUI_KNOB_PERCENT);
     }
     nk_layout_space_end(ctx);
+    nilamp_gui_draw_open_dropdown(gui, ctx, canvas, outbox, outbox_count);
+    if (gui->open_dropdown != NILAMP_GUI_DROPDOWN_NONE && !gui->dropdown_hovered &&
+        nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT)) {
+        nilamp_gui_close_dropdown(gui);
+    }
     if (gui->active_edit >= 0 && !gui->value_box_hovered &&
         nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT)) {
         nilamp_gui_end_edit(gui, true, outbox, outbox_count);
