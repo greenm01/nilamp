@@ -19,6 +19,8 @@
 #define SOKOL_NUKLEAR_NO_SOKOL_APP
 #include "sokol_nuklear.h"
 
+#include "nilamp_font_0xproto.h"
+
 #include <math.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -553,6 +555,15 @@ static struct nk_rect nilamp_gui_scale_rect(float sx, float sy, float x, float y
     return nk_rect(x * sx, y * sy, w * sx, h * sy);
 }
 
+static struct nk_rect nilamp_gui_snap_rect(struct nk_rect rect)
+{
+    rect.x = roundf(rect.x);
+    rect.y = roundf(rect.y);
+    rect.w = roundf(rect.w);
+    rect.h = roundf(rect.h);
+    return rect;
+}
+
 static void nilamp_gui_draw_text_with_font(struct nk_context *ctx,
                                            struct nk_command_buffer *canvas,
                                            struct nk_rect bounds, const char *text,
@@ -580,6 +591,7 @@ static void nilamp_gui_draw_text_with_font(struct nk_context *ctx,
             bounds.w = text_width;
         }
     }
+    bounds = nilamp_gui_snap_rect(bounds);
     nk_draw_text(canvas, bounds, text, len, font, nk_rgba(0, 0, 0, 0), color);
 }
 
@@ -1342,10 +1354,23 @@ static bool nilamp_gui_init_custom_font(NilampGui *gui)
     nk_font_atlas_init_default(&gui->font_atlas);
     gui->custom_font_atlas_ready = true;
     nk_font_atlas_begin(&gui->font_atlas);
-    gui->font_default = nk_font_atlas_add_default(&gui->font_atlas, 15.0f, NULL);
-    gui->font_about = nk_font_atlas_add_default(&gui->font_atlas, 18.0f, NULL);
-    gui->font_subtitle = nk_font_atlas_add_default(&gui->font_atlas, 20.0f, NULL);
-    gui->font_title = nk_font_atlas_add_default(&gui->font_atlas, 40.0f, NULL);
+    struct nk_font_config font_cfg = nk_font_config(0.0f);
+    font_cfg.pixel_snap = 1;
+    font_cfg.oversample_h = 1;
+    font_cfg.oversample_v = 1;
+    font_cfg.range = nk_font_default_glyph_ranges();
+    gui->font_default = nk_font_atlas_add_from_memory(
+        &gui->font_atlas, (void *)nilamp_font_0xproto_regular_data,
+        nilamp_font_0xproto_regular_size, 15.0f, &font_cfg);
+    gui->font_about = nk_font_atlas_add_from_memory(
+        &gui->font_atlas, (void *)nilamp_font_0xproto_regular_data,
+        nilamp_font_0xproto_regular_size, 18.0f, &font_cfg);
+    gui->font_subtitle = nk_font_atlas_add_from_memory(
+        &gui->font_atlas, (void *)nilamp_font_0xproto_regular_data,
+        nilamp_font_0xproto_regular_size, 20.0f, &font_cfg);
+    gui->font_title = nk_font_atlas_add_from_memory(
+        &gui->font_atlas, (void *)nilamp_font_0xproto_regular_data,
+        nilamp_font_0xproto_regular_size, 40.0f, &font_cfg);
 
     int font_width = 0;
     int font_height = 0;
@@ -1373,8 +1398,8 @@ static bool nilamp_gui_init_custom_font(NilampGui *gui)
         .label = "nilamp-gui-font-view",
     });
     gui->font_sampler = sg_make_sampler(&(sg_sampler_desc){
-        .min_filter = SG_FILTER_LINEAR,
-        .mag_filter = SG_FILTER_LINEAR,
+        .min_filter = SG_FILTER_NEAREST,
+        .mag_filter = SG_FILTER_NEAREST,
         .wrap_u = SG_WRAP_CLAMP_TO_EDGE,
         .wrap_v = SG_WRAP_CLAMP_TO_EDGE,
         .label = "nilamp-gui-font-sampler",

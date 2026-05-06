@@ -68,6 +68,9 @@ YSFX_AVAILABLE := $(if $(and $(wildcard $(YSFX_ROOT)/include/ysfx.h),$(wildcard 
 NATIVE_TABLES_C := $(NATIVE_GENERATED)/nilamp_tables.c
 NATIVE_TABLES_H := $(NATIVE_GENERATED)/nilamp_tables.h
 NATIVE_MODELS_INC := $(NATIVE_GENERATED)/nilamp_models.inc
+NATIVE_FONT_TTF := third_party/fonts/0xproto/0xProto-Regular.ttf
+NATIVE_FONT_C := $(NATIVE_GENERATED)/nilamp_font_0xproto.c
+NATIVE_FONT_H := $(NATIVE_GENERATED)/nilamp_font_0xproto.h
 
 NATIVE_OBJS := \
 	$(NATIVE_BUILD)/nilamp_dsp.o \
@@ -79,6 +82,7 @@ NATIVE_PIC_OBJS := \
 
 NATIVE_GUI_OBJS := \
 	$(NATIVE_BUILD)/nilamp_gui.pic.o \
+	$(NATIVE_BUILD)/nilamp_font_0xproto.pic.o \
 	$(NATIVE_BUILD)/nilamp_sokol.pic.o \
 	$(NATIVE_BUILD)/nilamp_sokol_nuklear.pic.o \
 	$(NATIVE_BUILD)/nilamp_nuklear.pic.o \
@@ -156,6 +160,15 @@ $(NATIVE_BUILD) $(NATIVE_BIN) $(NATIVE_GENERATED):
 $(NATIVE_MODELS_INC): tools/gen_amp_models.py $(AMP_MODELS) | $(NATIVE_GENERATED)
 	$(PYTHON) tools/gen_amp_models.py $@ $(AMP_MODELS)
 
+$(NATIVE_FONT_C): tools/gen_font_asset.py $(NATIVE_FONT_TTF) | $(NATIVE_GENERATED)
+	$(PYTHON) tools/gen_font_asset.py \
+	    --symbol nilamp_font_0xproto_regular \
+	    --header $(NATIVE_FONT_H) \
+	    --source $(NATIVE_FONT_C) \
+	    $(NATIVE_FONT_TTF)
+
+$(NATIVE_FONT_H): $(NATIVE_FONT_C)
+
 $(NATIVE_BUILD)/nilamp_tables.o: $(NATIVE_TABLES_C) $(NATIVE_TABLES_H) | $(NATIVE_BUILD)
 	$(CC) $(CFLAGS) -c $(NATIVE_TABLES_C) -o $@
 
@@ -186,8 +199,11 @@ $(NATIVE_BIN)/nilamp_taps_render: $(NATIVE_BUILD)/nilamp_taps_render.o $(NATIVE_
 $(NATIVE_BUILD)/nilamp_clap.o: $(NATIVE_DIR)/src/nilamp_clap.c $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_DIR)/src/nilamp_cpu.h $(NATIVE_DIR)/src/nilamp_gui.h $(CLAP_INCLUDE)/clap/clap.h | $(NATIVE_BUILD)
 	$(CC) $(CLAP_PLUGIN_CFLAGS) -fPIC -c $< -o $@
 
-$(NATIVE_BUILD)/nilamp_gui.pic.o: $(NATIVE_DIR)/src/nilamp_gui.c $(NATIVE_DIR)/src/nilamp_gui.h | $(NATIVE_BUILD)
+$(NATIVE_BUILD)/nilamp_gui.pic.o: $(NATIVE_DIR)/src/nilamp_gui.c $(NATIVE_DIR)/src/nilamp_gui.h $(NATIVE_FONT_H) | $(NATIVE_BUILD)
 	$(CC) $(GUI_CFLAGS) -fPIC -c $< -o $@
+
+$(NATIVE_BUILD)/nilamp_font_0xproto.pic.o: $(NATIVE_FONT_C) $(NATIVE_FONT_H) | $(NATIVE_BUILD)
+	$(CC) $(CFLAGS) -fPIC -c $(NATIVE_FONT_C) -o $@
 
 $(NATIVE_BUILD)/nilamp_sokol.pic.o: $(NATIVE_DIR)/src/nilamp_sokol.c | $(NATIVE_BUILD)
 	$(CC) $(GUI_VENDOR_CFLAGS) -c $< -o $@

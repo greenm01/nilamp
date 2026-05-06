@@ -168,6 +168,9 @@ reference material, licensed for non-commercial use only. See
 `vendor/keller-jsfx/NOTICE.md`. The MIT license does **not** apply to that
 directory.
 
+`third_party/fonts/0xproto/` contains 0xProto, licensed under the SIL Open
+Font License 1.1. See `third_party/fonts/0xproto/LICENSE`.
+
 ## Author
 
 niltempus
