@@ -29,6 +29,19 @@ matches Keller's JSFX reference with a `-80.7 dB` residual under ysfx.
 Current editor backends are X11/XWayland on Linux, Cocoa on macOS, and Win32 on
 Windows. Native Wayland support is future work.
 
+## Compatibility
+
+nilamp ships as both CLAP and VST3. Current checks:
+
+| Platform | Host | CLAP | VST3 |
+| --- | --- | --- | --- |
+| macOS | REAPER | Works | Works |
+| macOS | Kushview Element | Works | Works |
+| Windows | REAPER | Works | Works |
+| Linux | REAPER | Works | Works |
+
+On Linux, the editor uses X11/XWayland. Native Wayland is not available yet.
+
 ## Goals
 
 - Native CLAP and VST3 plugins with no YSFX wrapper dependency
