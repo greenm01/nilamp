@@ -210,11 +210,13 @@ install-clap-user: $(CLAP_PLUGIN)
 	cp -R $< $(CLAP_INSTALL_DIR)/$(CLAP_BUNDLE)
 	$(if $(CLAP_INSTALL_CODESIGN),$(CLAP_INSTALL_CODESIGN) $(CLAP_INSTALL_DIR)/$(CLAP_BUNDLE))
 
-package-linux-release: $(CLAP_PLUGIN)
+package-linux-release: $(CLAP_PLUGIN) $(VST3_PLUGIN)
 	tools/package_linux_release.sh \
 	    --version $(RELEASE_VERSION) \
 	    --plugin $(CLAP_PLUGIN) \
 	    --clap-bundle $(CLAP_BUNDLE) \
+	    --vst3-plugin $(VST3_PLUGIN) \
+	    --vst3-bundle $(VST3_BUNDLE) \
 	    --dist-dir $(DIST_DIR) \
 	    --gpg-key $(RELEASE_GPG_KEY) \
 	    --existing-sums $(DIST_DIR)/SHA256SUMS

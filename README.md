@@ -18,9 +18,8 @@ The name means "no amp": `nil` + `amp`.
 The active build is a native C DSP engine, Make-built offline renderers, and
 native CLAP/VST3 plugin shells with an embedded GPU editor. Linux, macOS, and
 Windows are supported native targets. Release packages are available from this
-repository's GitHub Releases for supported desktop platforms; CLAP is packaged
-across the platform targets, and VST3 is packaged where the native VST3 target
-is built.
+repository's GitHub Releases for supported desktop platforms. Linux and macOS
+packages include CLAP and VST3; the current Windows package includes CLAP.
 
 At Keller TWD DLX II defaults, nilamp's full input-to-output sweep render
 matches Keller's JSFX reference with a `-80.7 dB` residual under ysfx.
@@ -116,7 +115,6 @@ make native
 make native-test
 make native-host-test
 make install-clap-user
-# macOS VST3:
 make install-vst3-user
 make setup-python
 make native-jsfx-test
@@ -194,12 +192,14 @@ available as `make native-reaper-host-test` for manual host checks.
 `make install-clap-user` installs the CLAP to the platform user plugin path:
 `~/Library/Audio/Plug-Ins/CLAP/nilamp-twd-mkii.clap` on macOS and
 `~/.clap/nilamp-twd-mkii.clap` on Linux. On macOS it also re-signs the copied
-bundle so hosts can load it. On Windows, `nmake /f Makefile.msvc install-clap-user`
-copies `native\bin\nilamp-twd-mkii.clap` to `%LOCALAPPDATA%\Programs\Common\CLAP`.
+bundle so hosts can load it. `make install-vst3-user` installs the VST3 to
+`~/Library/Audio/Plug-Ins/VST3/nilamp-twd-mkii.vst3` on macOS and
+`~/.vst3/nilamp-twd-mkii.vst3` on Linux. On Windows,
+`nmake /f Makefile.msvc install-clap-user` copies
+`native\bin\nilamp-twd-mkii.clap` to `%LOCALAPPDATA%\Programs\Common\CLAP`.
 `nmake /f Makefile.msvc install-clap` installs to
 `C:\Program Files\Common Files\CLAP`; run the shell elevated for that system
-path or set `CLAP_INSTALL_DIR=...`. On macOS, `make install-vst3-user` installs
-the VST3 to `~/Library/Audio/Plug-Ins/VST3/nilamp-twd-mkii.vst3`.
+path or set `CLAP_INSTALL_DIR=...`.
 
 Build Linux and macOS release packages with:
 
@@ -214,10 +214,11 @@ Build the Windows release package from an x64 Native Tools prompt with:
 nmake /f Makefile.msvc package-windows-release
 ```
 
-The Linux package includes `install.sh`, which installs the plugin to
-`~/.clap`. The macOS package includes `install.command`, which installs the
-CLAP and VST3 plugins to `~/Library/Audio/Plug-Ins`. The Windows package
-includes `install.cmd`, which installs the CLAP to the user CLAP directory.
+The Linux package includes `install.sh`, which installs the CLAP to `~/.clap`
+and the VST3 to `~/.vst3`. The macOS package includes `install.command`, which
+installs the CLAP and VST3 plugins to `~/Library/Audio/Plug-Ins`. The Windows
+package includes `install.cmd`, which installs the CLAP to the user CLAP
+directory.
 Release packages write detached GPG signatures and checksums in `dist/`.
 Release signatures use fingerprint
 `C3504EE1EE38410CE1C433BC372B8AAACB867F13`. nilamp is based on Helmut Keller's

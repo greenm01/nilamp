@@ -55,7 +55,7 @@ native/bin/nilamp-twd-mkii.clap
 On macOS this is a bundle containing
 `Contents/MacOS/nilamp-twd-mkii`; on Linux it is a shared library file.
 
-On macOS, the VST3 plugin bundle is:
+The VST3 plugin bundle is:
 
 ```bash
 native/bin/nilamp-twd-mkii.vst3
@@ -75,14 +75,15 @@ This writes `~/Library/Audio/Plug-Ins/CLAP/nilamp-twd-mkii.clap` on macOS and
 `~/.clap/nilamp-twd-mkii.clap` on Linux by default. The macOS install also
 re-signs the copied bundle.
 
-Install the macOS VST3 to the user plugin path with:
+Install the VST3 to the user plugin path with:
 
 ```bash
 make install-vst3-user
 ```
 
-This writes `~/Library/Audio/Plug-Ins/VST3/nilamp-twd-mkii.vst3` and re-signs
-the copied bundle.
+This writes `~/Library/Audio/Plug-Ins/VST3/nilamp-twd-mkii.vst3` on macOS and
+`~/.vst3/nilamp-twd-mkii.vst3` on Linux. The macOS install also re-signs the
+copied bundle.
 
 On Windows, build from an x64 Native Tools prompt with:
 
@@ -104,9 +105,9 @@ make package-linux-release
 make package-macos-release
 ```
 
-The Linux tarball includes `install.sh` for `~/.clap` installation. The macOS
-ZIP includes `install.command` for per-user CLAP installation. Both write GPG
-signatures and checksums in `dist/`.
+The Linux tarball includes `install.sh` for per-user CLAP and VST3
+installation. The macOS ZIP includes `install.command` for per-user CLAP and
+VST3 installation. Both write GPG signatures and checksums in `dist/`.
 
 Quick native throughput benchmark:
 
@@ -118,8 +119,9 @@ The CLAP and CLI render paths enable x86 FTZ/DAZ floating-point mode when
 available. Non-x86 builds compile the helper away.
 
 `make native-test` runs the DSP fixture tests, a small CLAP loader smoke test,
-and on macOS a VST3 loader smoke test. The plugin smoke tests scan the plugin,
-activate it, process audio, restore state, and apply automation.
+and a VST3 loader smoke test where the native VST3 target is enabled. The
+plugin smoke tests scan the plugin, activate it, process audio, restore state,
+and apply automation.
 
 `make native-host-test` is REAPER-free. It runs the native CLAP/VST3 loaders
 and optional external validators when installed (`clap-validator`, `validator`,

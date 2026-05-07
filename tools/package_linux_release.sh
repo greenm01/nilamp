@@ -4,13 +4,15 @@ set -euo pipefail
 
 usage() {
     cat >&2 <<'EOF'
-Usage: tools/package_linux_release.sh --version V --plugin PATH --clap-bundle NAME --dist-dir DIR --gpg-key KEY [--existing-sums PATH]
+Usage: tools/package_linux_release.sh --version V --plugin PATH --clap-bundle NAME --vst3-plugin PATH --vst3-bundle NAME --dist-dir DIR --gpg-key KEY [--existing-sums PATH]
 EOF
 }
 
 version=
 plugin=
 clap_bundle=
+vst3_plugin=
+vst3_bundle=
 dist_dir=
 gpg_key=
 existing_sums=
@@ -27,6 +29,14 @@ while [ "$#" -gt 0 ]; do
             ;;
         --clap-bundle)
             clap_bundle="${2:-}"
+            shift 2
+            ;;
+        --vst3-plugin)
+            vst3_plugin="${2:-}"
+            shift 2
+            ;;
+        --vst3-bundle)
+            vst3_bundle="${2:-}"
             shift 2
             ;;
         --dist-dir)
@@ -53,6 +63,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 if [ -z "$version" ] || [ -z "$plugin" ] || [ -z "$clap_bundle" ] ||
+   [ -z "$vst3_plugin" ] || [ -z "$vst3_bundle" ] ||
    [ -z "$dist_dir" ] || [ -z "$gpg_key" ]; then
     usage
     exit 2
@@ -67,7 +78,11 @@ case "$(uname -s)" in
 esac
 
 if [ ! -f "$plugin" ]; then
-    echo "package_linux_release: plugin not found: $plugin" >&2
+    echo "package_linux_release: CLAP plugin not found: $plugin" >&2
+    exit 1
+fi
+if [ ! -d "$vst3_plugin" ]; then
+    echo "package_linux_release: VST3 bundle not found: $vst3_plugin" >&2
     exit 1
 fi
 
@@ -106,6 +121,8 @@ mkdir -p "$package_dir"
 
 cp -f "$plugin" "$package_dir/$clap_bundle"
 chmod 755 "$package_dir/$clap_bundle"
+cp -R "$vst3_plugin" "$package_dir/$vst3_bundle"
+find "$package_dir/$vst3_bundle" -type f -perm -111 -exec chmod 755 {} +
 
 cat > "$package_dir/install.sh" <<'EOF'
 #!/usr/bin/env bash
@@ -113,21 +130,34 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "$0")" && pwd)"
 clap_name="nilamp-twd-mkii.clap"
+vst3_name="nilamp-twd-mkii.vst3"
 source_clap="$script_dir/$clap_name"
+source_vst3="$script_dir/$vst3_name"
 target_dir="$HOME/.clap"
+target_vst3_dir="$HOME/.vst3"
 target_clap="$target_dir/$clap_name"
+target_vst3="$target_vst3_dir/$vst3_name"
 
 if [ ! -f "$source_clap" ]; then
     echo "Could not find $clap_name next to install.sh" >&2
+    exit 1
+fi
+if [ ! -d "$source_vst3" ]; then
+    echo "Could not find $vst3_name next to install.sh" >&2
     exit 1
 fi
 
 mkdir -p "$target_dir"
 cp -f "$source_clap" "$target_clap"
 chmod 755 "$target_clap"
+mkdir -p "$target_vst3_dir"
+rm -rf "$target_vst3"
+cp -R "$source_vst3" "$target_vst3"
+find "$target_vst3" -type f -perm -111 -exec chmod 755 {} +
 
 echo "Installed $target_clap"
-echo "Restart your DAW or rescan CLAP plug-ins if nilamp was already open."
+echo "Installed $target_vst3"
+echo "Restart your DAW or rescan CLAP/VST3 plug-ins if nilamp was already open."
 EOF
 chmod 755 "$package_dir/install.sh"
 
@@ -139,6 +169,8 @@ Install:
 
 or copy ${clap_bundle} to:
   ~/.clap/${clap_bundle}
+and copy ${vst3_bundle} to:
+  ~/.vst3/${vst3_bundle}
 
 REAPER on Linux scans CLAP plug-ins from:
   /usr/local/lib/clap
@@ -146,7 +178,13 @@ REAPER on Linux scans CLAP plug-ins from:
   ~/.clap
   \$CLAP_PATH
 
-After installing, restart your DAW or rescan CLAP plug-ins.
+REAPER on Linux scans VST3 plug-ins from:
+  /usr/lib/vst3
+  /usr/local/lib/vst3
+  ~/.vst3
+  \$VST3_PATH
+
+After installing, restart your DAW or rescan CLAP/VST3 plug-ins.
 
 Verify release artifacts:
   gpg --verify SHA256SUMS.asc SHA256SUMS
