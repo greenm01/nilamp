@@ -14,10 +14,9 @@ Pipeline per test point:
   6. Pass/fail vs configurable thresholds.
 
 Slider mapping (nilamp params <-> JSFX sliders), native units:
-    gain    (-12..12 dB)  ->   gin     (-12..12 dB)  with -12 dB offset
-                               (JSFX applies an internal +12 dB lift; the
-                                harness translates p.gin = gain_db - 12.
-                                nilamp gain_db must be in [0, +24] dB.)
+    gain    (-12..12 dB)  <->  gin     (-12..12 dB)  identity
+                               (both paths apply Keller's internal +12 dB
+                                input calibration)
     volume  (0..100 %)    <->  vol     (0..100 %)    identity
     bass    (0..100 %)    <->  bass    (0..100 %)    identity
     mid     (0..100 %)    <->  mid     (0..100 %)    identity
@@ -64,17 +63,15 @@ JSFX_WARMUP_S = 0.100
 # JSFX input-gain offset, derived from twd_dlx_ii_harness.jsfx
 # parameter_update() line 229:
 #     gin_eff = 10^(0.05 * (p.gin + 12)) * sqrt(1.2)
-# Native nilamp's external gain control maps to Keller's user-visible p.gin
-# after the fixed +12 dB lift. The native DSP itself applies Keller's fixed
-# input calibration (`0.5 * sqrt(1.2)`), so the harness only translates the
-# exposed gain slider.
-JSFX_GIN_OFFSET_DB = 12.0
+# Native nilamp applies the same fixed +12 dB input calibration internally, so
+# the user-visible gain slider maps 1:1 to Keller's p.gin.
+JSFX_GIN_OFFSET_DB = 0.0
 
 # JSFX gin slider range, from twd_dlx_ii_harness.jsfx slider1 declaration.
 JSFX_GIN_MIN_DB = -12.0
 JSFX_GIN_MAX_DB = 12.0
-EQUALIZABLE_GAIN_MIN_DB = JSFX_GIN_MIN_DB + JSFX_GIN_OFFSET_DB  #  +0.0 dB
-EQUALIZABLE_GAIN_MAX_DB = JSFX_GIN_MAX_DB + JSFX_GIN_OFFSET_DB  # +24.0 dB
+EQUALIZABLE_GAIN_MIN_DB = JSFX_GIN_MIN_DB + JSFX_GIN_OFFSET_DB  # -12.0 dB
+EQUALIZABLE_GAIN_MAX_DB = JSFX_GIN_MAX_DB + JSFX_GIN_OFFSET_DB  # +12.0 dB
 
 
 # --------------------------------------------------------------------------- #
@@ -106,8 +103,7 @@ class Params:
         ]
 
     def jsfx_gin(self) -> float:
-        """Translate nilamp gain_db to the JSFX p.gin slider value that produces
-        the same effective audio gain into T1. See JSFX_GIN_OFFSET_DB."""
+        """Translate nilamp gain_db to the JSFX p.gin slider value."""
         gin = self.gain_db - JSFX_GIN_OFFSET_DB
         if gin < JSFX_GIN_MIN_DB or gin > JSFX_GIN_MAX_DB:
             raise ValueError(
@@ -122,7 +118,7 @@ class Params:
     def to_jsfx_args(self) -> list[str]:
         # JSFX bass/mid/treble sliders have range 0..100 (verified from
         # twd_dlx_ii_harness.jsfx slider declarations), matching nilamp 1:1.
-        # gin is offset-translated; see jsfx_gin().
+        # gin maps to nilamp's visible gain; see jsfx_gin().
         return [
             "-s", f"gin={self.jsfx_gin()}",
             "-s", f"vol={self.volume_pct}",
@@ -514,9 +510,9 @@ def main() -> int:
                     help="Generate a deterministic ABX input instead of passing an input WAV.")
     ap.add_argument("--out-dir", type=Path, default=Path("/tmp/abx_compare"))
     ap.add_argument("--label", default="default")
-    ap.add_argument("--gain", type=float, default=EQUALIZABLE_GAIN_MIN_DB,
-                    help=f"nilamp gain_db (default: {EQUALIZABLE_GAIN_MIN_DB:.4f} = "
-                         "minimum equalizable). Must be in "
+    ap.add_argument("--gain", type=float, default=0.0,
+                    help="nilamp gain_db (default: 0.0000, Keller noon). "
+                         "Must be in "
                          f"[{EQUALIZABLE_GAIN_MIN_DB:.4f}, "
                          f"{EQUALIZABLE_GAIN_MAX_DB:.4f}] dB.")
     ap.add_argument("--volume", type=float, default=50.0)

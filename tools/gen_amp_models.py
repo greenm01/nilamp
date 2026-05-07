@@ -57,6 +57,7 @@ STAGE_FIELDS = (
 )
 PROCESS_FIELDS = (
     "input_feed_gain",
+    "input_gain_offset_db",
     "input_keller_gain_sq",
     "pss1_r",
     "pss1_tau",
@@ -561,6 +562,7 @@ def validate_amp(node: Node) -> dict[str, Any]:
     process = node_child(dsp, "process")
     process_values = {
         "input_feed_gain": required_number(process, "input_feed_gain"),
+        "input_gain_offset_db": required_number(process, "input_gain_offset_db"),
         "input_keller_gain_sq": required_number(process, "input_keller_gain_sq"),
         "pss1_r": required_number(supply_nodes["p1"], "r"),
         "pss1_tau": required_number(supply_nodes["p1"], "tau"),

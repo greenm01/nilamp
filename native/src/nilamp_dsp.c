@@ -243,6 +243,7 @@ typedef struct {
     const StageCfg *t4;
     const StageCfg *t5;
     float input_feed_gain;
+    float input_gain_offset_db;
     float input_keller_gain_sq;
     float pss1_r;
     float pss1_tau;
@@ -946,9 +947,11 @@ static NilampTapFrame nilamp_twd_dlx_ii_process_sample(NilampTwdDlxIiState *st, 
     const SplitterModeCfg *splitter_cfg = nilamp_splitter_cfg(splitter);
 
     /* Keller g1 uses sqrt(1.2); REAPER's mono JSFX render path contributes
-       the 0.5 feed factor that the parity harness measures at the first tap. */
+       the 0.5 feed factor that the parity harness measures at the first tap.
+       The visible Keller input gain also includes a fixed +12 dB calibration. */
     const float gain =
-        db_to_linear(params->gain_db) * model->input_feed_gain * sqrtf(model->input_keller_gain_sq);
+        db_to_linear(params->gain_db + model->input_gain_offset_db) *
+        model->input_feed_gain * sqrtf(model->input_keller_gain_sq);
     float volume = params->volume_pct * 0.01f;
     const int gain_comp = (int)lroundf(params->gain_comp);
     if ((gain_comp == 1 || gain_comp == 3) && tube1 == 1) {

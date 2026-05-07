@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import Sequence
 
 from abx_compare import (
-    EQUALIZABLE_GAIN_MIN_DB,
     Params,
     _align,
     _db,
@@ -296,7 +295,7 @@ def main() -> int:
     parser.add_argument("--preset", choices=["sine", "sweep"])
     parser.add_argument("--out-dir", type=Path, default=Path("/tmp/nilamp_tap_compare"))
     parser.add_argument("--label", default="tap_compare")
-    parser.add_argument("--gain", type=float, default=EQUALIZABLE_GAIN_MIN_DB)
+    parser.add_argument("--gain", type=float, default=0.0)
     parser.add_argument("--volume", type=float, default=50.0)
     parser.add_argument("--bass", type=float, default=50.0)
     parser.add_argument("--mid", type=float, default=50.0)

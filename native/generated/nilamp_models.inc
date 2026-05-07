@@ -35,6 +35,7 @@ static const NilampTwdDlxIiData TWD_DLX_II_DATA = {
     .t4 = &T4,
     .t5 = &T5,
     .input_feed_gain = 0.5f,
+    .input_gain_offset_db = 12.0f,
     .input_keller_gain_sq = 1.2f,
     .pss1_r = 125.0f,
     .pss1_tau = 0.008f,

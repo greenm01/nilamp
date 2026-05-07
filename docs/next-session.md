@@ -2,6 +2,29 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: Keller noon input gain calibration
+
+**Context.** REAPER listening against Keller's original TWD DLX II JSFX showed
+nilamp had less internal gain at visible noon settings with `LTP 1`.
+
+**Edit summary.**
+
+- Added explicit KDL/generated model data for Keller's fixed `+12 dB` input
+  calibration.
+- Applied that offset inside native DSP while keeping the visible input Gain
+  parameter default at `0 dB`.
+- Updated ABX/tap comparison tooling so nilamp `Gain=0` maps to JSFX `gin=0`.
+- Regenerated native model data and fixture buffers for the hotter default.
+
+**Verification.**
+
+- `make native-test` passes.
+- `make native-host-test` passes with installed `clap-validator` and Steinberg
+  `validator`.
+- `make native-jsfx-test` passes: sine ABX residual `-37.1 dB`, correlation
+  `0.999849`, best gain `+0.02 dB`; tap diagnostics and low-input regression
+  pass.
+
 ### Session: macOS VST3 export
 
 **Context.** Added a macOS-first VST3 export path alongside the existing CLAP

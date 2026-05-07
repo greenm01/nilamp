@@ -305,7 +305,7 @@ def gen_nilamp_taps(input_buf: np.ndarray) -> tuple[np.ndarray, ...]:
     p1 = ko.TubePss(r=125.0, tau=0.008, sr=SAMPLE_RATE)
     p2 = ko.TubePss(r=5100.0, tau=0.0816, sr=SAMPLE_RATE)
     p3 = ko.TubePss(r=11000.0, tau=0.352, sr=SAMPLE_RATE)
-    input_gain = 0.5 * np.sqrt(1.2)
+    input_gain = 0.5 * np.power(10.0, 0.05 * 12.0) * np.sqrt(1.2)
 
     n = len(input_buf)
     v_out_buf = np.empty(n, dtype=np.float32)
