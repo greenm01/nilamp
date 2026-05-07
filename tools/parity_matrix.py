@@ -21,7 +21,6 @@ class MatrixCase:
     preset: str
     params: Params
     threshold_db: float
-    known_jsfx_silent: bool = False
 
 
 def cases() -> list[MatrixCase]:
@@ -33,13 +32,7 @@ def cases() -> list[MatrixCase]:
         MatrixCase("splitter_cd_5e3", "sine", Params(splitter=0), -16.0),
         MatrixCase("splitter_cd_bal", "sine", Params(splitter=1), -16.0),
         MatrixCase("splitter_ltp1", "sine", Params(splitter=2), -16.0),
-        MatrixCase(
-            "splitter_ltp2_known_jsfx_silent",
-            "sine",
-            Params(splitter=3),
-            -16.0,
-            known_jsfx_silent=True,
-        ),
+        MatrixCase("splitter_ltp2", "sine", Params(splitter=3), -16.0),
         MatrixCase("splitter_ltp3", "sine", Params(splitter=4), -16.0),
         MatrixCase("ltp3_gcomp_off", "sine", Params(splitter=4, gain_comp=0), -16.0),
         MatrixCase("ltp3_gcomp_tube1", "sine", Params(splitter=4, gain_comp=1), -16.0),
@@ -70,8 +63,6 @@ def cases() -> list[MatrixCase]:
 
 
 def verdict(case: MatrixCase, metrics: Metrics) -> tuple[str, bool]:
-    if case.known_jsfx_silent and metrics.peak_b < 1.0e-12:
-        return "KNOWN-ISSUE", True
     if metrics.passed(case.threshold_db):
         return "PASS", True
     return "FAIL", False
@@ -108,8 +99,6 @@ def main() -> int:
             continue
         status, _ = verdict(case, metrics)
         print(metrics.report())
-        if status == "KNOWN-ISSUE":
-            print("known issue: Keller/ysfx renders this LTP 2 case as silence")
         print(f"verdict: {status} (threshold {case.threshold_db:+.1f} dB)")
         results.append((case, status, metrics))
 
@@ -118,7 +107,7 @@ def main() -> int:
     for case, status, metrics in results:
         resid = "n/a" if metrics is None else f"{metrics.rms_residual_db:+.1f} dB"
         print(f"  {status:<11} {case.name:<32} {resid}")
-        if status not in {"PASS", "KNOWN-ISSUE"}:
+        if status != "PASS":
             unexpected_failures += 1
 
     return 1 if unexpected_failures else 0

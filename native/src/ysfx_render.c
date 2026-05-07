@@ -398,7 +398,6 @@ int main(int argc, char **argv)
     }
     ysfx_set_sample_rate(fx, (ysfx_real)wav.sample_rate);
     ysfx_set_block_size(fx, args.block);
-    ysfx_init(fx);
 
     for (size_t i = 0; i < args.slider_count; i++) {
         const uint32_t zero_based = args.sliders[i].index - 1u;
@@ -408,6 +407,7 @@ int main(int argc, char **argv)
         }
         ysfx_slider_set_value(fx, zero_based, args.sliders[i].value, true);
     }
+    ysfx_init(fx);
 
     outs = calloc(args.channels, sizeof(float *));
     if (outs == NULL) {

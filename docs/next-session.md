@@ -2,6 +2,33 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: LTP 2 JSFX render startup fix
+
+**Context.** The new parity matrix initially had to mark `LTP 2` as a known
+Keller/ysfx reference-render issue because `mode=3` produced silence.
+
+**Edit summary.**
+
+- Fixed `native/bin/ysfx_render` to apply requested JSFX slider values before
+  `ysfx_init()`.
+- Root cause: Keller's `changed_init()` seeds `old = this + 1`. With the old
+  renderer lifecycle, setting `mode` from default `2` to `3` after init made
+  `old == this`, so Keller's `p.mode.changed()` did not run and the LTP power
+  stage setup stayed uninitialized.
+- Removed the `LTP 2` known-issue escape from the parity matrix; it is now a
+  normal required passing case.
+
+**Verification.**
+
+- Direct Keller/ysfx render for `mode=3` now produces nonzero output.
+- `abx_compare.py --preset sine --tube1 1 --splitter 3 --rms-threshold-db -16`
+  passes with `LTP 2` residual `-71.5 dB`.
+- `compare_taps.py --preset sine --tube1 1 --splitter 3` passes all tap
+  diagnostics for `LTP 2`.
+- `make native-jsfx-matrix-test` passes with `splitter_ltp2` residual
+  `-71.5 dB`; no known-issue cases remain.
+- `make native-jsfx-test` passes.
+
 ### Session: Keller option parity and gain-comp matrix
 
 **Context.** Follow-up audit for remaining Keller parity gaps and hardcoded
