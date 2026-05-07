@@ -2,6 +2,39 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: Default mono CLAP/VST3 I/O
+
+**Context.** REAPER listening showed nilamp was closest to Keller when the
+input/output channel layouts were matched manually. Keller `TWD DLX II` declares
+mono input and mono output, while nilamp had been declaring stereo by default.
+
+**Edit summary.**
+
+- Changed CLAP's default audio port declaration to mono input / mono output.
+- Added CLAP audio-port configurations for `Mono` and `Stereo`, plus config
+  info support so hosts can inspect and select stereo explicitly while the
+  plugin is deactivated.
+- Changed VST3's default bus arrangement to mono while preserving the existing
+  mono/stereo `setBusArrangements()` support.
+- Extended CLAP and VST3 smoke tests to cover default mono metadata and mono
+  processing, while retaining stereo processing coverage.
+- Reinstalled the rebuilt CLAP and VST3 bundles for REAPER.
+
+**Verification.**
+
+- `make native-test` passes.
+- `make native-host-test` passes with installed `clap-validator` and Steinberg
+  `validator`: CLAP reports 21 tests run, 16 passed, 0 failed, 5 skipped; VST3
+  reports 47 tests passed, 0 failed.
+- `make native-jsfx-test` passes: default sine residual `-81.7 dB`; tap
+  diagnostics and low-input regression pass.
+- `make native-jsfx-matrix-test` passes; all matrix cases pass including
+  `splitter_ltp2` at `-71.5 dB`.
+- Installed CLAP at
+  `~/Library/Audio/Plug-Ins/CLAP/nilamp-twd-mkii.clap` and VST3 at
+  `~/Library/Audio/Plug-Ins/VST3/nilamp-twd-mkii.vst3`; installed loader smokes
+  pass and installed VST3 passes `validator -q`.
+
 ### Session: LTP 2 JSFX render startup fix
 
 **Context.** The new parity matrix initially had to mark `LTP 2` as a known

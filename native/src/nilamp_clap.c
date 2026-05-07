@@ -5,6 +5,7 @@
 #include "nilamp_gui.h"
 
 #include <clap/clap.h>
+#include <clap/ext/audio-ports-config.h>
 #include <clap/ext/gui.h>
 #include <clap/ext/timer-support.h>
 
@@ -49,6 +50,8 @@
 #define NILAMP_STATE_VERSION_2 2u
 #define NILAMP_STATE_VERSION_2_PARAM_COUNT 17u
 #define NILAMP_CLAP_OUTPUT_LIMIT 1.0f
+#define NILAMP_CLAP_PORT_CONFIG_MONO 1u
+#define NILAMP_CLAP_PORT_CONFIG_STEREO 2u
 
 typedef NilampControlSpec NilampParamSpec;
 #define nilamp_param_specs (nilamp_control_specs(NULL))
@@ -66,6 +69,7 @@ typedef struct NilampClap {
     atomic_uint gui_dirty_mask;
     atomic_uint params_dirty;
     clap_id gui_timer_id;
+    clap_id audio_port_config_id;
     double sample_rate;
     bool gui_is_floating;
     bool gui_timer_registered;
@@ -123,6 +127,7 @@ static bool nilamp_gui_api_supported(const char *api, bool is_floating)
 static const char *const nilamp_features[] = {
     CLAP_PLUGIN_FEATURE_AUDIO_EFFECT,
     CLAP_PLUGIN_FEATURE_DISTORTION,
+    CLAP_PLUGIN_FEATURE_MONO,
     CLAP_PLUGIN_FEATURE_STEREO,
     NULL,
 };
@@ -798,16 +803,17 @@ static uint32_t nilamp_audio_ports_count(const clap_plugin_t *plugin, bool is_in
 static bool nilamp_audio_ports_get(const clap_plugin_t *plugin, uint32_t index,
                                    bool is_input, clap_audio_port_info_t *info)
 {
-    (void)plugin;
+    NilampClap *plug = nilamp_from_plugin(plugin);
     if (index != 0 || !info) {
         return false;
     }
+    const bool stereo = plug && plug->audio_port_config_id == NILAMP_CLAP_PORT_CONFIG_STEREO;
 
     info->id = is_input ? 0u : 1u;
     nilamp_copy_text(info->name, sizeof(info->name), is_input ? "Audio In" : "Audio Out");
     info->flags = CLAP_AUDIO_PORT_IS_MAIN;
-    info->channel_count = 2;
-    info->port_type = CLAP_PORT_STEREO;
+    info->channel_count = stereo ? 2u : 1u;
+    info->port_type = stereo ? CLAP_PORT_STEREO : CLAP_PORT_MONO;
     info->in_place_pair = is_input ? 1u : 0u;
     return true;
 }
@@ -815,6 +821,114 @@ static bool nilamp_audio_ports_get(const clap_plugin_t *plugin, uint32_t index,
 static const clap_plugin_audio_ports_t nilamp_audio_ports_ext = {
     .count = nilamp_audio_ports_count,
     .get = nilamp_audio_ports_get,
+};
+
+static bool nilamp_audio_port_config_info(clap_id config_id,
+                                          clap_audio_ports_config_t *config)
+{
+    if (!config) {
+        return false;
+    }
+    memset(config, 0, sizeof(*config));
+    switch (config_id) {
+    case NILAMP_CLAP_PORT_CONFIG_MONO:
+        config->id = NILAMP_CLAP_PORT_CONFIG_MONO;
+        nilamp_copy_text(config->name, sizeof(config->name), "Mono");
+        config->input_port_count = 1u;
+        config->output_port_count = 1u;
+        config->has_main_input = true;
+        config->main_input_channel_count = 1u;
+        config->main_input_port_type = CLAP_PORT_MONO;
+        config->has_main_output = true;
+        config->main_output_channel_count = 1u;
+        config->main_output_port_type = CLAP_PORT_MONO;
+        return true;
+    case NILAMP_CLAP_PORT_CONFIG_STEREO:
+        config->id = NILAMP_CLAP_PORT_CONFIG_STEREO;
+        nilamp_copy_text(config->name, sizeof(config->name), "Stereo");
+        config->input_port_count = 1u;
+        config->output_port_count = 1u;
+        config->has_main_input = true;
+        config->main_input_channel_count = 2u;
+        config->main_input_port_type = CLAP_PORT_STEREO;
+        config->has_main_output = true;
+        config->main_output_channel_count = 2u;
+        config->main_output_port_type = CLAP_PORT_STEREO;
+        return true;
+    default:
+        return false;
+    }
+}
+
+static uint32_t nilamp_audio_ports_config_count(const clap_plugin_t *plugin)
+{
+    (void)plugin;
+    return 2u;
+}
+
+static bool nilamp_audio_ports_config_get(const clap_plugin_t *plugin, uint32_t index,
+                                          clap_audio_ports_config_t *config)
+{
+    (void)plugin;
+    const clap_id config_id = index == 0u ? NILAMP_CLAP_PORT_CONFIG_MONO :
+                              index == 1u ? NILAMP_CLAP_PORT_CONFIG_STEREO :
+                                             CLAP_INVALID_ID;
+    return nilamp_audio_port_config_info(config_id, config);
+}
+
+static bool nilamp_audio_ports_config_select(const clap_plugin_t *plugin, clap_id config_id)
+{
+    NilampClap *plug = nilamp_from_plugin(plugin);
+    if (!plug || plug->active ||
+        (config_id != NILAMP_CLAP_PORT_CONFIG_MONO &&
+         config_id != NILAMP_CLAP_PORT_CONFIG_STEREO)) {
+        return false;
+    }
+    plug->audio_port_config_id = config_id;
+    return true;
+}
+
+static const clap_plugin_audio_ports_config_t nilamp_audio_ports_config_ext = {
+    .count = nilamp_audio_ports_config_count,
+    .get = nilamp_audio_ports_config_get,
+    .select = nilamp_audio_ports_config_select,
+};
+
+static clap_id nilamp_audio_ports_config_info_current(const clap_plugin_t *plugin)
+{
+    const NilampClap *plug = nilamp_from_plugin(plugin);
+    return plug ? plug->audio_port_config_id : CLAP_INVALID_ID;
+}
+
+static bool nilamp_audio_ports_config_info_get(const clap_plugin_t *plugin,
+                                               clap_id config_id,
+                                               uint32_t port_index,
+                                               bool is_input,
+                                               clap_audio_port_info_t *info)
+{
+    (void)plugin;
+    if (port_index != 0u || !info) {
+        return false;
+    }
+    clap_audio_ports_config_t config;
+    if (!nilamp_audio_port_config_info(config_id, &config)) {
+        return false;
+    }
+
+    memset(info, 0, sizeof(*info));
+    const bool stereo = config_id == NILAMP_CLAP_PORT_CONFIG_STEREO;
+    info->id = is_input ? 0u : 1u;
+    nilamp_copy_text(info->name, sizeof(info->name), is_input ? "Audio In" : "Audio Out");
+    info->flags = CLAP_AUDIO_PORT_IS_MAIN;
+    info->channel_count = stereo ? 2u : 1u;
+    info->port_type = stereo ? CLAP_PORT_STEREO : CLAP_PORT_MONO;
+    info->in_place_pair = is_input ? 1u : 0u;
+    return true;
+}
+
+static const clap_plugin_audio_ports_config_info_t nilamp_audio_ports_config_info_ext = {
+    .current_config = nilamp_audio_ports_config_info_current,
+    .get = nilamp_audio_ports_config_info_get,
 };
 
 static uint32_t nilamp_params_count(const clap_plugin_t *plugin)
@@ -1368,6 +1482,13 @@ static const void *nilamp_get_extension(const clap_plugin_t *plugin, const char 
     if (strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) {
         return &nilamp_audio_ports_ext;
     }
+    if (strcmp(id, CLAP_EXT_AUDIO_PORTS_CONFIG) == 0) {
+        return &nilamp_audio_ports_config_ext;
+    }
+    if (strcmp(id, CLAP_EXT_AUDIO_PORTS_CONFIG_INFO) == 0 ||
+        strcmp(id, CLAP_EXT_AUDIO_PORTS_CONFIG_INFO_COMPAT) == 0) {
+        return &nilamp_audio_ports_config_info_ext;
+    }
     if (strcmp(id, CLAP_EXT_PARAMS) == 0) {
         return &nilamp_params_ext;
     }
@@ -1401,6 +1522,7 @@ static const clap_plugin_t *nilamp_create_plugin(const clap_plugin_factory_t *fa
 
     plug->host = host;
     plug->params = nilamp_default_params();
+    plug->audio_port_config_id = NILAMP_CLAP_PORT_CONFIG_MONO;
     nilamp_store_params(plug, &plug->params);
     atomic_store_explicit(&plug->gui_dirty_mask, 0u, memory_order_release);
     atomic_store_explicit(&plug->params_dirty, 1u, memory_order_release);

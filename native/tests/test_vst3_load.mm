@@ -276,6 +276,19 @@ static void renderReference(float gainDb, const float *inL, const float *inR,
     nilamp_engine_destroy(engineR);
 }
 
+static void renderReferenceMono(float gainDb, const float *input, float *output,
+                                uint32_t frames)
+{
+    NilampEngine *engine = nilamp_engine_create(48000.0);
+    check(engine != nullptr, "failed to create mono reference engine");
+    NilampParams params = nilamp_default_params();
+    params.gain_db = gainDb;
+    nilamp_engine_set_params(engine, &params);
+    nilamp_engine_process(engine, input, output, frames);
+    sanitize(output, frames);
+    nilamp_engine_destroy(engine);
+}
+
 static void renderReferenceAfterWarmup(float gainDb, const float *inL, const float *inR,
                                        float *outL, float *outR, uint32_t frames)
 {
@@ -353,11 +366,11 @@ int main(int argc, char **argv)
           "gain parameter info failed");
     check(info.id == NILAMP_PARAM_GAIN_DB, "unexpected gain parameter id");
 
-    SpeakerArrangement inputArrangement = SpeakerArr::kStereo;
-    SpeakerArrangement outputArrangement = SpeakerArr::kStereo;
+    SpeakerArrangement inputArrangement = SpeakerArr::kMono;
+    SpeakerArrangement outputArrangement = SpeakerArr::kMono;
     check(processor->setBusArrangements(&inputArrangement, 1, &outputArrangement, 1) ==
               kResultTrue,
-          "stereo bus arrangement failed");
+          "mono bus arrangement failed");
     ProcessSetup setup = {};
     setup.processMode = kRealtime;
     setup.symbolicSampleSize = kSample32;
@@ -375,6 +388,38 @@ int main(int argc, char **argv)
     float refL[Frames] = {};
     float refR[Frames] = {};
     fillInput(inL, inR, Frames);
+
+    float monoOut[Frames] = {};
+    float monoRef[Frames] = {};
+    float *monoInputChannels[1] = {inL};
+    float *monoOutputChannels[1] = {monoOut};
+    AudioBusBuffers monoInput = {};
+    AudioBusBuffers monoOutput = {};
+    monoInput.numChannels = 1;
+    monoInput.channelBuffers32 = monoInputChannels;
+    monoOutput.numChannels = 1;
+    monoOutput.channelBuffers32 = monoOutputChannels;
+    ProcessData monoData = {};
+    monoData.processMode = kRealtime;
+    monoData.symbolicSampleSize = kSample32;
+    monoData.numSamples = Frames;
+    monoData.numInputs = 1;
+    monoData.numOutputs = 1;
+    monoData.inputs = &monoInput;
+    monoData.outputs = &monoOutput;
+    check(processor->process(monoData) == kResultOk, "mono process failed");
+    renderReferenceMono(0.0f, inL, monoRef, Frames);
+    compareOutput(monoOut, monoRef, Frames, "mono default");
+    processor->setProcessing(false);
+    component->setActive(false);
+
+    inputArrangement = SpeakerArr::kStereo;
+    outputArrangement = SpeakerArr::kStereo;
+    check(processor->setBusArrangements(&inputArrangement, 1, &outputArrangement, 1) ==
+              kResultTrue,
+          "stereo bus arrangement failed");
+    check(component->setActive(true) == kResultOk, "stereo setActive failed");
+    check(processor->setProcessing(true) == kResultOk, "stereo setProcessing failed");
 
     float *inputChannels[2] = {inL, inR};
     float *outputChannels[2] = {outL, outR};

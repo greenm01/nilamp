@@ -2,6 +2,7 @@
 #include "nilamp_dsp.h"
 
 #include <clap/clap.h>
+#include <clap/ext/audio-ports-config.h>
 #include <clap/ext/gui.h>
 #include <clap/ext/timer-support.h>
 
@@ -418,6 +419,27 @@ static void run_clap_engine_compare(const clap_plugin_t *plugin,
     compare_output(inplace_r, ref_r, Frames, "stereo in-place right");
 
     plugin->reset(plugin);
+    float mono_in[Frames];
+    float mono_out[Frames];
+    float mono_ref[Frames];
+    memcpy(mono_in, in_l, sizeof(mono_in));
+    memset(mono_out, 0, sizeof(mono_out));
+    {
+        NilampEngine *engine = nilamp_engine_create(48000.0);
+        check(engine != NULL, "mono engine create failed");
+        nilamp_engine_process(engine, mono_in, mono_ref, Frames);
+        nilamp_engine_destroy(engine);
+    }
+    float *mono_input_only[1] = {mono_in};
+    float *mono_output_only[1] = {mono_out};
+    input.data32 = mono_input_only;
+    input.channel_count = 1;
+    output.data32 = mono_output_only;
+    output.channel_count = 1;
+    run_process_chunks(plugin, process, Frames);
+    compare_output(mono_out, mono_ref, Frames, "mono in/out");
+
+    plugin->reset(plugin);
     float mono_inplace[Frames];
     float mono_r[Frames];
     memcpy(mono_inplace, in_l, sizeof(mono_inplace));
@@ -750,9 +772,45 @@ int main(int argc, char **argv)
     check(audio_ports->count(plugin, true) == 1, "unexpected input port count");
     check(audio_ports->count(plugin, false) == 1, "unexpected output port count");
     check(audio_ports->get(plugin, 0, true, &port_info), "input port info failed");
-    check(port_info.channel_count == 2, "input port is not stereo");
+    check(port_info.channel_count == 1, "input port is not mono");
+    check(port_info.port_type && strcmp(port_info.port_type, CLAP_PORT_MONO) == 0,
+          "input port type is not mono");
     check(audio_ports->get(plugin, 0, false, &port_info), "output port info failed");
+    check(port_info.channel_count == 1, "output port is not mono");
+    check(port_info.port_type && strcmp(port_info.port_type, CLAP_PORT_MONO) == 0,
+          "output port type is not mono");
+
+    const clap_plugin_audio_ports_config_t *audio_configs =
+        (const clap_plugin_audio_ports_config_t *)plugin->get_extension(
+            plugin, CLAP_EXT_AUDIO_PORTS_CONFIG);
+    check(audio_configs != NULL, "missing audio ports config extension");
+    check(audio_configs->count(plugin) == 2, "unexpected audio config count");
+    clap_audio_ports_config_t audio_config = {0};
+    check(audio_configs->get(plugin, 0, &audio_config), "mono audio config failed");
+    check(audio_config.id == 1 && audio_config.main_input_channel_count == 1 &&
+              audio_config.main_output_channel_count == 1,
+          "unexpected mono audio config");
+    check(audio_configs->get(plugin, 1, &audio_config), "stereo audio config failed");
+    check(audio_config.id == 2 && audio_config.main_input_channel_count == 2 &&
+              audio_config.main_output_channel_count == 2,
+          "unexpected stereo audio config");
+
+    const clap_plugin_audio_ports_config_info_t *audio_config_info =
+        (const clap_plugin_audio_ports_config_info_t *)plugin->get_extension(
+            plugin, CLAP_EXT_AUDIO_PORTS_CONFIG_INFO);
+    check(audio_config_info != NULL, "missing audio ports config info extension");
+    check(audio_config_info->current_config(plugin) == 1, "default audio config is not mono");
+    check(audio_config_info->get(plugin, 2, 0, true, &port_info),
+          "stereo config input info failed");
     check(port_info.channel_count == 2, "output port is not stereo");
+    check(port_info.port_type && strcmp(port_info.port_type, CLAP_PORT_STEREO) == 0,
+          "stereo config input port type is not stereo");
+    check(audio_configs->select(plugin, 2), "select stereo audio config failed");
+    check(audio_config_info->current_config(plugin) == 2, "stereo audio config not selected");
+    check(audio_ports->get(plugin, 0, true, &port_info), "selected stereo input info failed");
+    check(port_info.channel_count == 2, "selected input port is not stereo");
+    check(audio_ports->get(plugin, 0, false, &port_info), "selected stereo output info failed");
+    check(port_info.channel_count == 2, "selected output port is not stereo");
 
     const clap_plugin_params_t *params =
         (const clap_plugin_params_t *)plugin->get_extension(plugin, CLAP_EXT_PARAMS);

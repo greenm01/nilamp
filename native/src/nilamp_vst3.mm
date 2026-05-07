@@ -130,8 +130,8 @@ public:
         if (result != kResultOk) {
             return result;
         }
-        addAudioInput(STR("Audio In"), SpeakerArr::kStereo);
-        addAudioOutput(STR("Audio Out"), SpeakerArr::kStereo);
+        addAudioInput(STR("Audio In"), SpeakerArr::kMono);
+        addAudioOutput(STR("Audio Out"), SpeakerArr::kMono);
         return kResultOk;
     }
 
