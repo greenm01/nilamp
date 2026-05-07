@@ -1,0 +1,437 @@
+// SPDX-License-Identifier: MIT
+#include "nilamp_dsp.h"
+#include "nilamp_host.h"
+
+#include "pluginterfaces/base/ibstream.h"
+#include "pluginterfaces/base/ipluginbase.h"
+#include "pluginterfaces/vst/ivstaudioprocessor.h"
+#include "pluginterfaces/vst/ivstcomponent.h"
+#include "pluginterfaces/vst/ivsteditcontroller.h"
+#include "pluginterfaces/vst/ivstparameterchanges.h"
+
+#include <CoreFoundation/CoreFoundation.h>
+
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+
+#define NILAMP_VST3_PROCESSOR_UID INLINE_UID(0xb0494b81, 0xb2385c29, 0x8c4d5734, 0x6d0b1222)
+#define NILAMP_VST3_CONTROLLER_UID INLINE_UID(0x66e72a3a, 0x9187500d, 0xafa4d86a, 0x88935c65)
+
+using namespace Steinberg;
+using namespace Steinberg::Vst;
+
+static void fail(const char *message)
+{
+    std::fprintf(stderr, "test_vst3_load: %s\n", message);
+    std::exit(1);
+}
+
+static void check(bool condition, const char *message)
+{
+    if (!condition) {
+        fail(message);
+    }
+}
+
+static bool iidEqual(const TUID a, const TUID b)
+{
+    return std::memcmp(a, b, sizeof(TUID)) == 0;
+}
+
+class MemoryStream final : public IBStream {
+public:
+    tresult PLUGIN_API queryInterface(const TUID iid, void **obj) SMTG_OVERRIDE
+    {
+        if (!obj) {
+            return kInvalidArgument;
+        }
+        if (iidEqual(iid, IBStream::iid) || iidEqual(iid, FUnknown::iid)) {
+            *obj = static_cast<IBStream *>(this);
+            addRef();
+            return kResultOk;
+        }
+        *obj = nullptr;
+        return kNoInterface;
+    }
+
+    uint32 PLUGIN_API addRef() SMTG_OVERRIDE { return ++refs; }
+    uint32 PLUGIN_API release() SMTG_OVERRIDE { return --refs; }
+
+    tresult PLUGIN_API read(void *buffer, int32 numBytes, int32 *numBytesRead) SMTG_OVERRIDE
+    {
+        if (!buffer || numBytes < 0) {
+            return kInvalidArgument;
+        }
+        const uint64_t remaining = size - offset;
+        const uint64_t requested = static_cast<uint64_t>(numBytes);
+        const uint64_t count = requested < remaining ? requested : remaining;
+        if (count > 0) {
+            std::memcpy(buffer, data + offset, static_cast<size_t>(count));
+            offset += count;
+        }
+        if (numBytesRead) {
+            *numBytesRead = static_cast<int32>(count);
+        }
+        return kResultOk;
+    }
+
+    tresult PLUGIN_API write(void *buffer, int32 numBytes, int32 *numBytesWritten) SMTG_OVERRIDE
+    {
+        if (!buffer || numBytes < 0) {
+            return kInvalidArgument;
+        }
+        const uint64_t requested = static_cast<uint64_t>(numBytes);
+        if (offset + requested > sizeof(data)) {
+            return kResultFalse;
+        }
+        std::memcpy(data + offset, buffer, static_cast<size_t>(requested));
+        offset += requested;
+        if (offset > size) {
+            size = offset;
+        }
+        if (numBytesWritten) {
+            *numBytesWritten = numBytes;
+        }
+        return kResultOk;
+    }
+
+    tresult PLUGIN_API seek(int64 pos, int32 mode, int64 *result) SMTG_OVERRIDE
+    {
+        int64 next = 0;
+        if (mode == kIBSeekSet) {
+            next = pos;
+        } else if (mode == kIBSeekCur) {
+            next = static_cast<int64>(offset) + pos;
+        } else if (mode == kIBSeekEnd) {
+            next = static_cast<int64>(size) + pos;
+        } else {
+            return kInvalidArgument;
+        }
+        if (next < 0 || static_cast<uint64_t>(next) > size) {
+            return kResultFalse;
+        }
+        offset = static_cast<uint64_t>(next);
+        if (result) {
+            *result = static_cast<int64>(offset);
+        }
+        return kResultOk;
+    }
+
+    tresult PLUGIN_API tell(int64 *pos) SMTG_OVERRIDE
+    {
+        if (!pos) {
+            return kInvalidArgument;
+        }
+        *pos = static_cast<int64>(offset);
+        return kResultOk;
+    }
+
+    void rewind() { offset = 0; }
+
+private:
+    uint8_t data[256] = {};
+    uint64_t size = 0;
+    uint64_t offset = 0;
+    uint32 refs = 1;
+};
+
+class ParamQueue final : public IParamValueQueue {
+public:
+    ParamQueue(ParamID paramId, int32 sampleOffset, ParamValue paramValue)
+        : id(paramId), offset(sampleOffset), value(paramValue)
+    {
+    }
+
+    tresult PLUGIN_API queryInterface(const TUID iid, void **obj) SMTG_OVERRIDE
+    {
+        if (!obj) {
+            return kInvalidArgument;
+        }
+        if (iidEqual(iid, IParamValueQueue::iid) || iidEqual(iid, FUnknown::iid)) {
+            *obj = static_cast<IParamValueQueue *>(this);
+            addRef();
+            return kResultOk;
+        }
+        *obj = nullptr;
+        return kNoInterface;
+    }
+
+    uint32 PLUGIN_API addRef() SMTG_OVERRIDE { return ++refs; }
+    uint32 PLUGIN_API release() SMTG_OVERRIDE { return --refs; }
+    ParamID PLUGIN_API getParameterId() SMTG_OVERRIDE { return id; }
+    int32 PLUGIN_API getPointCount() SMTG_OVERRIDE { return 1; }
+
+    tresult PLUGIN_API getPoint(int32 index, int32 &sampleOffset,
+                                ParamValue &paramValue) SMTG_OVERRIDE
+    {
+        if (index != 0) {
+            return kInvalidArgument;
+        }
+        sampleOffset = offset;
+        paramValue = value;
+        return kResultOk;
+    }
+
+    tresult PLUGIN_API addPoint(int32, ParamValue, int32 &) SMTG_OVERRIDE
+    {
+        return kNotImplemented;
+    }
+
+private:
+    ParamID id;
+    int32 offset;
+    ParamValue value;
+    uint32 refs = 1;
+};
+
+class ParameterChanges final : public IParameterChanges {
+public:
+    explicit ParameterChanges(ParamQueue *paramQueue) : queue(paramQueue) {}
+
+    tresult PLUGIN_API queryInterface(const TUID iid, void **obj) SMTG_OVERRIDE
+    {
+        if (!obj) {
+            return kInvalidArgument;
+        }
+        if (iidEqual(iid, IParameterChanges::iid) || iidEqual(iid, FUnknown::iid)) {
+            *obj = static_cast<IParameterChanges *>(this);
+            addRef();
+            return kResultOk;
+        }
+        *obj = nullptr;
+        return kNoInterface;
+    }
+
+    uint32 PLUGIN_API addRef() SMTG_OVERRIDE { return ++refs; }
+    uint32 PLUGIN_API release() SMTG_OVERRIDE { return --refs; }
+    int32 PLUGIN_API getParameterCount() SMTG_OVERRIDE { return queue ? 1 : 0; }
+    IParamValueQueue *PLUGIN_API getParameterData(int32 index) SMTG_OVERRIDE
+    {
+        return index == 0 ? queue : nullptr;
+    }
+    IParamValueQueue *PLUGIN_API addParameterData(const ParamID &, int32 &) SMTG_OVERRIDE
+    {
+        return nullptr;
+    }
+
+private:
+    ParamQueue *queue;
+    uint32 refs = 1;
+};
+
+static double normalized(uint32_t id, double plain)
+{
+    const NilampControlSpec *spec = nilamp_control_spec(id);
+    check(spec != nullptr, "missing parameter spec");
+    return (plain - spec->min_value) / (spec->max_value - spec->min_value);
+}
+
+static void fillInput(float *left, float *right, uint32_t frames)
+{
+    for (uint32_t i = 0; i < frames; i++) {
+        const float t = static_cast<float>(i) / static_cast<float>(frames);
+        left[i] = 0.06f * std::sin(17.0f * t) + 0.015f * std::cos(43.0f * t);
+        right[i] = 0.04f * std::cos(11.0f * t) - 0.02f * std::sin(29.0f * t);
+    }
+}
+
+static void sanitize(float *buffer, uint32_t frames)
+{
+    for (uint32_t i = 0; i < frames; i++) {
+        buffer[i] = nilamp_host_sanitize_sample(buffer[i]);
+    }
+}
+
+static void compareOutput(const float *actual, const float *expected, uint32_t frames,
+                          const char *label)
+{
+    for (uint32_t i = 0; i < frames; i++) {
+        const float diff = std::fabs(actual[i] - expected[i]);
+        if (!std::isfinite(actual[i]) || diff > 0.00001f) {
+            std::fprintf(stderr,
+                         "test_vst3_load: %s mismatch at %u: actual=%g expected=%g diff=%g\n",
+                         label, i, actual[i], expected[i], diff);
+            std::exit(1);
+        }
+    }
+}
+
+static void renderReference(float gainDb, const float *inL, const float *inR,
+                            float *outL, float *outR, uint32_t frames)
+{
+    NilampEngine *engineL = nilamp_engine_create(48000.0);
+    NilampEngine *engineR = nilamp_engine_create(48000.0);
+    check(engineL != nullptr && engineR != nullptr, "failed to create reference engines");
+    NilampParams params = nilamp_default_params();
+    params.gain_db = gainDb;
+    nilamp_engine_set_params(engineL, &params);
+    nilamp_engine_set_params(engineR, &params);
+    nilamp_engine_process(engineL, inL, outL, frames);
+    nilamp_engine_process(engineR, inR, outR, frames);
+    sanitize(outL, frames);
+    sanitize(outR, frames);
+    nilamp_engine_destroy(engineL);
+    nilamp_engine_destroy(engineR);
+}
+
+static void renderReferenceAfterWarmup(float gainDb, const float *inL, const float *inR,
+                                       float *outL, float *outR, uint32_t frames)
+{
+    NilampEngine *engineL = nilamp_engine_create(48000.0);
+    NilampEngine *engineR = nilamp_engine_create(48000.0);
+    check(engineL != nullptr && engineR != nullptr, "failed to create warm reference engines");
+    NilampParams params = nilamp_default_params();
+    float warmL[128] = {};
+    float warmR[128] = {};
+    nilamp_engine_process(engineL, inL, warmL, frames);
+    nilamp_engine_process(engineR, inR, warmR, frames);
+    params.gain_db = gainDb;
+    nilamp_engine_set_params(engineL, &params);
+    nilamp_engine_set_params(engineR, &params);
+    nilamp_engine_process(engineL, inL, outL, frames);
+    nilamp_engine_process(engineR, inR, outR, frames);
+    sanitize(outL, frames);
+    sanitize(outR, frames);
+    nilamp_engine_destroy(engineL);
+    nilamp_engine_destroy(engineR);
+}
+
+int main(int argc, char **argv)
+{
+    check(argc == 2, "usage: test_vst3_load /path/to/plugin.vst3");
+
+    CFStringRef path = CFStringCreateWithCString(kCFAllocatorDefault, argv[1],
+                                                 kCFStringEncodingUTF8);
+    check(path != nullptr, "failed to create path string");
+    CFURLRef url = CFURLCreateWithFileSystemPath(kCFAllocatorDefault, path,
+                                                 kCFURLPOSIXPathStyle, true);
+    CFRelease(path);
+    check(url != nullptr, "failed to create bundle URL");
+    CFBundleRef bundle = CFBundleCreate(kCFAllocatorDefault, url);
+    CFRelease(url);
+    check(bundle != nullptr, "failed to create bundle");
+    check(CFBundleLoadExecutable(bundle), "failed to load bundle executable");
+
+    using BundleEntryFn = bool (*)(CFBundleRef);
+    using BundleExitFn = bool (*)(void);
+    using GetFactoryFn = IPluginFactory *(*)();
+    auto bundleEntry = reinterpret_cast<BundleEntryFn>(
+        CFBundleGetFunctionPointerForName(bundle, CFSTR("bundleEntry")));
+    auto bundleExit = reinterpret_cast<BundleExitFn>(
+        CFBundleGetFunctionPointerForName(bundle, CFSTR("bundleExit")));
+    auto getFactory = reinterpret_cast<GetFactoryFn>(
+        CFBundleGetFunctionPointerForName(bundle, CFSTR("GetPluginFactory")));
+    check(bundleEntry != nullptr && bundleExit != nullptr && getFactory != nullptr,
+          "missing VST3 entry points");
+    check(bundleEntry(bundle), "bundleEntry failed");
+
+    IPluginFactory *factory = getFactory();
+    check(factory != nullptr, "missing plugin factory");
+    check(factory->countClasses() == 2, "unexpected factory class count");
+
+    TUID processorUid = NILAMP_VST3_PROCESSOR_UID;
+    TUID controllerUid = NILAMP_VST3_CONTROLLER_UID;
+    IComponent *component = nullptr;
+    IAudioProcessor *processor = nullptr;
+    IEditController *controller = nullptr;
+    check(factory->createInstance(processorUid, IComponent::iid, (void **)&component) == kResultOk,
+          "processor component create failed");
+    check(component->queryInterface(IAudioProcessor::iid, (void **)&processor) == kResultOk,
+          "audio processor query failed");
+    check(factory->createInstance(controllerUid, IEditController::iid, (void **)&controller) ==
+              kResultOk,
+          "controller create failed");
+
+    check(component->initialize(nullptr) == kResultOk, "component initialize failed");
+    check(controller->initialize(nullptr) == kResultOk, "controller initialize failed");
+    check(controller->getParameterCount() == NILAMP_PARAM_COUNT,
+          "unexpected VST3 parameter count");
+    ParameterInfo info = {};
+    check(controller->getParameterInfo(NILAMP_PARAM_GAIN_DB, info) == kResultOk,
+          "gain parameter info failed");
+    check(info.id == NILAMP_PARAM_GAIN_DB, "unexpected gain parameter id");
+
+    SpeakerArrangement inputArrangement = SpeakerArr::kStereo;
+    SpeakerArrangement outputArrangement = SpeakerArr::kStereo;
+    check(processor->setBusArrangements(&inputArrangement, 1, &outputArrangement, 1) ==
+              kResultTrue,
+          "stereo bus arrangement failed");
+    ProcessSetup setup = {};
+    setup.processMode = kRealtime;
+    setup.symbolicSampleSize = kSample32;
+    setup.maxSamplesPerBlock = 128;
+    setup.sampleRate = 48000.0;
+    check(processor->setupProcessing(setup) == kResultOk, "setupProcessing failed");
+    check(component->setActive(true) == kResultOk, "setActive failed");
+    check(processor->setProcessing(true) == kResultOk, "setProcessing failed");
+
+    constexpr uint32_t Frames = 128;
+    float inL[Frames] = {};
+    float inR[Frames] = {};
+    float outL[Frames] = {};
+    float outR[Frames] = {};
+    float refL[Frames] = {};
+    float refR[Frames] = {};
+    fillInput(inL, inR, Frames);
+
+    float *inputChannels[2] = {inL, inR};
+    float *outputChannels[2] = {outL, outR};
+    AudioBusBuffers input = {};
+    AudioBusBuffers output = {};
+    input.numChannels = 2;
+    input.channelBuffers32 = inputChannels;
+    output.numChannels = 2;
+    output.channelBuffers32 = outputChannels;
+    ProcessData data = {};
+    data.processMode = kRealtime;
+    data.symbolicSampleSize = kSample32;
+    data.numSamples = Frames;
+    data.numInputs = 1;
+    data.numOutputs = 1;
+    data.inputs = &input;
+    data.outputs = &output;
+
+    check(processor->process(data) == kResultOk, "default process failed");
+    renderReference(0.0f, inL, inR, refL, refR, Frames);
+    compareOutput(outL, refL, Frames, "default L");
+    compareOutput(outR, refR, Frames, "default R");
+
+    MemoryStream state;
+    check(component->getState(&state) == kResultOk, "state save failed");
+
+    std::memset(outL, 0, sizeof(outL));
+    std::memset(outR, 0, sizeof(outR));
+    ParamQueue gainQueue(NILAMP_PARAM_GAIN_DB, 0, normalized(NILAMP_PARAM_GAIN_DB, 6.0));
+    ParameterChanges changes(&gainQueue);
+    data.inputParameterChanges = &changes;
+    check(processor->process(data) == kResultOk, "automation process failed");
+    renderReferenceAfterWarmup(6.0f, inL, inR, refL, refR, Frames);
+    compareOutput(outL, refL, Frames, "automation L");
+    compareOutput(outR, refR, Frames, "automation R");
+
+    state.rewind();
+    check(component->setState(&state) == kResultOk, "state restore failed");
+    check(component->setActive(false) == kResultOk, "state restore deactivate failed");
+    check(component->setActive(true) == kResultOk, "state restore reactivate failed");
+    data.inputParameterChanges = nullptr;
+    std::memset(outL, 0, sizeof(outL));
+    std::memset(outR, 0, sizeof(outR));
+    check(processor->process(data) == kResultOk, "restored process failed");
+    renderReference(0.0f, inL, inR, refL, refR, Frames);
+    compareOutput(outL, refL, Frames, "restored L");
+    compareOutput(outR, refR, Frames, "restored R");
+
+    processor->setProcessing(false);
+    component->setActive(false);
+    controller->terminate();
+    component->terminate();
+    controller->release();
+    processor->release();
+    component->release();
+    factory->release();
+    check(bundleExit(), "bundleExit failed");
+    CFRelease(bundle);
+    return 0;
+}

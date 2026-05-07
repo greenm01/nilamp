@@ -5,7 +5,7 @@ Cargo.lock          # binary crates may want to commit this; remove this line wh
 
 # Faust generated output
 /dsp/build/
-*.cpp
+/dsp/**/*.cpp
 *.dsp.bak
 
 # Python

@@ -25,8 +25,35 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#if !defined(_WIN32)
+#include <sys/stat.h>
+#endif
 
 #define NILAMP_PLUGIN_ID "dev.niltempus.nilamp"
+
+static const char *clap_library_path(const char *plugin_path, char *buffer, size_t buffer_size)
+{
+#if defined(_WIN32)
+    (void)buffer;
+    (void)buffer_size;
+    return plugin_path;
+#else
+    struct stat st;
+    if (stat(plugin_path, &st) != 0 || !S_ISDIR(st.st_mode)) {
+        return plugin_path;
+    }
+
+    const char *name = strrchr(plugin_path, '/');
+    name = name ? name + 1 : plugin_path;
+    size_t name_len = strlen(name);
+    if (name_len > 5 && strcmp(name + name_len - 5, ".clap") == 0) {
+        name_len -= 5;
+    }
+
+    snprintf(buffer, buffer_size, "%s/Contents/MacOS/%.*s", plugin_path, (int)name_len, name);
+    return buffer;
+#endif
+}
 
 typedef enum {
     MODE_SHARED = 0,
@@ -352,9 +379,11 @@ int main(int argc, char **argv)
         args.sample_rate = (double)wav_sr;
     }
 
-    NilampModule handle = nilamp_module_open(args.plugin_path);
+    char library_path[4096];
+    const char *load_path = clap_library_path(args.plugin_path, library_path, sizeof(library_path));
+    NilampModule handle = nilamp_module_open(load_path);
     if (!handle) {
-        nilamp_module_print_error("render_loaded_clap", args.plugin_path);
+        nilamp_module_print_error("render_loaded_clap", load_path);
         free(mono); return 1;
     }
 

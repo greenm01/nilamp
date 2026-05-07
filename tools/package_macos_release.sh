@@ -4,13 +4,15 @@ set -euo pipefail
 
 usage() {
     cat >&2 <<'EOF'
-Usage: tools/package_macos_release.sh --version V --plugin PATH --clap-bundle NAME --dist-dir DIR --gpg-key KEY
+Usage: tools/package_macos_release.sh --version V --plugin PATH --clap-bundle NAME --vst3-plugin PATH --vst3-bundle NAME --dist-dir DIR --gpg-key KEY
 EOF
 }
 
 version=
 plugin=
 clap_bundle=
+vst3_plugin=
+vst3_bundle=
 dist_dir=
 gpg_key=
 
@@ -26,6 +28,14 @@ while [ "$#" -gt 0 ]; do
             ;;
         --clap-bundle)
             clap_bundle="${2:-}"
+            shift 2
+            ;;
+        --vst3-plugin)
+            vst3_plugin="${2:-}"
+            shift 2
+            ;;
+        --vst3-bundle)
+            vst3_bundle="${2:-}"
             shift 2
             ;;
         --dist-dir)
@@ -48,6 +58,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 if [ -z "$version" ] || [ -z "$plugin" ] || [ -z "$clap_bundle" ] ||
+   [ -z "$vst3_plugin" ] || [ -z "$vst3_bundle" ] ||
    [ -z "$dist_dir" ] || [ -z "$gpg_key" ]; then
     usage
     exit 2
@@ -61,8 +72,12 @@ case "$(uname -s)" in
         ;;
 esac
 
-if [ ! -f "$plugin" ]; then
-    echo "package_macos_release: plugin not found: $plugin" >&2
+if [ ! -e "$plugin" ]; then
+    echo "package_macos_release: CLAP plugin not found: $plugin" >&2
+    exit 1
+fi
+if [ ! -d "$vst3_plugin" ]; then
+    echo "package_macos_release: VST3 bundle not found: $vst3_plugin" >&2
     exit 1
 fi
 
@@ -96,8 +111,10 @@ sums_path="$dist_abs/SHA256SUMS"
 rm -f "$zip_path" "$zip_path.asc" "$sums_path" "$sums_path.asc"
 mkdir -p "$package_dir"
 
-cp -f "$plugin" "$package_dir/$clap_bundle"
+cp -R "$plugin" "$package_dir/$clap_bundle"
 codesign --force --sign - "$package_dir/$clap_bundle"
+cp -R "$vst3_plugin" "$package_dir/$vst3_bundle"
+codesign --force --sign - "$package_dir/$vst3_bundle"
 
 cat > "$package_dir/install.command" <<'EOF'
 #!/usr/bin/env bash
@@ -105,21 +122,35 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "$0")" && pwd)"
 clap_name="nilamp-twd-mkii.clap"
+vst3_name="nilamp-twd-mkii.vst3"
 source_clap="$script_dir/$clap_name"
+source_vst3="$script_dir/$vst3_name"
 target_dir="$HOME/Library/Audio/Plug-Ins/CLAP"
+target_vst3_dir="$HOME/Library/Audio/Plug-Ins/VST3"
 target_clap="$target_dir/$clap_name"
+target_vst3="$target_vst3_dir/$vst3_name"
 
-if [ ! -f "$source_clap" ]; then
+if [ ! -e "$source_clap" ]; then
     echo "Could not find $clap_name next to install.command" >&2
+    exit 1
+fi
+if [ ! -d "$source_vst3" ]; then
+    echo "Could not find $vst3_name next to install.command" >&2
     exit 1
 fi
 
 mkdir -p "$target_dir"
-cp -f "$source_clap" "$target_clap"
+rm -rf "$target_clap"
+cp -R "$source_clap" "$target_clap"
 codesign --force --sign - "$target_clap"
+mkdir -p "$target_vst3_dir"
+rm -rf "$target_vst3"
+cp -R "$source_vst3" "$target_vst3"
+codesign --force --sign - "$target_vst3"
 
 echo "Installed $target_clap"
-echo "Restart your DAW or rescan CLAP plug-ins if nilamp was already open."
+echo "Installed $target_vst3"
+echo "Restart your DAW or rescan CLAP/VST3 plug-ins if nilamp was already open."
 EOF
 chmod 755 "$package_dir/install.command"
 
@@ -129,8 +160,10 @@ nilamp TWD MKII v${version} for macOS
 Install:
   Double-click install.command, or copy ${clap_bundle} to:
   ~/Library/Audio/Plug-Ins/CLAP/${clap_bundle}
+  and copy ${vst3_bundle} to:
+  ~/Library/Audio/Plug-Ins/VST3/${vst3_bundle}
 
-After installing, restart your DAW or rescan CLAP plug-ins.
+After installing, restart your DAW or rescan CLAP/VST3 plug-ins.
 
 Verify release artifacts:
   gpg --verify SHA256SUMS.asc SHA256SUMS

@@ -49,7 +49,7 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
 
     plugin = args.plugin.resolve()
-    if not plugin.is_file():
+    if not plugin.exists():
         raise FileNotFoundError(f"plugin not found: {plugin}")
     if not TEST_CLAP_LOAD.is_file():
         raise FileNotFoundError(f"native CLAP loader not found: {TEST_CLAP_LOAD}")

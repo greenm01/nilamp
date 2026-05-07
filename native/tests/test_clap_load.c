@@ -17,6 +17,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#if !defined(_WIN32)
+#include <sys/stat.h>
+#endif
 
 #ifndef NILAMP_EXPECT_CLAP_GUI
 #define NILAMP_EXPECT_CLAP_GUI 1
@@ -39,6 +42,30 @@
 #ifndef NILAMP_EXPECT_CLAP_NAME
 #define NILAMP_EXPECT_CLAP_NAME "nilamp"
 #endif
+
+static const char *clap_library_path(const char *plugin_path, char *buffer, size_t buffer_size)
+{
+#if defined(_WIN32)
+    (void)buffer;
+    (void)buffer_size;
+    return plugin_path;
+#else
+    struct stat st;
+    if (stat(plugin_path, &st) != 0 || !S_ISDIR(st.st_mode)) {
+        return plugin_path;
+    }
+
+    const char *name = strrchr(plugin_path, '/');
+    name = name ? name + 1 : plugin_path;
+    size_t name_len = strlen(name);
+    if (name_len > 5 && strcmp(name + name_len - 5, ".clap") == 0) {
+        name_len -= 5;
+    }
+
+    snprintf(buffer, buffer_size, "%s/Contents/MacOS/%.*s", plugin_path, (int)name_len, name);
+    return buffer;
+#endif
+}
 #define NILAMP_HOST_OUTPUT_LIMIT 1.0f
 #define NILAMP_STRESS_SAMPLE_RATE 48000.0f
 
@@ -668,7 +695,9 @@ static void run_clap_output_safety_test(const clap_plugin_t *plugin,
 int main(int argc, char **argv)
 {
     const char *plugin_path = argc > 1 ? argv[1] : "native/bin/nilamp-twd-mkii.clap";
-    NilampModule handle = nilamp_module_open(plugin_path);
+    char library_path[4096];
+    const char *load_path = clap_library_path(plugin_path, library_path, sizeof(library_path));
+    NilampModule handle = nilamp_module_open(load_path);
     if (!handle) {
         nilamp_module_print_error("module open");
         return 1;

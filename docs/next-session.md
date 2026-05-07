@@ -2,6 +2,34 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: macOS VST3 export
+
+**Context.** Added a macOS-first VST3 export path alongside the existing CLAP
+plugin while keeping realtime DSP and the custom editor implementation in C.
+
+**Edit summary.**
+
+- Vendored the official MIT VST3 SDK plugin-side sources under
+  `third_party/vst3sdk`.
+- Added VST3 metadata to the KDL amp model and generated native model data.
+- Added `native/src/nilamp_host.c` as shared plugin host glue for parameter
+  mapping, state v3 serialization, stereo processing, and output sanitization.
+- Added a VST3 processor/controller/editor shell in Objective-C++, reusing the
+  C DSP engine and Cocoa Pugl/Sokol/Nuklear editor.
+- Added `make install-vst3-user`, macOS VST3 bundle packaging, and a native
+  VST3 loader smoke test.
+- Changed the macOS CLAP build from a flat `.clap` dylib to a validator-friendly
+  `.clap` bundle with `Contents/MacOS/nilamp-twd-mkii` and `Info.plist`.
+
+**Verification.**
+
+- `make native` passes and builds `native/bin/nilamp-twd-mkii.vst3`.
+- `make native-test` passes, including the new VST3 factory/load/process/state
+  and automation smoke test.
+- `make native-host-test` passes with installed `clap-validator` and Steinberg
+  `validator`: CLAP reports 21 tests run, 16 passed, 0 failed, 5 skipped; VST3
+  reports 47 tests passed, 0 failed.
+
 ### Session: Windows MSVC CLAP build and install
 
 **Context.** Ported the native CLAP build to Windows with the MSVC toolchain so

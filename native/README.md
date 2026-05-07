@@ -4,8 +4,9 @@
 
 ## Boundaries
 
-- C owns realtime DSP, offline rendering, the CLAP plugin shell, and the custom
-  GUI runtime.
+- C owns realtime DSP, offline rendering, shared plugin host glue, and the
+  custom GUI runtime. The CLAP shell stays C; the VST3 shell uses a small
+  C++/Objective-C++ ABI layer around the C core.
 - Lua may be used for build-time codegen/config helpers when it is useful.
 - Python remains the numerical oracle, fixture generator, and ABX analysis
   layer.
@@ -51,6 +52,15 @@ The CLAP plugin is:
 native/bin/nilamp-twd-mkii.clap
 ```
 
+On macOS this is a bundle containing
+`Contents/MacOS/nilamp-twd-mkii`; on Linux it is a shared library file.
+
+On macOS, the VST3 plugin bundle is:
+
+```bash
+native/bin/nilamp-twd-mkii.vst3
+```
+
 Its custom editor is an embedded GPU GUI built in C with Pugl, `sokol_gfx`,
 and Nuklear: X11 on Linux, Cocoa on macOS, and Win32 on Windows. Wayland
 sessions use the Linux path through XWayland for now.
@@ -63,7 +73,16 @@ make install-clap-user
 
 This writes `~/Library/Audio/Plug-Ins/CLAP/nilamp-twd-mkii.clap` on macOS and
 `~/.clap/nilamp-twd-mkii.clap` on Linux by default. The macOS install also
-re-signs the copied dylib.
+re-signs the copied bundle.
+
+Install the macOS VST3 to the user plugin path with:
+
+```bash
+make install-vst3-user
+```
+
+This writes `~/Library/Audio/Plug-Ins/VST3/nilamp-twd-mkii.vst3` and re-signs
+the copied bundle.
 
 On Windows, build from an x64 Native Tools prompt with:
 
@@ -98,14 +117,14 @@ make native-bench
 The CLAP and CLI render paths enable x86 FTZ/DAZ floating-point mode when
 available. Non-x86 builds compile the helper away.
 
-`make native-test` runs both the DSP fixture tests and a small CLAP loader
-smoke test that scans the plugin, activates it, processes audio, and applies
-one automation event.
+`make native-test` runs the DSP fixture tests, a small CLAP loader smoke test,
+and on macOS a VST3 loader smoke test. The plugin smoke tests scan the plugin,
+activate it, process audio, restore state, and apply automation.
 
-`make native-host-test` is REAPER-free. It runs the native CLAP loader and
-optional `clap-validator` when that tool is installed. The old REAPER smoke
-test remains available as `make native-reaper-host-test` for manual host
-checks.
+`make native-host-test` is REAPER-free. It runs the native CLAP/VST3 loaders
+and optional external validators when installed (`clap-validator`, `validator`,
+or `vst3validator`). The old REAPER smoke test remains available as
+`make native-reaper-host-test` for manual host checks.
 
 `tools/abx_compare.py` defaults to `native/bin/nilamp_render` for comparison
 against the canonical Keller JSFX render.

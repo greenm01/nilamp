@@ -246,7 +246,7 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
 
     plugin = args.plugin.resolve()
-    if not plugin.is_file():
+    if not plugin.exists():
         raise FileNotFoundError(f"plugin not found: {plugin}")
     args.output.parent.mkdir(parents=True, exist_ok=True)
 

@@ -183,7 +183,7 @@ available as `make native-reaper-host-test` for manual host checks.
 `make install-clap-user` installs the CLAP to the platform user plugin path:
 `~/Library/Audio/Plug-Ins/CLAP/nilamp-twd-mkii.clap` on macOS and
 `~/.clap/nilamp-twd-mkii.clap` on Linux. On macOS it also re-signs the copied
-dylib so hosts can load it. On Windows, `nmake /f Makefile.msvc install-clap-user`
+bundle so hosts can load it. On Windows, `nmake /f Makefile.msvc install-clap-user`
 copies `native\bin\nilamp-twd-mkii.clap` to `%LOCALAPPDATA%\Programs\Common\CLAP`.
 `nmake /f Makefile.msvc install-clap` installs to
 `C:\Program Files\Common Files\CLAP`; run the shell elevated for that system
@@ -198,8 +198,8 @@ make package-macos-release
 
 The Linux package includes `install.sh`, which installs the plugin to
 `~/.clap`. The macOS package includes `install.command`, which installs the
-plugin to `~/Library/Audio/Plug-Ins/CLAP`. Both write detached GPG signatures
-and checksums in `dist/`. Release signatures use fingerprint
+CLAP and VST3 plugins to `~/Library/Audio/Plug-Ins`. Both write detached GPG
+signatures and checksums in `dist/`. Release signatures use fingerprint
 `C3504EE1EE38410CE1C433BC372B8AAACB867F13`. nilamp is based on Helmut Keller's
 "A Tube Amp Modeling Project"; see
 [Helmut Keller Audio](https://www.helmutkelleraudio.de/) for Keller's original

@@ -119,6 +119,10 @@ typedef struct {
     const char *family;
     const char *clap_name;
     const char *clap_filename;
+    const char *vst3_name;
+    const char *vst3_filename;
+    const char *vst3_executable;
+    const char *vst3_bundle_id;
     float speaker_source_ohms;
     float speaker_nominal_ohms;
     const NilampGuiLayoutSpec *gui_layout;

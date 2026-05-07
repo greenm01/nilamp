@@ -85,6 +85,8 @@ KNOWN_CONTROL_DISPLAYS = {
     "enum": "NILAMP_CONTROL_DISPLAY_ENUM",
 }
 CLAP_FILENAME_RE = re.compile(r"[A-Za-z0-9._-]+\.clap")
+VST3_FILENAME_RE = re.compile(r"[A-Za-z0-9._-]+\.vst3")
+VST3_EXECUTABLE_RE = re.compile(r"[A-Za-z0-9._-]+")
 KNOWN_GUI_SCREENS = {
     "main": "NILAMP_GUI_SCREEN_ID_MAIN",
     "options": "NILAMP_GUI_SCREEN_ID_OPTIONS",
@@ -462,6 +464,10 @@ def validate_amp(node: Node) -> dict[str, Any]:
     topology = required_prop(dsp, "topology", str)
     clap_name = required_prop(metadata, "clap_name", str)
     clap_filename = required_prop(metadata, "clap_filename", str)
+    vst3_name = required_prop(metadata, "vst3_name", str)
+    vst3_filename = required_prop(metadata, "vst3_filename", str)
+    vst3_executable = required_prop(metadata, "vst3_executable", str)
+    vst3_bundle_id = required_prop(metadata, "vst3_bundle_id", str)
     metadata_values = {
         "id": model_id,
         "name": name,
@@ -469,6 +475,10 @@ def validate_amp(node: Node) -> dict[str, Any]:
         "brand": brand,
         "clap_name": clap_name,
         "clap_filename": clap_filename,
+        "vst3_name": vst3_name,
+        "vst3_filename": vst3_filename,
+        "vst3_executable": vst3_executable,
+        "vst3_bundle_id": vst3_bundle_id,
         "about_title": required_prop(metadata, "about_title", str),
         "version": required_prop(metadata, "version", str),
         "author": required_prop(metadata, "author", str),
@@ -480,6 +490,14 @@ def validate_amp(node: Node) -> dict[str, Any]:
         fail(f"{slug} clap_name must not be empty")
     if not CLAP_FILENAME_RE.fullmatch(clap_filename):
         fail(f"{slug} clap_filename must be a bare .clap filename")
+    if not vst3_name:
+        fail(f"{slug} vst3_name must not be empty")
+    if not VST3_FILENAME_RE.fullmatch(vst3_filename):
+        fail(f"{slug} vst3_filename must be a bare .vst3 filename")
+    if not VST3_EXECUTABLE_RE.fullmatch(vst3_executable):
+        fail(f"{slug} vst3_executable must be a bare filename")
+    if not vst3_bundle_id or " " in vst3_bundle_id:
+        fail(f"{slug} vst3_bundle_id must be non-empty and contain no spaces")
 
     speaker = node_child(dsp, "speaker")
     speaker_source = required_number(speaker, "source_ohms")
@@ -613,6 +631,10 @@ def validate_amp(node: Node) -> dict[str, Any]:
         "topology": topology,
         "clap_name": clap_name,
         "clap_filename": clap_filename,
+        "vst3_name": vst3_name,
+        "vst3_filename": vst3_filename,
+        "vst3_executable": vst3_executable,
+        "vst3_bundle_id": vst3_bundle_id,
         "speaker_source_ohms": speaker_source,
         "speaker_nominal_ohms": speaker_nominal,
         "stages": stages,
@@ -757,6 +779,10 @@ def render(models: list[dict[str, Any]]) -> str:
         lines.append(f"        .family = {c_string(model['family'])},")
         lines.append(f"        .clap_name = {c_string(model['clap_name'])},")
         lines.append(f"        .clap_filename = {c_string(model['clap_filename'])},")
+        lines.append(f"        .vst3_name = {c_string(model['vst3_name'])},")
+        lines.append(f"        .vst3_filename = {c_string(model['vst3_filename'])},")
+        lines.append(f"        .vst3_executable = {c_string(model['vst3_executable'])},")
+        lines.append(f"        .vst3_bundle_id = {c_string(model['vst3_bundle_id'])},")
         lines.append(f"        .speaker_source_ohms = {c_float(model['speaker_source_ohms'])},")
         lines.append(f"        .speaker_nominal_ohms = {c_float(model['speaker_nominal_ohms'])},")
         lines.append(f"        .gui_layout = &{layout_symbol},")
@@ -771,14 +797,35 @@ def main() -> int:
                         help="print the configured CLAP bundle filename for one model")
     parser.add_argument("--print-clap-name-c", action="store_true",
                         help="print the configured CLAP descriptor name as a C string")
+    parser.add_argument("--print-vst3-filename", action="store_true",
+                        help="print the configured VST3 bundle filename for one model")
+    parser.add_argument("--print-vst3-executable", action="store_true",
+                        help="print the configured VST3 executable filename for one model")
+    parser.add_argument("--print-vst3-bundle-id", action="store_true",
+                        help="print the configured VST3 macOS bundle identifier for one model")
+    parser.add_argument("--print-vst3-name-c", action="store_true",
+                        help="print the configured VST3 descriptor name as a C string")
     parser.add_argument("paths", type=Path, nargs="+")
     args = parser.parse_args()
 
-    if args.print_clap_filename or args.print_clap_name_c:
+    if (args.print_clap_filename or args.print_clap_name_c or
+            args.print_vst3_filename or args.print_vst3_executable or
+            args.print_vst3_bundle_id or args.print_vst3_name_c):
         if len(args.paths) != 1:
             fail("metadata print mode expects exactly one model path")
         model = parse_model(args.paths[0])
-        print(c_string(model["clap_name"]) if args.print_clap_name_c else model["clap_filename"])
+        if args.print_clap_name_c:
+            print(c_string(model["clap_name"]))
+        elif args.print_vst3_filename:
+            print(model["vst3_filename"])
+        elif args.print_vst3_executable:
+            print(model["vst3_executable"])
+        elif args.print_vst3_bundle_id:
+            print(model["vst3_bundle_id"])
+        elif args.print_vst3_name_c:
+            print(c_string(model["vst3_name"]))
+        else:
+            print(model["clap_filename"])
         return 0
 
     if len(args.paths) < 2:

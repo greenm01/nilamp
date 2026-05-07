@@ -5,6 +5,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct NilampEngine NilampEngine;
 
 typedef enum NilampModelId {
@@ -193,6 +197,10 @@ void nilamp_test_tube_cd_t3(double sample_rate, const float *input, float *v_out
 void nilamp_test_tube_cd_t3_dz(double sample_rate, const float *input, float *v_out, float *vk_out, float *dia, size_t n);
 void nilamp_test_power_pair(double sample_rate, const float *t3_v, const float *t3_vk, float *outputs[NILAMP_TEST_NUM_POWER_PAIR_OUTPUTS], size_t n);
 void nilamp_test_pss(float r, float tau, double sample_rate, const float *dia, float *dvs, float *s, size_t n);
+#endif
+
+#ifdef __cplusplus
+}
 #endif
 
 #endif
