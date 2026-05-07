@@ -116,6 +116,7 @@ static bool nilamp_gui_supports_floating(void)
 #endif
 }
 
+#if defined(_WIN32)
 static bool nilamp_host_is_element(const clap_host_t *host)
 {
     if (!host) {
@@ -129,10 +130,14 @@ static bool nilamp_host_is_element(const clap_host_t *host)
                          nilamp_stricmp(host->vendor, "Kushview, LLC") == 0);
     return name_matches || vendor_matches;
 }
+#endif
 
 static bool nilamp_gui_api_supported(const NilampClap *plug, const char *api,
                                      bool is_floating)
 {
+#if !defined(_WIN32)
+    (void)plug;
+#endif
     if (api && strcmp(api, NILAMP_CLAP_WINDOW_API) == 0) {
         return !is_floating || nilamp_gui_supports_floating();
     }

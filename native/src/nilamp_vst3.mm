@@ -42,6 +42,13 @@ using namespace Steinberg::Vst;
 
 static const FUID ProcessorUID(0xb0494b81, 0xb2385c29, 0x8c4d5734, 0x6d0b1222);
 static const FUID ControllerUID(0x66e72a3a, 0x9187500d, 0xafa4d86a, 0x88935c65);
+static constexpr uint32 kEditorTimerMs = 33;
+static constexpr double kEditorFrameIntervalSeconds = 1.0 / 30.0;
+
+static bool iidEqual(const TUID a, const TUID b)
+{
+    return std::memcmp(a, b, sizeof(TUID)) == 0;
+}
 
 static double normalizedToPlain(const NilampControlSpec *spec, double normalized)
 {
@@ -284,6 +291,47 @@ private:
 };
 
 class Controller;
+class Editor;
+
+#if defined(__linux__)
+class LinuxEditorTimer final : public Linux::ITimerHandler {
+public:
+    explicit LinuxEditorTimer(Editor *ownerIn) : owner(ownerIn) {}
+
+    tresult PLUGIN_API queryInterface(const TUID queryIid, void **obj) SMTG_OVERRIDE
+    {
+        if (!obj) {
+            return kInvalidArgument;
+        }
+        if (iidEqual(queryIid, Linux::ITimerHandler::iid) ||
+            iidEqual(queryIid, FUnknown::iid)) {
+            *obj = static_cast<Linux::ITimerHandler *>(this);
+            addRef();
+            return kResultOk;
+        }
+        *obj = nullptr;
+        return kNoInterface;
+    }
+
+    uint32 PLUGIN_API addRef() SMTG_OVERRIDE { return ++refs; }
+
+    uint32 PLUGIN_API release() SMTG_OVERRIDE
+    {
+        const uint32 next = --refs;
+        if (next == 0) {
+            delete this;
+        }
+        return next;
+    }
+
+    void PLUGIN_API onTimer() SMTG_OVERRIDE;
+    void detach() { owner = nullptr; }
+
+private:
+    Editor *owner = nullptr;
+    uint32 refs = 1;
+};
+#endif
 
 class Editor final : public CPluginView
 #if !defined(__APPLE__)
@@ -298,6 +346,9 @@ public:
     tresult PLUGIN_API attached(void *parent, FIDString type) SMTG_OVERRIDE;
     tresult PLUGIN_API removed() SMTG_OVERRIDE;
     tresult PLUGIN_API onSize(ViewRect *newSize) SMTG_OVERRIDE;
+#if defined(__linux__)
+    tresult PLUGIN_API setFrame(IPlugFrame *frame) SMTG_OVERRIDE;
+#endif
 #if !defined(__APPLE__)
     void onTimer(Timer *timer) SMTG_OVERRIDE;
 #endif
@@ -306,7 +357,12 @@ private:
     static float getParam(void *user, uint32_t id);
     static void setParam(void *user, uint32_t id, float value);
     static const char *modelName(void *user);
+    void startTimer();
+    void stopTimer();
     void tick();
+#if defined(__linux__)
+    friend class LinuxEditorTimer;
+#endif
 
     Controller *controller = nullptr;
     NilampGui *gui = nullptr;
@@ -314,6 +370,11 @@ private:
     NSTimer *timer = nil;
 #else
     Timer *timer = nullptr;
+#endif
+#if defined(__linux__)
+    FUnknownPtr<Linux::IRunLoop> runLoop;
+    LinuxEditorTimer *runLoopTimer = nullptr;
+    bool runLoopTimerRegistered = false;
 #endif
 };
 
@@ -328,6 +389,9 @@ public:
         if (result != kResultOk) {
             return result;
         }
+#if defined(__linux__)
+        runLoop = context;
+#endif
 
         const NilampControlSpec *specs = nilamp_control_specs(NULL);
         for (uint32_t i = 0; i < NILAMP_PARAM_COUNT; i++) {
@@ -464,6 +528,10 @@ public:
         endEdit(id);
     }
 
+#if defined(__linux__)
+    Linux::IRunLoop *getRunLoop() const { return runLoop; }
+#endif
+
 private:
     void syncParamsFromCore()
     {
@@ -478,6 +546,9 @@ private:
     }
 
     NilampHostCore core = {};
+#if defined(__linux__)
+    FUnknownPtr<Linux::IRunLoop> runLoop;
+#endif
 };
 
 Editor::Editor(Controller *controllerIn) : CPluginView(nullptr), controller(controllerIn)
@@ -490,18 +561,7 @@ Editor::Editor(Controller *controllerIn) : CPluginView(nullptr), controller(cont
 
 Editor::~Editor()
 {
-#if defined(__APPLE__)
-    if (timer) {
-        [timer invalidate];
-        timer = nil;
-    }
-#else
-    if (timer) {
-        timer->stop();
-        timer->release();
-        timer = nullptr;
-    }
-#endif
+    stopTimer();
     nilamp_gui_destroy(gui);
     gui = nullptr;
     if (controller) {
@@ -552,19 +612,49 @@ tresult PLUGIN_API Editor::attached(void *parent, FIDString type)
         return kResultFalse;
     }
     systemWindow = parent;
+    (void)nilamp_gui_start_frame_timer(gui, kEditorFrameIntervalSeconds);
+    nilamp_gui_on_main_thread(gui);
+    startTimer();
+    return kResultOk;
+}
+
+void Editor::startTimer()
+{
 #if defined(__APPLE__)
-    timer = [NSTimer scheduledTimerWithTimeInterval:0.033
+    if (timer) {
+        return;
+    }
+    timer = [NSTimer scheduledTimerWithTimeInterval:kEditorFrameIntervalSeconds
                                             repeats:YES
                                               block:^(NSTimer *) {
                                                   this->tick();
                                               }];
 #else
-    timer = Timer::create(this, 33);
+    if (timer) {
+        return;
+    }
+    timer = Timer::create(this, kEditorTimerMs);
+#if defined(__linux__)
+    if (!timer && controller && !runLoopTimer) {
+        if (!runLoop) {
+            runLoop = controller->getRunLoop();
+        }
+        if (runLoop) {
+            runLoopTimer = new LinuxEditorTimer(this);
+            if (runLoop->registerTimer(runLoopTimer, kEditorTimerMs) == kResultTrue) {
+                runLoopTimerRegistered = true;
+            } else {
+                runLoopTimer->detach();
+                runLoopTimer->release();
+                runLoopTimer = nullptr;
+            }
+        }
+    }
 #endif
-    return kResultOk;
+#endif
 }
 
-tresult PLUGIN_API Editor::removed()
+void Editor::stopTimer()
 {
 #if defined(__APPLE__)
     if (timer) {
@@ -577,7 +667,38 @@ tresult PLUGIN_API Editor::removed()
         timer->release();
         timer = nullptr;
     }
+#if defined(__linux__)
+    if (runLoopTimer) {
+        if (runLoopTimerRegistered && runLoop) {
+            (void)runLoop->unregisterTimer(runLoopTimer);
+        }
+        runLoopTimerRegistered = false;
+        runLoopTimer->detach();
+        runLoopTimer->release();
+        runLoopTimer = nullptr;
+    }
+    runLoop = FUnknownPtr<Linux::IRunLoop>();
 #endif
+#endif
+}
+
+#if defined(__linux__)
+tresult PLUGIN_API Editor::setFrame(IPlugFrame *frame)
+{
+    const tresult result = CPluginView::setFrame(frame);
+    if (!timer && !runLoopTimer) {
+        runLoop = frame;
+        if (gui && nilamp_gui_is_visible(gui)) {
+            startTimer();
+        }
+    }
+    return result;
+}
+#endif
+
+tresult PLUGIN_API Editor::removed()
+{
+    stopTimer();
     if (gui) {
         (void)nilamp_gui_hide(gui);
         nilamp_gui_destroy(gui);
@@ -619,6 +740,15 @@ const char *Editor::modelName(void *user)
     (void)user;
     return nilamp_model_name(NILAMP_MODEL_DEFAULT);
 }
+
+#if defined(__linux__)
+void LinuxEditorTimer::onTimer()
+{
+    if (owner) {
+        owner->tick();
+    }
+}
+#endif
 
 #if !defined(__APPLE__)
 void Editor::onTimer(Timer *timerIn)
