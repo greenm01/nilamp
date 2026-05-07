@@ -9,7 +9,11 @@
 #include "pluginterfaces/vst/ivsteditcontroller.h"
 #include "pluginterfaces/vst/ivstparameterchanges.h"
 
+#if defined(__APPLE__)
 #include <CoreFoundation/CoreFoundation.h>
+#else
+#include <dlfcn.h>
+#endif
 
 #include <cmath>
 #include <cstdio>
@@ -18,6 +22,9 @@
 
 #define NILAMP_VST3_PROCESSOR_UID INLINE_UID(0xb0494b81, 0xb2385c29, 0x8c4d5734, 0x6d0b1222)
 #define NILAMP_VST3_CONTROLLER_UID INLINE_UID(0x66e72a3a, 0x9187500d, 0xafa4d86a, 0x88935c65)
+#ifndef NILAMP_TEST_VST3_LINUX_BINARY
+#define NILAMP_TEST_VST3_LINUX_BINARY "x86_64-linux/nilamp-twd-mkii.so"
+#endif
 
 using namespace Steinberg;
 using namespace Steinberg::Vst;
@@ -38,6 +45,34 @@ static void check(bool condition, const char *message)
 static bool iidEqual(const TUID a, const TUID b)
 {
     return std::memcmp(a, b, sizeof(TUID)) == 0;
+}
+
+static void checkDefaultMonoBusses(IComponent *component, IAudioProcessor *processor)
+{
+    check(component->getBusCount(kAudio, kInput) == 1, "unexpected VST3 input bus count");
+    check(component->getBusCount(kAudio, kOutput) == 1, "unexpected VST3 output bus count");
+
+    BusInfo bus = {};
+    check(component->getBusInfo(kAudio, kInput, 0, bus) == kResultOk,
+          "input bus info failed");
+    check(bus.channelCount == 1, "default input bus is not mono");
+    check(bus.busType == kMain, "default input bus is not main");
+    check((bus.flags & BusInfo::kDefaultActive) != 0, "default input bus is not active");
+
+    bus = {};
+    check(component->getBusInfo(kAudio, kOutput, 0, bus) == kResultOk,
+          "output bus info failed");
+    check(bus.channelCount == 1, "default output bus is not mono");
+    check(bus.busType == kMain, "default output bus is not main");
+    check((bus.flags & BusInfo::kDefaultActive) != 0, "default output bus is not active");
+
+    SpeakerArrangement arrangement = 0;
+    check(processor->getBusArrangement(kInput, 0, arrangement) == kResultTrue,
+          "input bus arrangement read failed");
+    check(arrangement == SpeakerArr::kMono, "default input arrangement is not mono");
+    check(processor->getBusArrangement(kOutput, 0, arrangement) == kResultTrue,
+          "output bus arrangement read failed");
+    check(arrangement == SpeakerArr::kMono, "default output arrangement is not mono");
 }
 
 class MemoryStream final : public IBStream {
@@ -315,6 +350,7 @@ int main(int argc, char **argv)
 {
     check(argc == 2, "usage: test_vst3_load /path/to/plugin.vst3");
 
+#if defined(__APPLE__)
     CFStringRef path = CFStringCreateWithCString(kCFAllocatorDefault, argv[1],
                                                  kCFStringEncodingUTF8);
     check(path != nullptr, "failed to create path string");
@@ -339,6 +375,29 @@ int main(int argc, char **argv)
     check(bundleEntry != nullptr && bundleExit != nullptr && getFactory != nullptr,
           "missing VST3 entry points");
     check(bundleEntry(bundle), "bundleEntry failed");
+#else
+    char libraryPath[4096] = {};
+    const int written = std::snprintf(libraryPath, sizeof(libraryPath),
+                                      "%s/Contents/%s", argv[1],
+                                      NILAMP_TEST_VST3_LINUX_BINARY);
+    check(written > 0 && static_cast<size_t>(written) < sizeof(libraryPath),
+          "VST3 library path is too long");
+    void *module = dlopen(libraryPath, RTLD_NOW | RTLD_LOCAL);
+    if (!module) {
+        std::fprintf(stderr, "test_vst3_load: failed to load VST3 module: %s\n", dlerror());
+        return 1;
+    }
+
+    using ModuleEntryFn = bool (*)(void *);
+    using ModuleExitFn = bool (*)(void);
+    using GetFactoryFn = IPluginFactory *(*)();
+    auto moduleEntry = reinterpret_cast<ModuleEntryFn>(dlsym(module, "ModuleEntry"));
+    auto moduleExit = reinterpret_cast<ModuleExitFn>(dlsym(module, "ModuleExit"));
+    auto getFactory = reinterpret_cast<GetFactoryFn>(dlsym(module, "GetPluginFactory"));
+    check(moduleEntry != nullptr && moduleExit != nullptr && getFactory != nullptr,
+          "missing VST3 entry points");
+    check(moduleEntry(module), "ModuleEntry failed");
+#endif
 
     IPluginFactory *factory = getFactory();
     check(factory != nullptr, "missing plugin factory");
@@ -359,6 +418,7 @@ int main(int argc, char **argv)
 
     check(component->initialize(nullptr) == kResultOk, "component initialize failed");
     check(controller->initialize(nullptr) == kResultOk, "controller initialize failed");
+    checkDefaultMonoBusses(component, processor);
     check(controller->getParameterCount() == NILAMP_PARAM_COUNT,
           "unexpected VST3 parameter count");
     ParameterInfo info = {};
@@ -476,7 +536,12 @@ int main(int argc, char **argv)
     processor->release();
     component->release();
     factory->release();
+#if defined(__APPLE__)
     check(bundleExit(), "bundleExit failed");
     CFRelease(bundle);
+#else
+    check(moduleExit(), "ModuleExit failed");
+    check(dlclose(module) == 0, "dlclose failed");
+#endif
     return 0;
 }

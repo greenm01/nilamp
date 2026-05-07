@@ -54,6 +54,7 @@ CLAP_PLUGIN := $(NATIVE_BIN)/$(CLAP_BUNDLE)
 VST3_PLUGIN := $(NATIVE_BIN)/$(VST3_BUNDLE)
 VST3_BINARY := $(VST3_PLUGIN)/Contents/MacOS/$(VST3_EXECUTABLE)
 VST3_INFO_PLIST := $(VST3_PLUGIN)/Contents/Info.plist
+VST3_LINUX_ARCH := $(shell uname -m)-linux
 
 CFLAGS ?= -std=c11 -O3 -Wall -Wextra -Wpedantic -Werror -I$(NATIVE_DIR)/src -I$(NATIVE_GENERATED)
 CLAP_CFLAGS := $(CFLAGS) -I$(CLAP_INCLUDE)
@@ -76,6 +77,8 @@ NILAMP_ENABLE_CLAP_GUI ?= $(if $(filter Linux Darwin,$(UNAME_S)),1,0)
 ifeq ($(UNAME_S),Linux)
 DL_LDLIBS := -ldl
 GUI_LDLIBS := -lX11 -lXrandr -lXcursor -lXext -lGL -ldl
+VST3_BINARY := $(VST3_PLUGIN)/Contents/$(VST3_LINUX_ARCH)/$(VST3_EXECUTABLE).so
+VST3_INSTALL_DIR_DEFAULT := $(HOME)/.vst3
 endif
 
 ifeq ($(UNAME_S),Darwin)
@@ -96,6 +99,7 @@ VST3_INSTALL_DIR ?= $(VST3_INSTALL_DIR_DEFAULT)
 
 CLAP_PLUGIN_CFLAGS := $(CLAP_CFLAGS) -DNILAMP_ENABLE_CLAP_GUI=$(NILAMP_ENABLE_CLAP_GUI) '-DNILAMP_CLAP_NAME=$(CLAP_NAME_C)'
 VST3_PLUGIN_CXXFLAGS := $(VST3_CXXFLAGS) '-DNILAMP_VST3_NAME=$(VST3_NAME_C)'
+TEST_VST3_CXXFLAGS := $(VST3_CXXFLAGS)
 TEST_CLAP_CFLAGS := $(CLAP_CFLAGS) -DNILAMP_EXPECT_CLAP_GUI=$(NILAMP_ENABLE_CLAP_GUI) '-DNILAMP_EXPECT_CLAP_NAME=$(CLAP_NAME_C)'
 ifneq ($(NILAMP_ENABLE_CLAP_GUI),0)
 CLAP_PLUGIN_CFLAGS += -I$(PUGL_INCLUDE) -I$(PUGL_SRC) -I$(SOKOL_INCLUDE) -I$(SOKOL_INCLUDE)/util -I$(NUKLEAR_INCLUDE)
@@ -128,6 +132,7 @@ VST3_SDK_OBJS := \
 	$(NATIVE_BUILD)/vst3_fobject.o \
 	$(NATIVE_BUILD)/vst3_fstreamer.o \
 	$(NATIVE_BUILD)/vst3_fstring.o \
+	$(NATIVE_BUILD)/vst3_timer.o \
 	$(NATIVE_BUILD)/vst3_updatehandler.o \
 	$(NATIVE_BUILD)/vst3_flock.o \
 	$(NATIVE_BUILD)/vst3_fcondition.o \
@@ -137,7 +142,6 @@ VST3_SDK_OBJS := \
 	$(NATIVE_BUILD)/vst3_ustring.o \
 	$(NATIVE_BUILD)/vst3_commoniids.o \
 	$(NATIVE_BUILD)/vst3_pluginview.o \
-	$(NATIVE_BUILD)/vst3_macmain.o \
 	$(NATIVE_BUILD)/vst3_moduleinit.o \
 	$(NATIVE_BUILD)/vst3_pluginfactory.o \
 	$(NATIVE_BUILD)/vst3_vstaudioeffect.o \
@@ -162,12 +166,17 @@ ifeq ($(UNAME_S),Linux)
 NATIVE_GUI_OBJS += \
 	$(NATIVE_BUILD)/pugl_x11.pic.o \
 	$(NATIVE_BUILD)/pugl_x11_gl.pic.o
+VST3_SDK_OBJS += $(NATIVE_BUILD)/vst3_linuxmain.o
+NATIVE_TARGETS_VST3 := $(VST3_PLUGIN)
+NATIVE_TEST_TARGETS_VST3 := $(NATIVE_BIN)/test_vst3_load
+TEST_VST3_CXXFLAGS += '-DNILAMP_TEST_VST3_LINUX_BINARY="$(VST3_LINUX_ARCH)/$(VST3_EXECUTABLE).so"'
 endif
 
 ifeq ($(UNAME_S),Darwin)
 NATIVE_GUI_OBJS += \
 	$(NATIVE_BUILD)/pugl_mac.pic.o \
 	$(NATIVE_BUILD)/pugl_mac_gl.pic.o
+VST3_SDK_OBJS += $(NATIVE_BUILD)/vst3_macmain.o
 NATIVE_TARGETS_VST3 := $(VST3_PLUGIN)
 NATIVE_TEST_TARGETS_VST3 := $(NATIVE_BIN)/test_vst3_load
 endif
@@ -360,18 +369,32 @@ $(CLAP_PLUGIN): $(NATIVE_BUILD)/nilamp_clap.o $(NATIVE_PIC_OBJS) $(NATIVE_GUI_OB
 	$(CC) $(LDFLAGS) $(PLUGIN_LDFLAGS) $(filter-out Makefile,$^) $(LDLIBS) $(GUI_LDLIBS) -o $@
 endif
 
+ifeq ($(UNAME_S),Linux)
+$(NATIVE_BUILD)/nilamp_vst3.o: $(NATIVE_DIR)/src/nilamp_vst3.mm $(NATIVE_DIR)/src/nilamp_host.h $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_DIR)/src/nilamp_gui.h | $(NATIVE_BUILD)
+	$(CXX) $(VST3_PLUGIN_CXXFLAGS) -x c++ -c $< -o $@
+else
 $(NATIVE_BUILD)/nilamp_vst3.o: $(NATIVE_DIR)/src/nilamp_vst3.mm $(NATIVE_DIR)/src/nilamp_host.h $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_DIR)/src/nilamp_gui.h | $(NATIVE_BUILD)
 	$(OBJCXX) $(VST3_PLUGIN_CXXFLAGS) -c $< -o $@
+endif
 
 $(VST3_BINARY): $(NATIVE_BUILD)/nilamp_vst3.o $(VST3_SDK_OBJS) $(NATIVE_PIC_OBJS) $(NATIVE_GUI_OBJS) Makefile | $(NATIVE_BIN)
+ifeq ($(UNAME_S),Linux)
+	mkdir -p $(dir $@)
+	$(CXX) $(LDFLAGS) -shared $(filter-out Makefile,$^) $(LDLIBS) $(GUI_LDLIBS) -o $@
+else
 	mkdir -p $(VST3_PLUGIN)/Contents/MacOS
 	$(OBJCXX) $(LDFLAGS) -dynamiclib -Wl,-install_name,@rpath/$(VST3_EXECUTABLE) $(filter-out Makefile,$^) $(LDLIBS) $(GUI_LDLIBS) -framework CoreFoundation -o $@
+endif
 
 $(VST3_INFO_PLIST): Makefile | $(NATIVE_BIN)
 	mkdir -p $(VST3_PLUGIN)/Contents
 	printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' '<plist version="1.0">' '<dict>' '  <key>CFBundleExecutable</key>' '  <string>$(VST3_EXECUTABLE)</string>' '  <key>CFBundleIdentifier</key>' '  <string>$(VST3_BUNDLE_ID)</string>' '  <key>CFBundleName</key>' '  <string>$(VST3_EXECUTABLE)</string>' '  <key>CFBundlePackageType</key>' '  <string>BNDL</string>' '  <key>CFBundleShortVersionString</key>' '  <string>$(RELEASE_VERSION)</string>' '  <key>CFBundleVersion</key>' '  <string>$(RELEASE_VERSION)</string>' '</dict>' '</plist>' > $@
 
+ifeq ($(UNAME_S),Linux)
+$(VST3_PLUGIN): $(VST3_BINARY)
+else
 $(VST3_PLUGIN): $(VST3_BINARY) $(VST3_INFO_PLIST)
+endif
 
 $(NATIVE_BUILD)/vst3_baseiids.o: $(VST3SDK_DIR)/base/source/baseiids.cpp | $(NATIVE_BUILD)
 	$(CXX) $(VST3_VENDOR_CXXFLAGS) -c $< -o $@
@@ -389,6 +412,9 @@ $(NATIVE_BUILD)/vst3_fstreamer.o: $(VST3SDK_DIR)/base/source/fstreamer.cpp | $(N
 	$(CXX) $(VST3_VENDOR_CXXFLAGS) -c $< -o $@
 
 $(NATIVE_BUILD)/vst3_fstring.o: $(VST3SDK_DIR)/base/source/fstring.cpp | $(NATIVE_BUILD)
+	$(CXX) $(VST3_VENDOR_CXXFLAGS) -c $< -o $@
+
+$(NATIVE_BUILD)/vst3_timer.o: $(VST3SDK_DIR)/base/source/timer.cpp | $(NATIVE_BUILD)
 	$(CXX) $(VST3_VENDOR_CXXFLAGS) -c $< -o $@
 
 $(NATIVE_BUILD)/vst3_updatehandler.o: $(VST3SDK_DIR)/base/source/updatehandler.cpp | $(NATIVE_BUILD)
@@ -419,6 +445,9 @@ $(NATIVE_BUILD)/vst3_pluginview.o: $(VST3SDK_DIR)/public.sdk/source/common/plugi
 	$(CXX) $(VST3_VENDOR_CXXFLAGS) -c $< -o $@
 
 $(NATIVE_BUILD)/vst3_macmain.o: $(VST3SDK_DIR)/public.sdk/source/main/macmain.cpp | $(NATIVE_BUILD)
+	$(CXX) $(VST3_VENDOR_CXXFLAGS) -c $< -o $@
+
+$(NATIVE_BUILD)/vst3_linuxmain.o: $(VST3SDK_DIR)/public.sdk/source/main/linuxmain.cpp | $(NATIVE_BUILD)
 	$(CXX) $(VST3_VENDOR_CXXFLAGS) -c $< -o $@
 
 $(NATIVE_BUILD)/vst3_moduleinit.o: $(VST3SDK_DIR)/public.sdk/source/main/moduleinit.cpp | $(NATIVE_BUILD)
@@ -470,10 +499,18 @@ $(NATIVE_BIN)/test_clap_load: $(NATIVE_BUILD)/test_clap_load.o $(NATIVE_OBJS) | 
 	$(CC) $(LDFLAGS) $^ $(LDLIBS) $(DL_LDLIBS) -o $@
 
 $(NATIVE_BUILD)/test_vst3_load.o: $(NATIVE_DIR)/tests/test_vst3_load.mm $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_DIR)/src/nilamp_host.h | $(NATIVE_BUILD)
-	$(OBJCXX) $(VST3_CXXFLAGS) -c $< -o $@
+ifeq ($(UNAME_S),Linux)
+	$(CXX) $(TEST_VST3_CXXFLAGS) -x c++ -c $< -o $@
+else
+	$(OBJCXX) $(TEST_VST3_CXXFLAGS) -c $< -o $@
+endif
 
 $(NATIVE_BIN)/test_vst3_load: $(NATIVE_BUILD)/test_vst3_load.o $(NATIVE_OBJS) $(NATIVE_BUILD)/vst3_baseiids.o $(NATIVE_BUILD)/vst3_coreiids.o $(NATIVE_BUILD)/vst3_funknown.o $(NATIVE_BUILD)/vst3_vstinitiids.o | $(NATIVE_BIN)
+ifeq ($(UNAME_S),Linux)
+	$(CXX) $(LDFLAGS) $^ $(LDLIBS) $(DL_LDLIBS) -o $@
+else
 	$(OBJCXX) $(LDFLAGS) $^ $(LDLIBS) -framework CoreFoundation -o $@
+endif
 
 $(NATIVE_BUILD)/render_loaded_clap.o: $(NATIVE_DIR)/src/render_loaded_clap.c $(NATIVE_DIR)/src/nilamp_dsp.h $(CLAP_INCLUDE)/clap/clap.h | $(NATIVE_BUILD)
 	$(CC) $(CLAP_CFLAGS) -c $< -o $@

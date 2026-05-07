@@ -3,6 +3,9 @@
 #include "nilamp_gui.h"
 #include "nilamp_host.h"
 
+#if !defined(__APPLE__)
+#include "base/source/timer.h"
+#endif
 #include "base/source/fstreamer.h"
 #include "pluginterfaces/base/ibstream.h"
 #include "pluginterfaces/base/ustring.h"
@@ -17,7 +20,9 @@
 #include "public.sdk/source/vst/vsteditcontroller.h"
 #include "public.sdk/source/vst/vstparameters.h"
 
+#if defined(__APPLE__)
 #import <Cocoa/Cocoa.h>
+#endif
 
 #include <algorithm>
 #include <array>
@@ -280,7 +285,11 @@ private:
 
 class Controller;
 
-class Editor final : public CPluginView {
+class Editor final : public CPluginView
+#if !defined(__APPLE__)
+    , public ITimerCallback
+#endif
+{
 public:
     explicit Editor(Controller *controller);
     ~Editor() override;
@@ -289,6 +298,9 @@ public:
     tresult PLUGIN_API attached(void *parent, FIDString type) SMTG_OVERRIDE;
     tresult PLUGIN_API removed() SMTG_OVERRIDE;
     tresult PLUGIN_API onSize(ViewRect *newSize) SMTG_OVERRIDE;
+#if !defined(__APPLE__)
+    void onTimer(Timer *timer) SMTG_OVERRIDE;
+#endif
 
 private:
     static float getParam(void *user, uint32_t id);
@@ -298,7 +310,11 @@ private:
 
     Controller *controller = nullptr;
     NilampGui *gui = nullptr;
+#if defined(__APPLE__)
     NSTimer *timer = nil;
+#else
+    Timer *timer = nullptr;
+#endif
 };
 
 class Controller final : public EditController {
@@ -474,10 +490,18 @@ Editor::Editor(Controller *controllerIn) : CPluginView(nullptr), controller(cont
 
 Editor::~Editor()
 {
+#if defined(__APPLE__)
     if (timer) {
         [timer invalidate];
         timer = nil;
     }
+#else
+    if (timer) {
+        timer->stop();
+        timer->release();
+        timer = nullptr;
+    }
+#endif
     nilamp_gui_destroy(gui);
     gui = nullptr;
     if (controller) {
@@ -487,7 +511,12 @@ Editor::~Editor()
 
 tresult PLUGIN_API Editor::isPlatformTypeSupported(FIDString type)
 {
+#if defined(__APPLE__)
     return type && std::strcmp(type, kPlatformTypeNSView) == 0 ? kResultTrue : kResultFalse;
+#else
+    return type && std::strcmp(type, kPlatformTypeX11EmbedWindowID) == 0 ? kResultTrue :
+                                                                          kResultFalse;
+#endif
 }
 
 tresult PLUGIN_API Editor::attached(void *parent, FIDString type)
@@ -503,8 +532,13 @@ tresult PLUGIN_API Editor::attached(void *parent, FIDString type)
     };
     gui = nilamp_gui_create(&callbacks, (const NilampGuiParamSpec *)nilamp_control_specs(NULL),
                             NILAMP_PARAM_COUNT, nilamp_model_gui_layout(NILAMP_MODEL_DEFAULT),
+#if defined(__APPLE__)
                             NILAMP_GUI_API_COCOA, false);
     const NilampGuiParent guiParent = {NILAMP_GUI_API_COCOA, (uintptr_t)parent};
+#else
+                            NILAMP_GUI_API_X11, false);
+    const NilampGuiParent guiParent = {NILAMP_GUI_API_X11, (uintptr_t)parent};
+#endif
     if (!gui ||
         !nilamp_gui_set_parent(gui, guiParent) ||
         !nilamp_gui_show(gui)) {
@@ -513,20 +547,32 @@ tresult PLUGIN_API Editor::attached(void *parent, FIDString type)
         return kResultFalse;
     }
     systemWindow = parent;
+#if defined(__APPLE__)
     timer = [NSTimer scheduledTimerWithTimeInterval:0.033
                                             repeats:YES
                                               block:^(NSTimer *) {
                                                   this->tick();
                                               }];
+#else
+    timer = Timer::create(this, 33);
+#endif
     return kResultOk;
 }
 
 tresult PLUGIN_API Editor::removed()
 {
+#if defined(__APPLE__)
     if (timer) {
         [timer invalidate];
         timer = nil;
     }
+#else
+    if (timer) {
+        timer->stop();
+        timer->release();
+        timer = nullptr;
+    }
+#endif
     if (gui) {
         (void)nilamp_gui_hide(gui);
         nilamp_gui_destroy(gui);
@@ -568,6 +614,15 @@ const char *Editor::modelName(void *user)
     (void)user;
     return nilamp_model_name(NILAMP_MODEL_DEFAULT);
 }
+
+#if !defined(__APPLE__)
+void Editor::onTimer(Timer *timerIn)
+{
+    if (timerIn == timer) {
+        tick();
+    }
+}
+#endif
 
 void Editor::tick()
 {
