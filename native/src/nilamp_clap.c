@@ -116,11 +116,32 @@ static bool nilamp_gui_supports_floating(void)
 #endif
 }
 
-static bool nilamp_gui_api_supported(const char *api, bool is_floating)
+static bool nilamp_host_is_element(const clap_host_t *host)
+{
+    if (!host) {
+        return false;
+    }
+    const bool name_matches =
+        host->name && (nilamp_stricmp(host->name, "Element") == 0 ||
+                       nilamp_stricmp(host->name, "Kushview Element") == 0);
+    const bool vendor_matches =
+        host->vendor && (nilamp_stricmp(host->vendor, "Kushview") == 0 ||
+                         nilamp_stricmp(host->vendor, "Kushview, LLC") == 0);
+    return name_matches || vendor_matches;
+}
+
+static bool nilamp_gui_api_supported(const NilampClap *plug, const char *api,
+                                     bool is_floating)
 {
     if (api && strcmp(api, NILAMP_CLAP_WINDOW_API) == 0) {
         return !is_floating || nilamp_gui_supports_floating();
     }
+#if defined(_WIN32)
+    if (!is_floating && api && strcmp(api, CLAP_WINDOW_API_X11) == 0 &&
+        nilamp_host_is_element(plug ? plug->host : NULL)) {
+        return true;
+    }
+#endif
     return is_floating && nilamp_gui_supports_floating() && (!api || !api[0]);
 }
 #endif
@@ -1224,8 +1245,8 @@ static const clap_plugin_state_t nilamp_state_ext = {
 static bool nilamp_gui_is_api_supported(const clap_plugin_t *plugin, const char *api,
                                         bool is_floating)
 {
-    (void)plugin;
-    const bool ok = nilamp_gui_api_supported(api, is_floating);
+    NilampClap *plug = nilamp_from_plugin(plugin);
+    const bool ok = nilamp_gui_api_supported(plug, api, is_floating);
     nilamp_gui_log("is_api_supported api=%s floating=%d -> %d",
                    api ? api : "(null)", is_floating ? 1 : 0, ok ? 1 : 0);
     return ok;
@@ -1248,7 +1269,7 @@ static bool nilamp_gui_create_ext(const clap_plugin_t *plugin, const char *api,
                                   bool is_floating)
 {
     NilampClap *plug = nilamp_from_plugin(plugin);
-    if (!plug || plug->gui || !nilamp_gui_api_supported(api, is_floating)) {
+    if (!plug || plug->gui || !nilamp_gui_api_supported(plug, api, is_floating)) {
         nilamp_gui_log("create rejected api=%s floating=%d plug=%p existing_gui=%p",
                        api ? api : "(null)", is_floating ? 1 : 0, (void *)plug,
                        plug ? (void *)plug->gui : NULL);

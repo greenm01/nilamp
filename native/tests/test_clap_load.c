@@ -905,6 +905,10 @@ int main(int argc, char **argv)
           "unexpected floating gui support");
     check(!gui->is_api_supported(plugin, CLAP_WINDOW_API_WAYLAND, false),
           "gui unexpectedly supports embedded Wayland");
+#if defined(_WIN32)
+    check(!gui->is_api_supported(plugin, CLAP_WINDOW_API_X11, false),
+          "gui unexpectedly supports embedded X11 for non-Element host");
+#endif
     const char *preferred_api = NULL;
     bool preferred_floating = true;
     check(gui->get_preferred_api(plugin, &preferred_api, &preferred_floating),
@@ -912,6 +916,23 @@ int main(int argc, char **argv)
     check(preferred_api && strcmp(preferred_api, NILAMP_EXPECT_CLAP_WINDOW_API) == 0 &&
               !preferred_floating,
           "unexpected gui preferred api");
+#if defined(_WIN32)
+    clap_host_t element_host = host;
+    element_host.name = "Element";
+    element_host.vendor = "Kushview";
+    const clap_plugin_t *element_plugin =
+        factory->create_plugin(factory, &element_host, NILAMP_PLUGIN_ID);
+    check(element_plugin != NULL, "create Element-host plugin failed");
+    check(element_plugin->init(element_plugin), "Element-host plugin init failed");
+    const clap_plugin_gui_t *element_gui =
+        (const clap_plugin_gui_t *)element_plugin->get_extension(element_plugin, CLAP_EXT_GUI);
+    check(element_gui != NULL, "missing Element-host gui extension");
+    check(element_gui->is_api_supported(element_plugin, CLAP_WINDOW_API_X11, false),
+          "Element-host x11 compatibility api rejected");
+    check(element_gui->is_api_supported(element_plugin, CLAP_WINDOW_API_WIN32, false),
+          "Element-host native win32 api rejected");
+    element_plugin->destroy(element_plugin);
+#endif
     check(timer && timer->on_timer, "missing timer support extension");
 #else
     check(gui == NULL, "unexpected gui extension");
