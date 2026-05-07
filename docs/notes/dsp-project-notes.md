@@ -6,22 +6,22 @@ Conversation that produced these notes: `dsp.txt` (same directory).
 
 Status update, 2026-05-05: these notes were written before the project moved
 away from the Faust/Rust experiment. The current implementation direction is
-native C for DSP and plugin code, plain `make` for builds, ysfx for headless
-Keller JSFX reference renders, and Python only for offline/reference tooling
-where it is already useful. The native ADNL hot path uses generated `float` polynomial
-tables, not runtime `tanhf()` or linear interpolation.
+native C for DSP and CLAP/VST3 plugin code, plain `make` for builds, ysfx for
+headless Keller JSFX reference renders, and Python only for offline/reference
+tooling where it is already useful. The native ADNL hot path uses generated
+`float` polynomial tables, not runtime `tanhf()` or linear interpolation.
 
 ---
 
 ## 1. TL;DR
 
-**What**: Linux-native CLAP guitar amp plugin built on Keller's architecture, extended to support multiple amps. For fun. Fills a real gap in the Linux audio ecosystem (most amp plugins are Mac/Windows-only or paid).
+**What**: Cross-platform native guitar amp plugin built on Keller's architecture, extended to support multiple amps. For fun. Ships as native desktop plugin packages instead of a JSFX wrapper.
 
 **Foundation**: Helmut Keller's "A Tube Amp Modeling Project" 5E3 emulation (JSFX, runs in REAPER or via YSFX wrapper). Block-diagram + ADAA + polynomial lookup tables. Already sounds good and runs on a tablet. We extend, we don't replace.
 
-**Tech stack**: native C DSP + native C CLAP shell, built with plain `make`.
-ysfx drives headless Keller JSFX parity renders. Python remains for offline
-lookup-table/reference generation and parity diagnostics. Linux primary target.
+**Tech stack**: native C DSP + native C CLAP/VST3 shells, built with plain
+`make`. ysfx drives headless Keller JSFX parity renders. Python remains for
+offline lookup-table/reference generation and parity diagnostics.
 
 **Direction**: see §2.
 
@@ -223,7 +223,7 @@ Native C DSP core
   ├─ Tone stack (SVF)
   └─ Pre-filter speaker loading effect (PEQ + HS, T1.1 data-driven)
 
-Native C CLAP shell
+Native C CLAP/VST3 shells
   ├─ Plugin format adapter
   ├─ Parameters, automation, state, and audio ports
   └─ Thin wrapper over the native DSP engine
@@ -233,7 +233,7 @@ ysfx JSFX harness
   └─ Repo-local staged JSFX under native/build/jsfx
 
 Plain make
-  └─ Builds native renderer, tap renderer, tests, and CLAP plugin
+  └─ Builds native renderer, tap renderer, tests, and plugins
 ```
 
 ### Component split (what comes from where)
@@ -432,13 +432,14 @@ Native performance hygiene:
 | Odin | No audio infra at all; skip |
 | Nim | GC concerns; stalled momentum; skip |
 | Faust → Rust | Rejected for this project; useful conceptually, but not the current stack. |
-| **C + CLAP** | **Current runtime stack** — direct control, simple build, no Rust/Faust dependency. |
+| **C + CLAP/VST3** | **Current runtime stack** — direct control, simple build, no Rust/Faust dependency. |
 | **KDL 2** | Build-time amp model data only. Select C-backed topology/method/table choices and constants; do not load in runtime DSP. |
 | **Lua** | REAPER helper scripts and non-DSP tooling only unless a concrete non-audio use appears. |
 | **ysfx** | **Current JSFX parity stack** — headless Keller reference renders without REAPER. |
 
-**Final stack**: native C DSP + native C CLAP shell, plain `make`, ysfx for
-JSFX parity, Python for offline/reference tooling, primary target Linux.
+**Final stack**: native C DSP + native C CLAP/VST3 shells, plain `make`, ysfx
+for JSFX parity, Python for offline/reference tooling, cross-platform desktop
+release packages.
 
 ---
 
@@ -514,6 +515,6 @@ JSFX parity, Python for offline/reference tooling, primary target Linux.
   - Notable absences: no transformer code, pentode is a stub, `solve_nonlinear_func` referenced but not defined. Reference, not usable framework.
 - **Conversation log**: `/home/niltempus/Documents/2026-04-03-PAK-Project/IansPAKproject/MorePAK2/dsp.txt`
 - **Current native DSP**: `native/src/nilamp_dsp.c`
-- **Current CLAP shell**: `native/src/nilamp_clap.c`
+- **Current plugin shells**: `native/src/nilamp_clap.c`, `native/src/nilamp_vst3.mm`
 - **Current table generation**: `tools/gen_5e3_tables.py`
 - **Current JSFX parity tools**: `tools/abx_compare.py`, `tools/compare_taps.py`, `tools/jsfx_render/`

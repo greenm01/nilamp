@@ -2,6 +2,25 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: Public release and parity docs
+
+**Context.** The README still described nilamp as CLAP-only and carried stale
+release-package wording after the VST3 export and mono I/O parity work.
+
+**Edit summary.**
+
+- Updated the README to describe nilamp as a native CLAP/VST3 guitar amp plugin
+  with Windows, macOS, and Linux release packages.
+- Added the current ysfx-verified input-to-output parity claim:
+  `-80.7 dB` full-chain sweep residual against Keller TWD DLX II JSFX defaults.
+- Refreshed ABX notes and the older DSP project notes so the public docs no
+  longer present the current plugin path as CLAP-only.
+
+**Verification.**
+
+- Docs-only change; build not rerun.
+- `git diff --check` passes.
+
 ### Session: Default mono CLAP/VST3 I/O
 
 **Context.** REAPER listening showed nilamp was closest to Keller when the

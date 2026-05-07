@@ -1,6 +1,6 @@
 # nilamp
 
-nilamp is a native C CLAP guitar amp plugin based on Helmut Keller's
+nilamp is a native C guitar amp plugin for CLAP and VST3, based on Helmut Keller's
 ["A Tube Amp Modeling Project"](https://www.helmutkelleraudio.de/). The current
 model is Keller TWD DLX II, modeled after a Fender Tweed Deluxe with a more
 versatile tone stack. The code is shaped for more amps later.
@@ -15,16 +15,22 @@ The name means "no amp": `nil` + `amp`.
 
 ## Status
 
-The active build is a native C DSP engine, Make-built offline renderers, and a
-C CLAP plugin with an embedded GPU editor. The target format is CLAP. Linux,
-macOS, and Windows are supported native targets.
+The active build is a native C DSP engine, Make-built offline renderers, and
+native CLAP/VST3 plugin shells with an embedded GPU editor. Linux, macOS, and
+Windows are supported native targets. Release packages are available from this
+repository's GitHub Releases for supported desktop platforms; CLAP is packaged
+across the platform targets, and VST3 is packaged where the native VST3 target
+is built.
+
+At Keller TWD DLX II defaults, nilamp's full input-to-output sweep render
+matches Keller's JSFX reference with a `-80.7 dB` residual under ysfx.
 
 Current editor backends are X11/XWayland on Linux, Cocoa on macOS, and Win32 on
 Windows. Native Wayland support is future work.
 
 ## Goals
 
-- Native CLAP plugin with no YSFX wrapper dependency
+- Native CLAP and VST3 plugins with no YSFX wrapper dependency
 - Multi-amp platform: 5E3 -> Bassman -> Plexi -> AC30 -> Twin -> ...
 - Realtime tweakable amp parameters
 - External IR loader for cab simulation
@@ -45,7 +51,7 @@ audio callbacks.
 
 ## Dependencies
 
-The native CLAP build requires:
+The native plugin build requires:
 
 - C11 compiler, C++ compiler, `make`, and `git`
 - `cmake` for building the external ysfx reference runner
@@ -94,6 +100,7 @@ To use a different checkout, set `YSFX_ROOT=/path/to/ysfx`.
 ```
 native/               C engine, renderers, generated ADNL tables, native tests
 third_party/clap/     Vendored official CLAP C headers
+third_party/vst3sdk/  Vendored Steinberg VST3 SDK subset
 tools/                Python oracle, table/fixture generation, ABX harness
 tests/fixtures/       Raw f32 fixture buffers for native regression tests
 vendor/keller-jsfx/   Keller's reference JSFX source (non-commercial license)
@@ -109,6 +116,8 @@ make native
 make native-test
 make native-host-test
 make install-clap-user
+# macOS VST3:
+make install-vst3-user
 make setup-python
 make native-jsfx-test
 ```
@@ -127,6 +136,7 @@ This builds:
 - `native/bin/nilamp_render`
 - `native/bin/nilamp_taps_render`
 - `native/bin/nilamp-twd-mkii.clap`
+- `native/bin/nilamp-twd-mkii.vst3` where the native VST3 target is enabled
 - `native/bin/ysfx_render` when `YSFX_ROOT` points at a ready checkout
 - `native/bin/test_native`
 - `native/bin/test_clap_load`
@@ -176,8 +186,9 @@ python3 tools/abx_compare.py --preset sine
 python3 tools/abx_compare.py --preset sweep
 ```
 
-`make native-host-test` does not need REAPER. It runs the native CLAP loader
-and, when installed, `clap-validator`. The older REAPER smoke test remains
+`make native-host-test` does not need REAPER. It runs the native CLAP loader,
+the VST3 loader where available, and the optional `clap-validator` and Steinberg
+VST3 validator when they are installed. The older REAPER smoke test remains
 available as `make native-reaper-host-test` for manual host checks.
 
 `make install-clap-user` installs the CLAP to the platform user plugin path:
@@ -187,7 +198,8 @@ bundle so hosts can load it. On Windows, `nmake /f Makefile.msvc install-clap-us
 copies `native\bin\nilamp-twd-mkii.clap` to `%LOCALAPPDATA%\Programs\Common\CLAP`.
 `nmake /f Makefile.msvc install-clap` installs to
 `C:\Program Files\Common Files\CLAP`; run the shell elevated for that system
-path or set `CLAP_INSTALL_DIR=...`.
+path or set `CLAP_INSTALL_DIR=...`. On macOS, `make install-vst3-user` installs
+the VST3 to `~/Library/Audio/Plug-Ins/VST3/nilamp-twd-mkii.vst3`.
 
 Build Linux and macOS release packages with:
 
@@ -196,10 +208,18 @@ make package-linux-release
 make package-macos-release
 ```
 
+Build the Windows release package from an x64 Native Tools prompt with:
+
+```bat
+nmake /f Makefile.msvc package-windows-release
+```
+
 The Linux package includes `install.sh`, which installs the plugin to
 `~/.clap`. The macOS package includes `install.command`, which installs the
-CLAP and VST3 plugins to `~/Library/Audio/Plug-Ins`. Both write detached GPG
-signatures and checksums in `dist/`. Release signatures use fingerprint
+CLAP and VST3 plugins to `~/Library/Audio/Plug-Ins`. The Windows package
+includes `install.cmd`, which installs the CLAP to the user CLAP directory.
+Release packages write detached GPG signatures and checksums in `dist/`.
+Release signatures use fingerprint
 `C3504EE1EE38410CE1C433BC372B8AAACB867F13`. nilamp is based on Helmut Keller's
 "A Tube Amp Modeling Project"; see
 [Helmut Keller Audio](https://www.helmutkelleraudio.de/) for Keller's original

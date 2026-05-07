@@ -109,5 +109,6 @@ REAPER wrappers remain in `tools/jsfx_render/` for manual comparison only.
 
 Latest ysfx-backed native C run:
 
-- sine preset: `-31.4 dB` residual below native peak, threshold `-16.0 dB` -> PASS; correlation `0.998804`, best A->B gain `+0.00 dB`
-- sweep preset: `-23.9 dB` residual below native peak, threshold `-11.2 dB` -> PASS; correlation `0.980020`, best A->B gain `+0.29 dB`
+- full-chain sine preset at Keller TWD DLX II defaults: `-81.7 dB` residual below native peak, threshold `-16.0 dB` -> PASS
+- full-chain sweep preset at Keller TWD DLX II defaults: `-80.7 dB` residual below native peak, threshold `-11.2 dB` -> PASS
+- parity matrix: all supported Keller option cases pass, including `LTP 2` at `-71.5 dB`
