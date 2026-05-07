@@ -3,7 +3,9 @@
 nilamp is a native C guitar amp plugin for CLAP and VST3, based on Helmut Keller's
 ["A Tube Amp Modeling Project"](https://www.helmutkelleraudio.de/). The current
 model is Keller TWD DLX II, modeled after a Fender Tweed Deluxe with a more
-versatile tone stack. The code is shaped for more amps later.
+versatile tone stack.
+
+The code arcitecture is designed for more amps later.
 
 The name means "no amp": `nil` + `amp`.
 
@@ -186,25 +188,6 @@ python3 tools/abx_compare.py --preset sine
 python3 tools/abx_compare.py --preset sweep
 ```
 
-`make native-host-test` does not need REAPER. It runs the native CLAP loader,
-the VST3 loader where available, and the optional `clap-validator` and Steinberg
-VST3 validator when they are installed. The older REAPER smoke test remains
-available as `make native-reaper-host-test` for manual host checks.
-
-`make install-clap-user` installs the CLAP to the platform user plugin path:
-`~/Library/Audio/Plug-Ins/CLAP/nilamp-twd-mkii.clap` on macOS and
-`~/.clap/nilamp-twd-mkii.clap` on Linux. On macOS it also re-signs the copied
-bundle so hosts can load it. `make install-vst3-user` installs the VST3 to
-`~/Library/Audio/Plug-Ins/VST3/nilamp-twd-mkii.vst3` on macOS and
-`~/.vst3/nilamp-twd-mkii.vst3` on Linux. On Windows,
-`nmake /f Makefile.msvc install-clap-user` copies
-`native\bin\nilamp-twd-mkii.clap` to `%LOCALAPPDATA%\Programs\Common\CLAP`.
-`nmake /f Makefile.msvc install-vst3-user` copies
-`native\bin\nilamp-twd-mkii.vst3` to `%LOCALAPPDATA%\Programs\Common\VST3`.
-`nmake /f Makefile.msvc install-clap` installs to
-`C:\Program Files\Common Files\CLAP`; run the shell elevated for that system
-path or set `CLAP_INSTALL_DIR=...`.
-
 Build Linux and macOS release packages with:
 
 ```bash
@@ -217,18 +200,6 @@ Build the Windows release package from an x64 Native Tools prompt with:
 ```bat
 nmake /f Makefile.msvc package-windows-release
 ```
-
-The Linux package includes `install.sh`, which installs the CLAP to `~/.clap`
-and the VST3 to `~/.vst3`. The macOS package includes `install.command`, which
-installs the CLAP and VST3 plugins to `~/Library/Audio/Plug-Ins`. The Windows
-package includes `install.cmd`, which installs the CLAP to the user CLAP
-directory and the VST3 to the user VST3 directory.
-Release packages write detached GPG signatures and checksums in `dist/`.
-Release signatures use fingerprint
-`C3504EE1EE38410CE1C433BC372B8AAACB867F13`. nilamp is based on Helmut Keller's
-"A Tube Amp Modeling Project"; see
-[Helmut Keller Audio](https://www.helmutkelleraudio.de/) for Keller's original
-work.
 
 ## License
 
