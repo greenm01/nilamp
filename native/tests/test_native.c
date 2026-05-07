@@ -200,6 +200,9 @@ static int test_filters(void)
     nilamp_test_flt_ii1_hp(10.0f, SAMPLE_RATE, input, actual, n);
     if (compare_fixture("flt_ii1_hp", actual, n, "tests/fixtures/filter_hp_10_sine05_48k.f32", 1e-6f, 1e-7f) != 0) rc = 1;
 
+    nilamp_test_flt_df2_lp_keller(SAMPLE_RATE, input, actual, n);
+    if (compare_fixture("flt_df2_lp_keller", actual, n, "tests/fixtures/filter_df2_lp_10k_keller_sine05_48k.f32", 1e-5f, 1e-6f) != 0) rc = 1;
+
     nilamp_test_flt_sv2_tst(SAMPLE_RATE, input, actual, n);
     if (compare_fixture("flt_sv2_tst", actual, n, "tests/fixtures/filter_svf_tst_sine05_48k.f32", 1e-3f, 1e-4f) != 0) rc = 1;
 

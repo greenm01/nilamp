@@ -490,13 +490,16 @@ static float adnl_eq_process(Df2 *st, double sr, float x)
     return df2_process(st, b0, b1, b2, a1, a2, x);
 }
 
-static float df2_lp(Df2 *st, double sr, float f, float q, float x)
+static float df2_lp(Df2 *st, double sr, float f, float q, bool prewarp_q, float x)
 {
     const float pi_t = (float)(M_PI / sr);
     const float k0 = f * pi_t;
-    const float aux1 = sqrtf(1.0f + 4.0f * q * q);
-    const float aux2 = (k0 / sinf(2.0f * k0 + 1e-20f)) * logf((aux1 + 1.0f) / (aux1 - 1.0f));
-    const float kq0 = expf(aux2) - expf(-aux2);
+    float kq0 = 1.0f / q;
+    if (prewarp_q) {
+        const float aux1 = sqrtf(1.0f + 4.0f * q * q);
+        const float aux2 = (k0 / sinf(2.0f * k0 + 1e-20f)) * logf((aux1 + 1.0f) / (aux1 - 1.0f));
+        kq0 = expf(aux2) - expf(-aux2);
+    }
     const float k = tanf(f * pi_t);
     const float kq = k * kq0;
     const float ksqr = k * k;
@@ -1052,7 +1055,7 @@ static NilampTapFrame nilamp_twd_dlx_ii_process_sample(NilampTwdDlxIiState *st, 
     const float post_hs3 = svf1_hs(&st->hs3, sr, ind_gain2, ind_f2, post_peq3);
     const float post_hp5 = ii1_hp_process(&st->hp5, 40.0f, sr, post_hs3);
     float v_out = post_hp5;
-    v_out = df2_lp(&st->lp2, sr, 10000.0f, sqrtf(0.5f), v_out);
+    v_out = df2_lp(&st->lp2, sr, 10000.0f, sqrtf(0.5f), false, v_out);
     v_out *= 0.5f / (splitter_cfg->t4->rl * splitter_cfg->t4->isat +
                       splitter_cfg->t5->rl * splitter_cfg->t5->isat);
 
@@ -1166,6 +1169,14 @@ void nilamp_test_flt_ii1_hp(float f, double sample_rate, const float *input, flo
     Ii1 st = { 0 };
     for (size_t i = 0; i < n; i++) {
         output[i] = ii1_hp_process(&st, f, sample_rate, input[i]);
+    }
+}
+
+void nilamp_test_flt_df2_lp_keller(double sample_rate, const float *input, float *output, size_t n)
+{
+    Df2 st = { 0 };
+    for (size_t i = 0; i < n; i++) {
+        output[i] = df2_lp(&st, sample_rate, 10000.0f, sqrtf(0.5f), false, input[i]);
     }
 }
 

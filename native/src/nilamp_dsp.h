@@ -186,6 +186,7 @@ float nilamp_control_display_value(const NilampControlSpec *spec, float raw_valu
 #ifdef NILAMP_ENABLE_TEST_API
 void nilamp_test_flt_ii1_lp(float f, double sample_rate, const float *input, float *output, size_t n);
 void nilamp_test_flt_ii1_hp(float f, double sample_rate, const float *input, float *output, size_t n);
+void nilamp_test_flt_df2_lp_keller(double sample_rate, const float *input, float *output, size_t n);
 void nilamp_test_flt_sv2_tst(double sample_rate, const float *input, float *output, size_t n);
 void nilamp_test_pkd(float xth, float xdiode, float k1, float k2, const float *input, float *output, size_t n);
 void nilamp_test_adnl(NilampTestAdnlTable table, const float *input, float *output, size_t n);

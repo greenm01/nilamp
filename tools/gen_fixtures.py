@@ -74,6 +74,46 @@ def _neq_coeffs(n: float) -> tuple[float, float, float, float, float]:
     return 1.0, 0.0, 0.0, 0.0, 0.0
 
 
+class KellerDf2Lp:
+    """Keller flt_df2_set_lp with frequency prewarp and selectable Q prewarp."""
+
+    def __init__(self, f: float, q: float, sr: int, pwq: int):
+        pi_t = np.pi / sr
+        k0 = f * pi_t
+        if pwq == 0:
+            kq0 = 1.0 / q
+        else:
+            aux1 = np.sqrt(1.0 + 4.0 * q * q)
+            aux2 = (k0 / np.sin(2.0 * k0)) * np.log((aux1 + 1.0) / (aux1 - 1.0))
+            kq0 = np.exp(aux2) - np.exp(-aux2)
+        k = np.tan(f * pi_t)
+        kq = k * kq0
+        ksqr = k * k
+        kdiv = 1.0 / (1.0 + kq + ksqr)
+        self.a1 = (-2.0 + 2.0 * ksqr) * kdiv
+        self.a2 = (1.0 - kq + ksqr) * kdiv
+        self.b0 = ksqr * kdiv
+        self.b1 = 2.0 * ksqr * kdiv
+        self.b2 = self.b0
+        self.z1 = 0.0
+        self.z2 = 0.0
+
+    def process_sample(self, x: float) -> float:
+        z0 = x - self.z1 * self.a1 - self.z2 * self.a2
+        y = z0 * self.b0 + self.z1 * self.b1 + self.z2 * self.b2
+        self.z2 = self.z1
+        self.z1 = z0
+        return y
+
+
+def flt_df2_lp_block(f: float, q: float, pwq: int, sr: int, input_buf: np.ndarray) -> np.ndarray:
+    flt = KellerDf2Lp(f, q, sr, pwq)
+    out = np.empty(len(input_buf), dtype=np.float32)
+    for i, x in enumerate(input_buf):
+        out[i] = flt.process_sample(float(x))
+    return out
+
+
 def _ck_oracle(cfg) -> ko.TubeCk:
     """Build a TubeCk oracle using the native C engine's stage constants."""
     table = gen_adnl_table(cfg.kbias, cfg.b, cfg.type_b, cfg.kloop)
@@ -256,32 +296,6 @@ def gen_nilamp_taps(input_buf: np.ndarray) -> tuple[np.ndarray, ...]:
     Mirrors the current native top-level cascade at default params:
     gain=0 dB plus Keller/REAPER mono calibration; volume/bass/mid/treble/sag=50%.
     """
-    class Df2Lp:
-        def __init__(self, f: float, q: float, sr: int):
-            pi_t = np.pi / sr
-            k0 = f * pi_t
-            aux1 = np.sqrt(1.0 + 4.0 * q * q)
-            aux2 = (k0 / np.sin(2.0 * k0)) * np.log((aux1 + 1.0) / (aux1 - 1.0))
-            kq0 = np.exp(aux2) - np.exp(-aux2)
-            k = np.tan(f * pi_t)
-            kq = k * kq0
-            ksqr = k * k
-            kdiv = 1.0 / (1.0 + kq + ksqr)
-            self.a1 = (-2.0 + 2.0 * ksqr) * kdiv
-            self.a2 = (1.0 - kq + ksqr) * kdiv
-            self.b0 = ksqr * kdiv
-            self.b1 = 2.0 * ksqr * kdiv
-            self.b2 = self.b0
-            self.z1 = 0.0
-            self.z2 = 0.0
-
-        def process_sample(self, x: float) -> float:
-            z0 = x - self.z1 * self.a1 - self.z2 * self.a2
-            y = z0 * self.b0 + self.z1 * self.b1 + self.z2 * self.b2
-            self.z2 = self.z1
-            self.z1 = z0
-            return y
-
     hp10 = ko.FltIi1Hp(10.0, SAMPLE_RATE)
     tone = ko.FltSv2Tst(0.25, 0.25, 0.25, 630.0, 0.5, 1, 1, SAMPLE_RATE)
     lp8800 = ko.FltIi1Lp(8800.0, SAMPLE_RATE)
@@ -295,7 +309,7 @@ def gen_nilamp_taps(input_buf: np.ndarray) -> tuple[np.ndarray, ...]:
     peq3 = ko.FltSv2Peq(1.2589254118, 80.0, 2.2440931043, 1, 1, SAMPLE_RATE)
     hs3 = ko.FltSv1Hs(1.4125375446, 1485.8089753, 1, SAMPLE_RATE)
     hp5 = ko.FltIi1Hp(40.0, SAMPLE_RATE)
-    lp2 = Df2Lp(10000.0, np.sqrt(0.5), SAMPLE_RATE)
+    lp2 = KellerDf2Lp(10000.0, np.sqrt(0.5), SAMPLE_RATE, 0)
 
     t1 = _ck_oracle(t5e3.T1_12AX7)
     t2 = _ck_oracle(t5e3.T2_12AX7)
@@ -470,6 +484,10 @@ def main() -> None:
     write(
         FIXTURES_DIR / "filter_hp_10_sine05_48k.f32",
         ko.flt_ii1_hp_block(10.0, SAMPLE_RATE, sine),
+    )
+    write(
+        FIXTURES_DIR / "filter_df2_lp_10k_keller_sine05_48k.f32",
+        flt_df2_lp_block(10000.0, np.sqrt(0.5), 0, SAMPLE_RATE, sine),
     )
     write(
         FIXTURES_DIR / "filter_svf_tst_sine05_48k.f32",

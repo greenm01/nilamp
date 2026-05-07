@@ -2,6 +2,36 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: Keller final lowpass brightness parity
+
+**Context.** REAPER listening after the noon gain calibration still found
+Keller's JSFX a little noisier/brighter and nilamp a little darker at noon with
+`LTP 1`.
+
+**Edit summary.**
+
+- Fixed nilamp's final TWD DLX II lowpass to match Keller
+  `flt_df2_set_lp(10000, sqrt(0.5), 1, 0)`: frequency prewarp on, Q prewarp
+  off.
+- Added a focused native fixture/API check for that Keller DF2 lowpass mode.
+- Updated the Python fixture generator and regenerated affected top-level
+  fixture buffers.
+- Reinstalled the corrected macOS VST3 bundle for REAPER.
+
+**Verification.**
+
+- `make native-test` passes.
+- `make native-host-test` passes with installed `clap-validator` and Steinberg
+  `validator`.
+- `make native-jsfx-test` passes: sine ABX residual `-81.7 dB`, correlation
+  `1.000000`, all taps within diagnostic threshold, and low-input regression
+  passes.
+- Sweep ABX at noon/LTP1 passes with residual `-80.7 dB`; JSFX-vs-nilamp band
+  deltas through 12 kHz are effectively `0.000 dB` after being about `+2` to
+  `+3 dB` in the high band before the fix.
+- Installed VST3 at `~/Library/Audio/Plug-Ins/VST3/nilamp-twd-mkii.vst3`
+  passes `test_vst3_load` and `validator -q`.
+
 ### Session: Keller noon input gain calibration
 
 **Context.** REAPER listening against Keller's original TWD DLX II JSFX showed
