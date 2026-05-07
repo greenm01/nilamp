@@ -38,6 +38,7 @@ nilamp ships as both CLAP and VST3. Current checks:
 | macOS | REAPER | Works | Works |
 | macOS | Kushview Element | Works | Works |
 | Windows | REAPER | Works | Works |
+| Windows | Kushview Element | Works | Works |
 | Linux | REAPER | Works | Works |
 
 On Linux, the editor uses X11/XWayland. Native Wayland is not available yet.
