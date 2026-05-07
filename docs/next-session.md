@@ -2,6 +2,40 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: Windows CLAP/VST3 release package upload
+
+**Context.** The Windows release asset on GitHub still contained the older
+CLAP-only ZIP after the Windows VST3 build landed.
+
+**Edit summary.**
+
+- Pushed `0354bdc` (`Add Windows VST3 build and validation`) to `origin/main`.
+- Downloaded the current v1.0.0 release `SHA256SUMS` into
+  `dist\release-v1.0.0-current`.
+- Ran `nmake /nologo /f Makefile.msvc package-windows-release`, generating a
+  Windows x64 ZIP that contains both `nilamp-twd-mkii.clap` and
+  `nilamp-twd-mkii.vst3`.
+- Uploaded the regenerated Windows ZIP, ZIP signature, `SHA256SUMS`, and
+  `SHA256SUMS.asc` to GitHub release `v1.0.0` with `gh release upload
+  --clobber`.
+- Updated the v1.0.0 GitHub release notes so all platform install instructions
+  describe CLAP and VST3.
+
+**Verification.**
+
+- ZIP contents include `nilamp-twd-mkii.clap`,
+  `nilamp-twd-mkii.vst3\Contents\x86_64-win\nilamp-twd-mkii.vst3`,
+  `install.cmd`, `README-Windows.txt`, and `LICENSE`.
+- Local `SHA256SUMS` preserves the macOS and Linux hashes and updates the
+  Windows hash to
+  `b3d318e8c296bc2e467bbeb454bc634fae8dfea5d98bb4a21b9aa5fac19957eb`.
+- GPG verification reports good signatures for the Windows ZIP and
+  `SHA256SUMS`; the sandbox returned a nonzero status because the trustdb was
+  not writable.
+- `gh release view v1.0.0` confirms the uploaded Windows ZIP is 1,276,742
+  bytes and has digest
+  `sha256:b3d318e8c296bc2e467bbeb454bc634fae8dfea5d98bb4a21b9aa5fac19957eb`.
+
 ### Session: Windows MSVC VST3 build and install
 
 **Context.** The Windows MSVC path built and installed the updated CLAP, but
