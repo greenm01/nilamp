@@ -234,6 +234,17 @@ static void usage(FILE *f)
             "  --mid     pct     Mid 0..100 (default 50)\n"
             "  --treble  pct     Treble 0..100 (default 50)\n"
             "  --sag     pct     Sag 0..100 (default 50)\n"
+            "  --output-gain dB  Output gain (default 0)\n"
+            "  --fmid    dBHz    Tone stack Fmid 44..68 (default 56)\n"
+            "  --qmid    dB      Tone stack Qmid -18..6 (default -6)\n"
+            "  --res-gain1 dB   Speaker resonance pre gain (default 1)\n"
+            "  --res-gain2 dB   Speaker resonance post gain (default 2)\n"
+            "  --res-fres dBHz  Speaker resonance Fres (default 38)\n"
+            "  --res-qts dB     Speaker resonance Qts (default 6)\n"
+            "  --ind-gain1 dB   Speaker inductor pre gain (default 3)\n"
+            "  --ind-gain2 dB   Speaker inductor post gain (default 3)\n"
+            "  --ind-find dBHz  Speaker inductor Find (default 62)\n"
+            "  --gcomp  mode    Gain comp: 0/Off, 1/Tube 1, 2/Splitter, 3/Both\n"
             "  --tube1   mode    Tube 1: 0/12AY7 or 1/12AX7\n"
             "  --splitter mode   Splitter: 0/CD 5E3, 1/CD BAL, 2/LTP 1, 3/LTP 2, 4/LTP 3\n"
             "  --block   n       Processing block size\n",
@@ -310,6 +321,28 @@ static int parse_args(int argc, char **argv, Args *args)
             if (parse_float_arg(a, v, &args->params.treble_pct) != 0) return -1;
         } else if (strcmp(a, "--sag") == 0) {
             if (parse_float_arg(a, v, &args->params.sag_pct) != 0) return -1;
+        } else if (strcmp(a, "--output-gain") == 0) {
+            if (parse_float_arg(a, v, &args->params.output_gain_db) != 0) return -1;
+        } else if (strcmp(a, "--fmid") == 0) {
+            if (parse_float_arg(a, v, &args->params.tone_fmid_dbhz) != 0) return -1;
+        } else if (strcmp(a, "--qmid") == 0) {
+            if (parse_float_arg(a, v, &args->params.tone_qmid_db) != 0) return -1;
+        } else if (strcmp(a, "--res-gain1") == 0) {
+            if (parse_float_arg(a, v, &args->params.spk_res_gain1_db) != 0) return -1;
+        } else if (strcmp(a, "--res-gain2") == 0) {
+            if (parse_float_arg(a, v, &args->params.spk_res_gain2_db) != 0) return -1;
+        } else if (strcmp(a, "--res-fres") == 0) {
+            if (parse_float_arg(a, v, &args->params.spk_res_fres_dbhz) != 0) return -1;
+        } else if (strcmp(a, "--res-qts") == 0) {
+            if (parse_float_arg(a, v, &args->params.spk_res_qts_db) != 0) return -1;
+        } else if (strcmp(a, "--ind-gain1") == 0) {
+            if (parse_float_arg(a, v, &args->params.spk_ind_gain1_db) != 0) return -1;
+        } else if (strcmp(a, "--ind-gain2") == 0) {
+            if (parse_float_arg(a, v, &args->params.spk_ind_gain2_db) != 0) return -1;
+        } else if (strcmp(a, "--ind-find") == 0) {
+            if (parse_float_arg(a, v, &args->params.spk_ind_find_dbhz) != 0) return -1;
+        } else if (strcmp(a, "--gcomp") == 0) {
+            if (parse_enum_arg(a, v, NILAMP_PARAM_GAIN_COMP, &args->params.gain_comp) != 0) return -1;
         } else if (strcmp(a, "--tube1") == 0) {
             if (parse_enum_arg(a, v, NILAMP_PARAM_TUBE1, &args->params.tube1) != 0) return -1;
         } else if (strcmp(a, "--splitter") == 0) {

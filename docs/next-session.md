@@ -2,6 +2,45 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: Keller option parity and gain-comp matrix
+
+**Context.** Follow-up audit for remaining Keller parity gaps and hardcoded
+parameters after the noon gain/brightness fixes.
+
+**Edit summary.**
+
+- Fixed Keller gain compensation ordering: nilamp now squares the Volume knob
+  first, then applies Tube 1 and Splitter compensation once, matching Keller's
+  JSFX `vol = (p.vol / 100)^2` path.
+- Moved Keller's gain-comp constants for 12AX7 and LTP compensation into the
+  KDL-generated model data instead of keeping them hardcoded in the DSP loop.
+- Exposed the remaining Keller option sliders in `nilamp_render`,
+  `abx_compare.py`, and `compare_taps.py`: output gain, tone-stack `Fmid/Qmid`,
+  speaker resonance, speaker inductor, and gain compensation.
+- Added `tools/parity_matrix.py` plus `make native-jsfx-matrix-test` to cover
+  default sine/sweep parity, Tube 1, splitter modes, LTP3 gain-comp modes, and
+  option-slider probes.
+
+**Verification.**
+
+- `make native-test` passes.
+- `make native-jsfx-test` passes: default sine residual `-81.7 dB`, tap
+  diagnostics pass, and low-input regression passes.
+- `make native-jsfx-matrix-test` passes for all supported Keller render cases:
+  default sine `-81.7 dB`, default sweep `-80.7 dB`, CD 5E3 `-80.5 dB`, CD BAL
+  `-80.3 dB`, LTP3 `-81.7 dB`, LTP3 gain-comp modes `-78.3..-81.7 dB`, output
+  gain `-81.7 dB`, tone options `-81.7 dB`, and speaker options `-79.5 dB`.
+- Matrix records `LTP 2` as a known Keller/ysfx reference-render issue because
+  direct JSFX renders for `mode=3` are silent in this harness while nilamp
+  produces signal.
+- `make native-host-test` passes with installed `clap-validator` and Steinberg
+  `validator`: CLAP reports 21 tests run, 16 passed, 0 failed, 5 skipped; VST3
+  reports 47 tests passed, 0 failed.
+- Reinstalled the macOS VST3 at
+  `~/Library/Audio/Plug-Ins/VST3/nilamp-twd-mkii.vst3`; installed bundle passes
+  `test_vst3_load` and `validator -q`.
+- `git diff --check` passes.
+
 ### Session: Keller final lowpass brightness parity
 
 **Context.** REAPER listening after the noon gain calibration still found

@@ -233,24 +233,36 @@ def run(args: argparse.Namespace) -> list[TapMetrics]:
         mid_pct=args.mid,
         treble_pct=args.treble,
         sag_pct=args.sag,
+        output_gain_db=args.output_gain,
+        tone_fmid_dbhz=args.fmid,
+        tone_qmid_db=args.qmid,
+        spk_res_gain1_db=args.res_gain1,
+        spk_res_gain2_db=args.res_gain2,
+        spk_res_fres_dbhz=args.res_fres,
+        spk_res_qts_db=args.res_qts,
+        spk_ind_gain1_db=args.ind_gain1,
+        spk_ind_gain2_db=args.ind_gain2,
+        spk_ind_find_dbhz=args.ind_find,
+        gain_comp=args.gcomp,
         tube1=args.tube1,
         splitter=args.splitter,
     )
+    artifact_label = f"{args.label}_{params.artifact_suffix()}"
 
     input_wav = make_preset_wav(args.preset, out_dir) if args.input is None else args.input
     rendered_input = input_wav
     if args.input_scale != 1.0:
-        rendered_input = out_dir / f"{args.label}_input_scaled.wav"
+        rendered_input = out_dir / f"{artifact_label}_input_scaled.wav"
         scale_wav(input_wav, rendered_input, args.input_scale)
 
-    native_wav = out_dir / f"{args.label}_native_taps.wav"
-    jsfx_taps_wav = out_dir / f"{args.label}_jsfx_taps.wav"
+    native_wav = out_dir / f"{artifact_label}_native_taps.wav"
+    jsfx_taps_wav = out_dir / f"{artifact_label}_jsfx_taps.wav"
     jsfx_tap_wavs = [
-        out_dir / f"{args.label}_jsfx_tap_{idx}_{name}.wav"
+        out_dir / f"{artifact_label}_jsfx_tap_{idx}_{name}.wav"
         for idx, name in enumerate(TAP_NAMES)
     ]
     if not args.keep_outputs:
-        for path in (native_wav, jsfx_taps_wav, out_dir / f"{args.label}_jsfx_public.wav", *jsfx_tap_wavs):
+        for path in (native_wav, jsfx_taps_wav, out_dir / f"{artifact_label}_jsfx_public.wav", *jsfx_tap_wavs):
             try:
                 path.unlink()
             except FileNotFoundError:
@@ -261,7 +273,7 @@ def run(args: argparse.Namespace) -> list[TapMetrics]:
         check_selected_vout_matches_public(
             rendered_input,
             out_dir,
-            args.label,
+            artifact_label,
             params,
             args.jsfx_timeout,
             jsfx_tap_wavs[0],
@@ -301,6 +313,17 @@ def main() -> int:
     parser.add_argument("--mid", type=float, default=50.0)
     parser.add_argument("--treble", type=float, default=50.0)
     parser.add_argument("--sag", type=float, default=50.0)
+    parser.add_argument("--output-gain", type=float, default=0.0)
+    parser.add_argument("--fmid", type=float, default=56.0)
+    parser.add_argument("--qmid", type=float, default=-6.0)
+    parser.add_argument("--res-gain1", type=float, default=1.0)
+    parser.add_argument("--res-gain2", type=float, default=2.0)
+    parser.add_argument("--res-fres", type=float, default=38.0)
+    parser.add_argument("--res-qts", type=float, default=6.0)
+    parser.add_argument("--ind-gain1", type=float, default=3.0)
+    parser.add_argument("--ind-gain2", type=float, default=3.0)
+    parser.add_argument("--ind-find", type=float, default=62.0)
+    parser.add_argument("--gcomp", type=int, choices=[0, 1, 2, 3], default=2)
     parser.add_argument("--tube1", type=int, choices=[0, 1], default=1)
     parser.add_argument("--splitter", type=int, choices=[0, 1, 2, 3, 4], default=2)
     parser.add_argument("--input-scale", type=float, default=1.0)

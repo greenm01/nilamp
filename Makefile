@@ -189,7 +189,7 @@ ifeq ($(YSFX_AVAILABLE),1)
 NATIVE_TARGETS += $(NATIVE_BIN)/ysfx_render
 endif
 
-.PHONY: all native native-test native-bench native-host-test native-reaper-host-test native-jsfx-test native-loaded-clap-diagnose install-clap-user install-vst3-user package-linux-release package-macos-release setup-python clean-native FORCE
+.PHONY: all native native-test native-bench native-host-test native-reaper-host-test native-jsfx-test native-jsfx-matrix-test native-loaded-clap-diagnose install-clap-user install-vst3-user package-linux-release package-macos-release setup-python clean-native FORCE
 
 all: native
 
@@ -246,6 +246,10 @@ native-jsfx-test: $(NATIVE_BIN)/nilamp_render $(NATIVE_BIN)/nilamp_taps_render $
 	$(PYTHON) tools/abx_compare.py --preset sine --rms-threshold-db -16
 	$(PYTHON) tools/compare_taps.py --preset sine
 	$(PYTHON) tools/low_input_regression.py --require-jsfx
+
+native-jsfx-matrix-test: $(NATIVE_BIN)/nilamp_render $(NATIVE_BIN)/ysfx_render
+	$(PYTHON) -m tools.jsfx_render.stage_jsfx
+	$(PYTHON) tools/parity_matrix.py
 
 native-low-input-test: $(NATIVE_BIN)/nilamp_render
 	$(PYTHON) tools/low_input_regression.py

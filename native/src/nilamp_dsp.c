@@ -245,6 +245,8 @@ typedef struct {
     float input_feed_gain;
     float input_gain_offset_db;
     float input_keller_gain_sq;
+    float gain_comp_12ax7;
+    float gain_comp_ltp_base;
     float pss1_r;
     float pss1_tau;
     float pss2_r;
@@ -955,13 +957,14 @@ static NilampTapFrame nilamp_twd_dlx_ii_process_sample(NilampTwdDlxIiState *st, 
     const float gain =
         db_to_linear(params->gain_db + model->input_gain_offset_db) *
         model->input_feed_gain * sqrtf(model->input_keller_gain_sq);
-    float volume = params->volume_pct * 0.01f;
+    const float volume_knob = params->volume_pct * 0.01f;
+    float volume_gain = volume_knob * volume_knob;
     const int gain_comp = (int)lroundf(params->gain_comp);
     if ((gain_comp == 1 || gain_comp == 3) && tube1 == 1) {
-        volume *= 0.572f;
+        volume_gain *= model->gain_comp_12ax7;
     }
     if ((gain_comp == 2 || gain_comp == 3) && splitter_cfg->is_ltp) {
-        volume *= powf(0.0345f, splitter_cfg->kmst);
+        volume_gain *= powf(model->gain_comp_ltp_base, splitter_cfg->kmst);
     }
     const float bass = params->bass_pct * 0.01f;
     const float mid = params->mid_pct * 0.01f;
@@ -1014,7 +1017,7 @@ static NilampTapFrame nilamp_twd_dlx_ii_process_sample(NilampTwdDlxIiState *st, 
     tube_ck_process(&st->t1, t1_cfg, sr, input * gain, dvs3, &res1_v, &res1_dia);
 
     float v2 = ii1_hp_process(&st->hp1, 10.0f, sr, res1_v);
-    v2 *= volume * volume;
+    v2 *= volume_gain;
     v2 = svf2_tst(&st->tone, sr, bass * bass, mid * mid, treble * treble,
                   tone_fmid, tone_qmid, v2);
     v2 = ii1_lp_process(&st->lp1, 8800.0f, sr, v2);

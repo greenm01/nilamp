@@ -21,13 +21,15 @@ Slider mapping (nilamp params <-> JSFX sliders), native units:
     bass    (0..100 %)    <->  bass    (0..100 %)    identity
     mid     (0..100 %)    <->  mid     (0..100 %)    identity
     treble  (0..100 %)    <->  treble  (0..100 %)    identity
-    sag     (0..100 %)    <->  (held at 100; JSFX has no counterpart slider,
-                                its 3-stage PSS is fixed-internal)
+    sag     (0..100 %)    <->  nilamp-only PSS depth; 50 matches Keller default
+    gout    (-12..12 dB)  <->  gout    (-12..12 dB)  identity
+    gcomp   (0..3 enum)   <->  gcomp   (0..3 enum)   identity
 
-Topology sliders are exposed by the native renderer and passed through to JSFX:
+Topology and Options sliders are exposed by the native renderer and passed
+through to JSFX:
     tube1 = 0/1  (12AY7/12AX7)
     mode  = 0..4 (CD 5E3, CD BAL, LTP 1, LTP 2, LTP 3)
-    gcomp, gp_*, gs_*, f*, q*, gout = JSFX slider defaults
+    fm, qm, gp_*, fp, qp, gs_*, fs
 
 Why the 100 ms trim:
 The harness JSFX (twd_dlx_ii_harness.jsfx, staged by tools.jsfx_render.stage_jsfx)
@@ -87,6 +89,17 @@ class Params:
     mid_pct: float = 50.0      # 0..100
     treble_pct: float = 50.0   # 0..100
     sag_pct: float = 50.0      # 0..100 (50 matches Keller's fixed JSFX PSS)
+    output_gain_db: float = 0.0
+    tone_fmid_dbhz: float = 56.0
+    tone_qmid_db: float = -6.0
+    spk_res_gain1_db: float = 1.0
+    spk_res_gain2_db: float = 2.0
+    spk_res_fres_dbhz: float = 38.0
+    spk_res_qts_db: float = 6.0
+    spk_ind_gain1_db: float = 3.0
+    spk_ind_gain2_db: float = 3.0
+    spk_ind_find_dbhz: float = 62.0
+    gain_comp: int = 2          # 0=Off, 1=Tube 1, 2=Splitter, 3=Both
     tube1: int = 1             # 0=12AY7, 1=12AX7
     splitter: int = 2          # JSFX TWD DLX II default: LTP 1
 
@@ -98,9 +111,33 @@ class Params:
             "--mid", str(self.mid_pct),
             "--treble", str(self.treble_pct),
             "--sag", str(self.sag_pct),
+            "--output-gain", str(self.output_gain_db),
+            "--fmid", str(self.tone_fmid_dbhz),
+            "--qmid", str(self.tone_qmid_db),
+            "--res-gain1", str(self.spk_res_gain1_db),
+            "--res-gain2", str(self.spk_res_gain2_db),
+            "--res-fres", str(self.spk_res_fres_dbhz),
+            "--res-qts", str(self.spk_res_qts_db),
+            "--ind-gain1", str(self.spk_ind_gain1_db),
+            "--ind-gain2", str(self.spk_ind_gain2_db),
+            "--ind-find", str(self.spk_ind_find_dbhz),
+            "--gcomp", str(self.gain_comp),
             "--tube1", str(self.tube1),
             "--splitter", str(self.splitter),
         ]
+
+    def artifact_suffix(self) -> str:
+        parts = [
+            self.gain_db, self.volume_pct, self.bass_pct, self.mid_pct,
+            self.treble_pct, self.sag_pct, self.output_gain_db,
+            self.tone_fmid_dbhz, self.tone_qmid_db, self.spk_res_gain1_db,
+            self.spk_res_gain2_db, self.spk_res_fres_dbhz,
+            self.spk_res_qts_db, self.spk_ind_gain1_db,
+            self.spk_ind_gain2_db, self.spk_ind_find_dbhz,
+            self.gain_comp, self.tube1, self.splitter,
+        ]
+        text = ",".join(f"{float(p):.9g}" for p in parts)
+        return hashlib.sha1(text.encode("utf-8")).hexdigest()[:10]
 
     def jsfx_gin(self) -> float:
         """Translate nilamp gain_db to the JSFX p.gin slider value."""
@@ -127,17 +164,17 @@ class Params:
             "-s", f"treble={self.treble_pct}",
             "-s", f"tube1={self.tube1}",
             "-s", f"mode={self.splitter}",
-            "-s", "gcomp=2",
-            "-s", "fm=56",
-            "-s", "qm=-6",
-            "-s", "gp_pre=1",
-            "-s", "gp_post=2",
-            "-s", "fp=38",
-            "-s", "qp=6",
-            "-s", "gs_pre=3",
-            "-s", "gs_post=3",
-            "-s", "fs=62",
-            "-s", "gout=0",
+            "-s", f"gcomp={self.gain_comp}",
+            "-s", f"fm={self.tone_fmid_dbhz}",
+            "-s", f"qm={self.tone_qmid_db}",
+            "-s", f"gp_pre={self.spk_res_gain1_db}",
+            "-s", f"gp_post={self.spk_res_gain2_db}",
+            "-s", f"fp={self.spk_res_fres_dbhz}",
+            "-s", f"qp={self.spk_res_qts_db}",
+            "-s", f"gs_pre={self.spk_ind_gain1_db}",
+            "-s", f"gs_post={self.spk_ind_gain2_db}",
+            "-s", f"fs={self.spk_ind_find_dbhz}",
+            "-s", f"gout={self.output_gain_db}",
         ]
 
 
@@ -465,14 +502,15 @@ def run_one(input_wav: Path, params: Params, out_dir: Path, label: str,
             nilamp_renderer: Path = NILAMP_RENDER,
             use_jsfx_cache: bool = True) -> Metrics:
     out_dir.mkdir(parents=True, exist_ok=True)
-    nilamp_wav = out_dir / f"{label}_nilamp.wav"
-    jsfx_wav = out_dir / f"{label}_jsfx.wav"
+    artifact_label = f"{label}_{params.artifact_suffix()}"
+    nilamp_wav = out_dir / f"{artifact_label}_nilamp.wav"
+    jsfx_wav = out_dir / f"{artifact_label}_jsfx.wav"
 
     # If a non-unity input scale is requested, materialize a scaled copy of
     # the input WAV and feed that to both renderers. Both need to see the
     # same samples for the comparison to be meaningful.
     if input_scale != 1.0:
-        scaled_wav = out_dir / f"{label}_input_scaled.wav"
+        scaled_wav = out_dir / f"{artifact_label}_input_scaled.wav"
         scale_wav(input_wav, scaled_wav, input_scale)
         rendered_input = scaled_wav
     else:
@@ -520,6 +558,17 @@ def main() -> int:
     ap.add_argument("--mid", type=float, default=50.0)
     ap.add_argument("--treble", type=float, default=50.0)
     ap.add_argument("--sag", type=float, default=50.0)
+    ap.add_argument("--output-gain", type=float, default=0.0)
+    ap.add_argument("--fmid", type=float, default=56.0)
+    ap.add_argument("--qmid", type=float, default=-6.0)
+    ap.add_argument("--res-gain1", type=float, default=1.0)
+    ap.add_argument("--res-gain2", type=float, default=2.0)
+    ap.add_argument("--res-fres", type=float, default=38.0)
+    ap.add_argument("--res-qts", type=float, default=6.0)
+    ap.add_argument("--ind-gain1", type=float, default=3.0)
+    ap.add_argument("--ind-gain2", type=float, default=3.0)
+    ap.add_argument("--ind-find", type=float, default=62.0)
+    ap.add_argument("--gcomp", type=int, choices=[0, 1, 2, 3], default=2)
     ap.add_argument("--tube1", type=int, choices=[0, 1], default=1)
     ap.add_argument("--splitter", type=int, choices=[0, 1, 2, 3, 4], default=2)
     ap.add_argument("--input-scale", type=float, default=1.0,
@@ -539,7 +588,13 @@ def main() -> int:
     params = Params(
         gain_db=args.gain, volume_pct=args.volume,
         bass_pct=args.bass, mid_pct=args.mid, treble_pct=args.treble,
-        sag_pct=args.sag, tube1=args.tube1, splitter=args.splitter,
+        sag_pct=args.sag, output_gain_db=args.output_gain,
+        tone_fmid_dbhz=args.fmid, tone_qmid_db=args.qmid,
+        spk_res_gain1_db=args.res_gain1, spk_res_gain2_db=args.res_gain2,
+        spk_res_fres_dbhz=args.res_fres, spk_res_qts_db=args.res_qts,
+        spk_ind_gain1_db=args.ind_gain1, spk_ind_gain2_db=args.ind_gain2,
+        spk_ind_find_dbhz=args.ind_find, gain_comp=args.gcomp,
+        tube1=args.tube1, splitter=args.splitter,
     )
 
     if args.input is None and args.preset is None:
