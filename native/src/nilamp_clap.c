@@ -52,6 +52,7 @@
 #define NILAMP_CLAP_OUTPUT_LIMIT 1.0f
 #define NILAMP_CLAP_PORT_CONFIG_MONO 1u
 #define NILAMP_CLAP_PORT_CONFIG_STEREO 2u
+#define NILAMP_GUI_FRAME_INTERVAL_SECONDS (1.0 / 30.0)
 
 typedef NilampControlSpec NilampParamSpec;
 #define nilamp_param_specs (nilamp_control_specs(NULL))
@@ -1276,6 +1277,7 @@ static void nilamp_gui_destroy_ext(const clap_plugin_t *plugin)
     if (!plug) {
         return;
     }
+    nilamp_gui_stop_frame_timer(plug->gui);
     nilamp_unregister_gui_timer(plug);
     nilamp_gui_destroy(plug->gui);
     plug->gui = NULL;
@@ -1345,29 +1347,33 @@ static bool nilamp_gui_set_parent_ext(const clap_plugin_t *plugin,
                                       const clap_window_t *window)
 {
     NilampClap *plug = nilamp_from_plugin(plugin);
-    if (!plug || !plug->gui || !window || !window->api ||
-        strcmp(window->api, NILAMP_CLAP_WINDOW_API) != 0) {
-        nilamp_gui_log("set_parent rejected api=%s plug=%p gui=%p window=%p",
-                       window && window->api ? window->api : "(null)", (void *)plug,
-                       plug ? (void *)plug->gui : NULL, (const void *)window);
-        return false;
-    }
     uintptr_t handle = 0u;
 #if defined(__APPLE__)
-    handle = (uintptr_t)window->cocoa;
+    if (window) {
+        handle = (uintptr_t)window->cocoa;
+    }
 #elif defined(_WIN32)
-    handle = (uintptr_t)window->win32;
+    if (window) {
+        handle = (uintptr_t)window->win32;
+    }
 #else
-    handle = (uintptr_t)window->x11;
+    if (window) {
+        handle = (uintptr_t)window->x11;
+    }
 #endif
+    if (!plug || !plug->gui || !window || handle == 0u) {
+        nilamp_gui_log("set_parent rejected plug=%p gui=%p window=%p handle=%p",
+                       (void *)plug, plug ? (void *)plug->gui : NULL,
+                       (const void *)window, (void *)handle);
+        return false;
+    }
     const bool ok = nilamp_gui_set_parent(
         plug->gui,
         (NilampGuiParent){
             .api = NILAMP_GUI_NATIVE_API,
             .handle = handle,
         });
-    nilamp_gui_log("set_parent api=%s handle=%p -> %d", window->api, (void *)handle,
-                   ok ? 1 : 0);
+    nilamp_gui_log("set_parent handle=%p -> %d", (void *)handle, ok ? 1 : 0);
     return ok;
 }
 
@@ -1375,30 +1381,34 @@ static bool nilamp_gui_set_transient_ext(const clap_plugin_t *plugin,
                                          const clap_window_t *window)
 {
     NilampClap *plug = nilamp_from_plugin(plugin);
-    if (!plug || !plug->gui || !plug->gui_is_floating || !window || !window->api ||
-        strcmp(window->api, NILAMP_CLAP_WINDOW_API) != 0) {
-        nilamp_gui_log("set_transient rejected api=%s floating=%d plug=%p gui=%p window=%p",
-                       window && window->api ? window->api : "(null)",
-                       plug && plug->gui_is_floating ? 1 : 0, (void *)plug,
-                       plug ? (void *)plug->gui : NULL, (const void *)window);
-        return false;
-    }
     uintptr_t handle = 0u;
 #if defined(__APPLE__)
-    handle = (uintptr_t)window->cocoa;
+    if (window) {
+        handle = (uintptr_t)window->cocoa;
+    }
 #elif defined(_WIN32)
-    handle = (uintptr_t)window->win32;
+    if (window) {
+        handle = (uintptr_t)window->win32;
+    }
 #else
-    handle = (uintptr_t)window->x11;
+    if (window) {
+        handle = (uintptr_t)window->x11;
+    }
 #endif
+    if (!plug || !plug->gui || !plug->gui_is_floating || !window || handle == 0u) {
+        nilamp_gui_log("set_transient rejected floating=%d plug=%p gui=%p window=%p handle=%p",
+                       plug && plug->gui_is_floating ? 1 : 0, (void *)plug,
+                       plug ? (void *)plug->gui : NULL, (const void *)window,
+                       (void *)handle);
+        return false;
+    }
     const bool ok = nilamp_gui_set_transient(
         plug->gui,
         (NilampGuiParent){
             .api = NILAMP_GUI_NATIVE_API,
             .handle = handle,
         });
-    nilamp_gui_log("set_transient api=%s handle=%p -> %d", window->api,
-                   (void *)handle, ok ? 1 : 0);
+    nilamp_gui_log("set_transient handle=%p -> %d", (void *)handle, ok ? 1 : 0);
     return ok;
 }
 
@@ -1413,6 +1423,9 @@ static bool nilamp_gui_show_ext(const clap_plugin_t *plugin)
     NilampClap *plug = nilamp_from_plugin(plugin);
     const bool ok = plug && plug->gui && nilamp_gui_show(plug->gui);
     nilamp_gui_log("show -> %d", ok ? 1 : 0);
+    if (ok && !nilamp_gui_start_frame_timer(plug->gui, NILAMP_GUI_FRAME_INTERVAL_SECONDS)) {
+        nilamp_gui_log("start_frame_timer failed");
+    }
     if (ok && plug->host_timer && plug->host_timer->register_timer &&
         !plug->gui_timer_registered) {
         clap_id timer_id = CLAP_INVALID_ID;
@@ -1434,6 +1447,9 @@ static bool nilamp_gui_show_ext(const clap_plugin_t *plugin)
 static bool nilamp_gui_hide_ext(const clap_plugin_t *plugin)
 {
     NilampClap *plug = nilamp_from_plugin(plugin);
+    if (plug) {
+        nilamp_gui_stop_frame_timer(plug->gui);
+    }
     nilamp_unregister_gui_timer(plug);
     const bool ok = plug && plug->gui && nilamp_gui_hide(plug->gui);
     nilamp_gui_log("hide -> %d", ok ? 1 : 0);
@@ -1461,8 +1477,10 @@ static const clap_plugin_gui_t nilamp_gui_ext = {
 static void nilamp_timer_on_timer(const clap_plugin_t *plugin, clap_id timer_id)
 {
     NilampClap *plug = nilamp_from_plugin(plugin);
-    if (!plug || !plug->gui_timer_registered || timer_id != plug->gui_timer_id ||
-        !plug->gui || !nilamp_gui_is_visible(plug->gui)) {
+    if (!plug || !plug->gui || !nilamp_gui_is_visible(plug->gui)) {
+        return;
+    }
+    if (plug->gui_timer_registered && timer_id != plug->gui_timer_id && timer_id != 0u) {
         return;
     }
     nilamp_gui_on_main_thread(plug->gui);

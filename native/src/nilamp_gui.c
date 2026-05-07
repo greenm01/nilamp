@@ -37,6 +37,7 @@
 #define NILAMP_GUI_DOUBLE_CLICK_SECONDS 0.35
 #define NILAMP_GUI_DOUBLE_CLICK_DISTANCE 6.0
 #define NILAMP_GUI_DEG_TO_RAD 0.017453292519943295f
+#define NILAMP_GUI_FRAME_TIMER_ID 1u
 
 typedef enum NilampGuiScreen {
     NILAMP_GUI_SCREEN_MAIN = 0,
@@ -126,6 +127,7 @@ struct NilampGui {
     bool is_floating;
     bool visible;
     bool gpu_ready;
+    bool frame_timer_running;
 };
 
 static bool nilamp_gui_sokol_in_use = false;
@@ -1752,6 +1754,12 @@ static PuglStatus nilamp_gui_event(PuglView *view, const PuglEvent *event)
         nilamp_gui_draw(gui);
         gui->model.dirty = false;
         break;
+    case PUGL_TIMER:
+        if (event->timer.id == NILAMP_GUI_FRAME_TIMER_ID && gui->visible) {
+            nilamp_gui_refresh_params(gui);
+            nilamp_gui_request_redraw(gui);
+        }
+        break;
     case PUGL_BUTTON_PRESS:
         if (event->button.button < 3u) {
             const double dx = event->button.x - (double)gui->last_click_x;
@@ -1952,6 +1960,7 @@ void nilamp_gui_destroy(NilampGui *gui)
         return;
     }
     if (gui->view) {
+        nilamp_gui_stop_frame_timer(gui);
         if (gui->realized) {
             (void)puglUnrealize(gui->view);
         } else {
@@ -2052,6 +2061,7 @@ bool nilamp_gui_hide(NilampGui *gui)
     if (!gui || !gui->view) {
         return false;
     }
+    nilamp_gui_stop_frame_timer(gui);
     (void)puglHide(gui->view);
     gui->visible = false;
     return true;
@@ -2095,6 +2105,43 @@ bool nilamp_gui_set_size(NilampGui *gui, uint32_t width, uint32_t height)
 bool nilamp_gui_is_visible(const NilampGui *gui)
 {
     return gui && gui->visible;
+}
+
+bool nilamp_gui_start_frame_timer(NilampGui *gui, double interval_seconds)
+{
+    if (!gui || !gui->view || !gui->realized || interval_seconds <= 0.0) {
+        nilamp_gui_log("start_frame_timer rejected");
+        return false;
+    }
+    if (gui->frame_timer_running) {
+        return true;
+    }
+
+    const PuglStatus status =
+        puglStartTimer(gui->view, NILAMP_GUI_FRAME_TIMER_ID, interval_seconds);
+    if (status) {
+        nilamp_gui_log("start_frame_timer failed: %s", puglStrerror(status));
+        return false;
+    }
+
+    gui->frame_timer_running = true;
+    nilamp_gui_log("start_frame_timer interval=%.3f", interval_seconds);
+    return true;
+}
+
+void nilamp_gui_stop_frame_timer(NilampGui *gui)
+{
+    if (!gui || !gui->view || !gui->frame_timer_running) {
+        return;
+    }
+
+    const PuglStatus status = puglStopTimer(gui->view, NILAMP_GUI_FRAME_TIMER_ID);
+    if (status) {
+        nilamp_gui_log("stop_frame_timer failed: %s", puglStrerror(status));
+    } else {
+        nilamp_gui_log("stop_frame_timer");
+    }
+    gui->frame_timer_running = false;
 }
 
 void nilamp_gui_on_main_thread(NilampGui *gui)
