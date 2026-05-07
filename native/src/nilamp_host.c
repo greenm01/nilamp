@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 #include "nilamp_host.h"
 
+#include "nilamp_compat.h"
 #include "nilamp_cpu.h"
 
 #include <errno.h>
@@ -11,7 +12,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <strings.h>
 
 #define NILAMP_HOST_STATE_VERSION_1 1u
 #define NILAMP_HOST_STATE_VERSION_1_PARAM_COUNT 6u
@@ -347,12 +347,12 @@ bool nilamp_host_param_text_to_value(uint32_t id, const char *text, double *out_
     if (spec->display == NILAMP_CONTROL_DISPLAY_ENUM && spec->enum_names &&
         spec->enum_count > 0u) {
         for (uint32_t i = 0; i < spec->enum_count; i++) {
-            if (strcasecmp(text, spec->enum_names[i]) == 0) {
+            if (nilamp_stricmp(text, spec->enum_names[i]) == 0) {
                 *out_value = (double)i;
                 return true;
             }
         }
-        if (spec->id == NILAMP_PARAM_GAIN_COMP && strcasecmp(text, "tube1") == 0) {
+        if (spec->id == NILAMP_PARAM_GAIN_COMP && nilamp_stricmp(text, "tube1") == 0) {
             *out_value = 1.0;
             return true;
         }

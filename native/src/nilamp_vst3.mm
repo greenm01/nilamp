@@ -513,6 +513,8 @@ tresult PLUGIN_API Editor::isPlatformTypeSupported(FIDString type)
 {
 #if defined(__APPLE__)
     return type && std::strcmp(type, kPlatformTypeNSView) == 0 ? kResultTrue : kResultFalse;
+#elif defined(_WIN32)
+    return type && std::strcmp(type, kPlatformTypeHWND) == 0 ? kResultTrue : kResultFalse;
 #else
     return type && std::strcmp(type, kPlatformTypeX11EmbedWindowID) == 0 ? kResultTrue :
                                                                           kResultFalse;
@@ -535,6 +537,9 @@ tresult PLUGIN_API Editor::attached(void *parent, FIDString type)
 #if defined(__APPLE__)
                             NILAMP_GUI_API_COCOA, false);
     const NilampGuiParent guiParent = {NILAMP_GUI_API_COCOA, (uintptr_t)parent};
+#elif defined(_WIN32)
+                            NILAMP_GUI_API_WIN32, false);
+    const NilampGuiParent guiParent = {NILAMP_GUI_API_WIN32, (uintptr_t)parent};
 #else
                             NILAMP_GUI_API_X11, false);
     const NilampGuiParent guiParent = {NILAMP_GUI_API_X11, (uintptr_t)parent};

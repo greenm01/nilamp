@@ -9,6 +9,7 @@ NATIVE_BUILD=$(NATIVE_DIR)\build
 NATIVE_BIN=$(NATIVE_DIR)\bin
 NATIVE_GENERATED=$(NATIVE_DIR)\generated
 CLAP_INCLUDE=third_party\clap\include
+VST3SDK_DIR=third_party\vst3sdk
 PUGL_INCLUDE=third_party\pugl\include
 PUGL_SRC=third_party\pugl\src
 SOKOL_INCLUDE=third_party\sokol
@@ -16,22 +17,61 @@ NUKLEAR_INCLUDE=third_party\nuklear
 
 CLAP_BUNDLE=nilamp-twd-mkii.clap
 CLAP_PLUGIN=$(NATIVE_BIN)\$(CLAP_BUNDLE)
+VST3_BUNDLE=nilamp-twd-mkii.vst3
+VST3_EXECUTABLE=nilamp-twd-mkii.vst3
+VST3_PLUGIN=$(NATIVE_BIN)\$(VST3_BUNDLE)
+VST3_BINARY=$(VST3_PLUGIN)\Contents\x86_64-win\$(VST3_EXECUTABLE)
 CLAP_INSTALL_DIR=C:\Program Files\Common Files\CLAP
 CLAP_USER_INSTALL_DIR=$(LOCALAPPDATA)\Programs\Common\CLAP
+VST3_USER_INSTALL_DIR=$(LOCALAPPDATA)\Programs\Common\VST3
 DIST_DIR=dist
 RELEASE_VERSION=1.0.0
 RELEASE_GPG_KEY=C3504EE1EE38410CE1C433BC372B8AAACB867F13
 
 BASE_CFLAGS=/nologo /std:c11 /experimental:c11atomics /O2 /MT /W4 /WX /D_CRT_SECURE_NO_WARNINGS /I$(NATIVE_DIR)\src /I$(NATIVE_GENERATED)
 CLAP_CFLAGS=$(BASE_CFLAGS) /I$(CLAP_INCLUDE)
+CXXFLAGS=/nologo /std:c++17 /EHsc /O2 /MT /W4 /WX /DNDEBUG /D_CRT_SECURE_NO_WARNINGS /I$(NATIVE_DIR)\src /I$(NATIVE_GENERATED)
+VST3_CXXFLAGS=$(CXXFLAGS) /I$(VST3SDK_DIR)
+VST3_VENDOR_CXXFLAGS=/nologo /std:c++17 /EHsc /O2 /MT /W0 /DNDEBUG /D_CRT_SECURE_NO_WARNINGS /I$(VST3SDK_DIR)
 GUI_CFLAGS=$(CLAP_CFLAGS) /DPUGL_STATIC /wd5287 /I$(PUGL_INCLUDE) /I$(PUGL_SRC) /I$(SOKOL_INCLUDE) /I$(SOKOL_INCLUDE)\util /I$(NUKLEAR_INCLUDE)
 VENDOR_CFLAGS=/nologo /std:c11 /O2 /MT /W0 /D_CRT_SECURE_NO_WARNINGS /DPUGL_STATIC /I$(PUGL_INCLUDE) /I$(PUGL_SRC) /I$(SOKOL_INCLUDE) /I$(SOKOL_INCLUDE)\util /I$(NUKLEAR_INCLUDE)
 CLAP_NAME_DEFINE="/DNILAMP_CLAP_NAME=\"nilamp TWD MKII\""
 TEST_CLAP_NAME_DEFINE="/DNILAMP_EXPECT_CLAP_NAME=\"nilamp TWD MKII\""
+VST3_NAME_DEFINE="/DNILAMP_VST3_NAME=\"nilamp TWD MKII\""
 
 NATIVE_OBJS= \
 	$(NATIVE_BUILD)\nilamp_dsp.obj \
+	$(NATIVE_BUILD)\nilamp_host.obj \
 	$(NATIVE_BUILD)\nilamp_tables.obj
+
+VST3_SDK_OBJS= \
+	$(NATIVE_BUILD)\vst3_baseiids.obj \
+	$(NATIVE_BUILD)\vst3_fbuffer.obj \
+	$(NATIVE_BUILD)\vst3_fdebug.obj \
+	$(NATIVE_BUILD)\vst3_fobject.obj \
+	$(NATIVE_BUILD)\vst3_fstreamer.obj \
+	$(NATIVE_BUILD)\vst3_fstring.obj \
+	$(NATIVE_BUILD)\vst3_timer.obj \
+	$(NATIVE_BUILD)\vst3_updatehandler.obj \
+	$(NATIVE_BUILD)\vst3_flock.obj \
+	$(NATIVE_BUILD)\vst3_fcondition.obj \
+	$(NATIVE_BUILD)\vst3_conststringtable.obj \
+	$(NATIVE_BUILD)\vst3_coreiids.obj \
+	$(NATIVE_BUILD)\vst3_funknown.obj \
+	$(NATIVE_BUILD)\vst3_ustring.obj \
+	$(NATIVE_BUILD)\vst3_commoniids.obj \
+	$(NATIVE_BUILD)\vst3_pluginview.obj \
+	$(NATIVE_BUILD)\vst3_dllmain.obj \
+	$(NATIVE_BUILD)\vst3_moduleinit.obj \
+	$(NATIVE_BUILD)\vst3_pluginfactory.obj \
+	$(NATIVE_BUILD)\vst3_vstaudioeffect.obj \
+	$(NATIVE_BUILD)\vst3_vstbus.obj \
+	$(NATIVE_BUILD)\vst3_vstcomponent.obj \
+	$(NATIVE_BUILD)\vst3_vstcomponentbase.obj \
+	$(NATIVE_BUILD)\vst3_vsteditcontroller.obj \
+	$(NATIVE_BUILD)\vst3_vstinitiids.obj \
+	$(NATIVE_BUILD)\vst3_vstparameters.obj \
+	$(NATIVE_BUILD)\vst3_vstnoteexpressiontypes.obj
 
 NATIVE_GUI_OBJS= \
 	$(NATIVE_BUILD)\nilamp_gui.obj \
@@ -49,8 +89,10 @@ NATIVE_TARGETS= \
 	$(NATIVE_BIN)\nilamp_taps_render.exe \
 	$(NATIVE_BIN)\test_native.exe \
 	$(NATIVE_BIN)\test_clap_load.exe \
+	$(NATIVE_BIN)\test_vst3_load.exe \
 	$(NATIVE_BIN)\render_loaded_clap.exe \
-	$(CLAP_PLUGIN)
+	$(CLAP_PLUGIN) \
+	$(VST3_PLUGIN)
 
 !IF [if not exist "$(NATIVE_BUILD)" mkdir "$(NATIVE_BUILD)"] != 0
 !ERROR failed to create $(NATIVE_BUILD)
@@ -64,12 +106,14 @@ all: native
 
 native: $(NATIVE_TARGETS)
 
-native-test: $(NATIVE_BIN)\test_native.exe $(NATIVE_BIN)\test_clap_load.exe $(CLAP_PLUGIN)
+native-test: $(NATIVE_BIN)\test_native.exe $(NATIVE_BIN)\test_clap_load.exe $(NATIVE_BIN)\test_vst3_load.exe $(CLAP_PLUGIN) $(VST3_PLUGIN)
 	$(NATIVE_BIN)\test_native.exe
 	$(NATIVE_BIN)\test_clap_load.exe $(CLAP_PLUGIN)
+	$(NATIVE_BIN)\test_vst3_load.exe $(VST3_PLUGIN)
 
 native-host-test: native-test
 	$(PYTHON) tools\clap_validate\validate_clap.py --plugin $(CLAP_PLUGIN)
+	$(PYTHON) tools\vst3_validate\validate_vst3.py --plugin $(VST3_PLUGIN)
 
 install-clap: $(CLAP_PLUGIN)
 	if not exist "$(CLAP_INSTALL_DIR)" mkdir "$(CLAP_INSTALL_DIR)"
@@ -79,8 +123,11 @@ install-clap-user: $(CLAP_PLUGIN)
 	if not exist "$(CLAP_USER_INSTALL_DIR)" mkdir "$(CLAP_USER_INSTALL_DIR)"
 	copy /Y "$(CLAP_PLUGIN)" "$(CLAP_USER_INSTALL_DIR)\$(CLAP_BUNDLE)"
 
-package-windows-release: $(CLAP_PLUGIN)
-	$(POWERSHELL) -NoProfile -ExecutionPolicy Bypass -File tools\package_windows_release.ps1 -Version "$(RELEASE_VERSION)" -Plugin "$(CLAP_PLUGIN)" -ClapBundle "$(CLAP_BUNDLE)" -DistDir "$(DIST_DIR)" -GpgKey "$(RELEASE_GPG_KEY)" -ExistingSums "$(DIST_DIR)\release-v$(RELEASE_VERSION)-current\SHA256SUMS"
+install-vst3-user: $(VST3_PLUGIN)
+	$(POWERSHELL) -NoProfile -Command "New-Item -ItemType Directory -Force -Path '$(VST3_USER_INSTALL_DIR)' | Out-Null; Remove-Item -LiteralPath '$(VST3_USER_INSTALL_DIR)\$(VST3_BUNDLE)' -Recurse -Force -ErrorAction SilentlyContinue; Copy-Item -LiteralPath '$(VST3_PLUGIN)' -Destination '$(VST3_USER_INSTALL_DIR)\$(VST3_BUNDLE)' -Recurse -Force"
+
+package-windows-release: $(CLAP_PLUGIN) $(VST3_PLUGIN)
+	$(POWERSHELL) -NoProfile -ExecutionPolicy Bypass -File tools\package_windows_release.ps1 -Version "$(RELEASE_VERSION)" -Plugin "$(CLAP_PLUGIN)" -ClapBundle "$(CLAP_BUNDLE)" -Vst3Plugin "$(VST3_PLUGIN)" -Vst3Bundle "$(VST3_BUNDLE)" -DistDir "$(DIST_DIR)" -GpgKey "$(RELEASE_GPG_KEY)" -ExistingSums "$(DIST_DIR)\release-v$(RELEASE_VERSION)-current\SHA256SUMS"
 
 clean-native:
 	if exist "$(NATIVE_BUILD)" rmdir /S /Q "$(NATIVE_BUILD)"
@@ -91,6 +138,9 @@ $(NATIVE_BUILD)\nilamp_tables.obj: $(NATIVE_GENERATED)\nilamp_tables.c $(NATIVE_
 
 $(NATIVE_BUILD)\nilamp_dsp.obj: $(NATIVE_DIR)\src\nilamp_dsp.c $(NATIVE_DIR)\src\nilamp_dsp.h $(NATIVE_GENERATED)\nilamp_tables.h $(NATIVE_GENERATED)\nilamp_models.inc
 	cl $(BASE_CFLAGS) /c $(NATIVE_DIR)\src\nilamp_dsp.c /Fo$@
+
+$(NATIVE_BUILD)\nilamp_host.obj: $(NATIVE_DIR)\src\nilamp_host.c $(NATIVE_DIR)\src\nilamp_host.h $(NATIVE_DIR)\src\nilamp_dsp.h $(NATIVE_DIR)\src\nilamp_cpu.h $(NATIVE_DIR)\src\nilamp_compat.h
+	cl $(BASE_CFLAGS) /c $(NATIVE_DIR)\src\nilamp_host.c /Fo$@
 
 $(NATIVE_BUILD)\nilamp_dsp_test.obj: $(NATIVE_DIR)\src\nilamp_dsp.c $(NATIVE_DIR)\src\nilamp_dsp.h $(NATIVE_GENERATED)\nilamp_tables.h $(NATIVE_GENERATED)\nilamp_models.inc
 	cl $(BASE_CFLAGS) /DNILAMP_ENABLE_TEST_API /c $(NATIVE_DIR)\src\nilamp_dsp.c /Fo$@
@@ -157,3 +207,99 @@ $(NATIVE_BUILD)\pugl_win_gl.obj: $(PUGL_SRC)\win_gl.c $(PUGL_SRC)\win.h
 
 $(CLAP_PLUGIN): $(NATIVE_BUILD)\nilamp_clap.obj $(NATIVE_OBJS) $(NATIVE_GUI_OBJS)
 	link /nologo /dll /out:$@ /implib:$(NATIVE_BUILD)\nilamp-twd-mkii.lib $** user32.lib gdi32.lib shell32.lib shlwapi.lib dwmapi.lib opengl32.lib
+
+$(NATIVE_BUILD)\nilamp_vst3.obj: $(NATIVE_DIR)\src\nilamp_vst3.mm $(NATIVE_DIR)\src\nilamp_host.h $(NATIVE_DIR)\src\nilamp_dsp.h $(NATIVE_DIR)\src\nilamp_gui.h
+	cl $(VST3_CXXFLAGS) $(VST3_NAME_DEFINE) /TP /c $(NATIVE_DIR)\src\nilamp_vst3.mm /Fo$@
+
+$(VST3_BINARY): $(NATIVE_BUILD)\nilamp_vst3.obj $(VST3_SDK_OBJS) $(NATIVE_OBJS) $(NATIVE_GUI_OBJS)
+	if not exist "$(VST3_PLUGIN)\Contents\x86_64-win" mkdir "$(VST3_PLUGIN)\Contents\x86_64-win"
+	link /nologo /dll /out:$@ /implib:$(NATIVE_BUILD)\nilamp-twd-mkii-vst3.lib $** user32.lib gdi32.lib shell32.lib shlwapi.lib dwmapi.lib opengl32.lib ole32.lib advapi32.lib
+
+$(VST3_PLUGIN): $(VST3_BINARY)
+
+$(NATIVE_BUILD)\vst3_baseiids.obj: $(VST3SDK_DIR)\base\source\baseiids.cpp
+	cl $(VST3_VENDOR_CXXFLAGS) /c $(VST3SDK_DIR)\base\source\baseiids.cpp /Fo$@
+
+$(NATIVE_BUILD)\vst3_fbuffer.obj: $(VST3SDK_DIR)\base\source\fbuffer.cpp
+	cl $(VST3_VENDOR_CXXFLAGS) /c $(VST3SDK_DIR)\base\source\fbuffer.cpp /Fo$@
+
+$(NATIVE_BUILD)\vst3_fdebug.obj: $(VST3SDK_DIR)\base\source\fdebug.cpp
+	cl $(VST3_VENDOR_CXXFLAGS) /c $(VST3SDK_DIR)\base\source\fdebug.cpp /Fo$@
+
+$(NATIVE_BUILD)\vst3_fobject.obj: $(VST3SDK_DIR)\base\source\fobject.cpp
+	cl $(VST3_VENDOR_CXXFLAGS) /c $(VST3SDK_DIR)\base\source\fobject.cpp /Fo$@
+
+$(NATIVE_BUILD)\vst3_fstreamer.obj: $(VST3SDK_DIR)\base\source\fstreamer.cpp
+	cl $(VST3_VENDOR_CXXFLAGS) /c $(VST3SDK_DIR)\base\source\fstreamer.cpp /Fo$@
+
+$(NATIVE_BUILD)\vst3_fstring.obj: $(VST3SDK_DIR)\base\source\fstring.cpp
+	cl $(VST3_VENDOR_CXXFLAGS) /c $(VST3SDK_DIR)\base\source\fstring.cpp /Fo$@
+
+$(NATIVE_BUILD)\vst3_timer.obj: $(VST3SDK_DIR)\base\source\timer.cpp
+	cl $(VST3_VENDOR_CXXFLAGS) /c $(VST3SDK_DIR)\base\source\timer.cpp /Fo$@
+
+$(NATIVE_BUILD)\vst3_updatehandler.obj: $(VST3SDK_DIR)\base\source\updatehandler.cpp
+	cl $(VST3_VENDOR_CXXFLAGS) /c $(VST3SDK_DIR)\base\source\updatehandler.cpp /Fo$@
+
+$(NATIVE_BUILD)\vst3_flock.obj: $(VST3SDK_DIR)\base\thread\source\flock.cpp
+	cl $(VST3_VENDOR_CXXFLAGS) /c $(VST3SDK_DIR)\base\thread\source\flock.cpp /Fo$@
+
+$(NATIVE_BUILD)\vst3_fcondition.obj: $(VST3SDK_DIR)\base\thread\source\fcondition.cpp
+	cl $(VST3_VENDOR_CXXFLAGS) /c $(VST3SDK_DIR)\base\thread\source\fcondition.cpp /Fo$@
+
+$(NATIVE_BUILD)\vst3_conststringtable.obj: $(VST3SDK_DIR)\pluginterfaces\base\conststringtable.cpp
+	cl $(VST3_VENDOR_CXXFLAGS) /c $(VST3SDK_DIR)\pluginterfaces\base\conststringtable.cpp /Fo$@
+
+$(NATIVE_BUILD)\vst3_coreiids.obj: $(VST3SDK_DIR)\pluginterfaces\base\coreiids.cpp
+	cl $(VST3_VENDOR_CXXFLAGS) /c $(VST3SDK_DIR)\pluginterfaces\base\coreiids.cpp /Fo$@
+
+$(NATIVE_BUILD)\vst3_funknown.obj: $(VST3SDK_DIR)\pluginterfaces\base\funknown.cpp
+	cl $(VST3_VENDOR_CXXFLAGS) /c $(VST3SDK_DIR)\pluginterfaces\base\funknown.cpp /Fo$@
+
+$(NATIVE_BUILD)\vst3_ustring.obj: $(VST3SDK_DIR)\pluginterfaces\base\ustring.cpp
+	cl $(VST3_VENDOR_CXXFLAGS) /c $(VST3SDK_DIR)\pluginterfaces\base\ustring.cpp /Fo$@
+
+$(NATIVE_BUILD)\vst3_commoniids.obj: $(VST3SDK_DIR)\public.sdk\source\common\commoniids.cpp
+	cl $(VST3_VENDOR_CXXFLAGS) /c $(VST3SDK_DIR)\public.sdk\source\common\commoniids.cpp /Fo$@
+
+$(NATIVE_BUILD)\vst3_pluginview.obj: $(VST3SDK_DIR)\public.sdk\source\common\pluginview.cpp
+	cl $(VST3_VENDOR_CXXFLAGS) /c $(VST3SDK_DIR)\public.sdk\source\common\pluginview.cpp /Fo$@
+
+$(NATIVE_BUILD)\vst3_dllmain.obj: $(VST3SDK_DIR)\public.sdk\source\main\dllmain.cpp
+	cl $(VST3_VENDOR_CXXFLAGS) /c $(VST3SDK_DIR)\public.sdk\source\main\dllmain.cpp /Fo$@
+
+$(NATIVE_BUILD)\vst3_moduleinit.obj: $(VST3SDK_DIR)\public.sdk\source\main\moduleinit.cpp
+	cl $(VST3_VENDOR_CXXFLAGS) /c $(VST3SDK_DIR)\public.sdk\source\main\moduleinit.cpp /Fo$@
+
+$(NATIVE_BUILD)\vst3_pluginfactory.obj: $(VST3SDK_DIR)\public.sdk\source\main\pluginfactory.cpp
+	cl $(VST3_VENDOR_CXXFLAGS) /c $(VST3SDK_DIR)\public.sdk\source\main\pluginfactory.cpp /Fo$@
+
+$(NATIVE_BUILD)\vst3_vstaudioeffect.obj: $(VST3SDK_DIR)\public.sdk\source\vst\vstaudioeffect.cpp
+	cl $(VST3_VENDOR_CXXFLAGS) /c $(VST3SDK_DIR)\public.sdk\source\vst\vstaudioeffect.cpp /Fo$@
+
+$(NATIVE_BUILD)\vst3_vstbus.obj: $(VST3SDK_DIR)\public.sdk\source\vst\vstbus.cpp
+	cl $(VST3_VENDOR_CXXFLAGS) /c $(VST3SDK_DIR)\public.sdk\source\vst\vstbus.cpp /Fo$@
+
+$(NATIVE_BUILD)\vst3_vstcomponent.obj: $(VST3SDK_DIR)\public.sdk\source\vst\vstcomponent.cpp
+	cl $(VST3_VENDOR_CXXFLAGS) /c $(VST3SDK_DIR)\public.sdk\source\vst\vstcomponent.cpp /Fo$@
+
+$(NATIVE_BUILD)\vst3_vstcomponentbase.obj: $(VST3SDK_DIR)\public.sdk\source\vst\vstcomponentbase.cpp
+	cl $(VST3_VENDOR_CXXFLAGS) /c $(VST3SDK_DIR)\public.sdk\source\vst\vstcomponentbase.cpp /Fo$@
+
+$(NATIVE_BUILD)\vst3_vsteditcontroller.obj: $(VST3SDK_DIR)\public.sdk\source\vst\vsteditcontroller.cpp
+	cl $(VST3_VENDOR_CXXFLAGS) /c $(VST3SDK_DIR)\public.sdk\source\vst\vsteditcontroller.cpp /Fo$@
+
+$(NATIVE_BUILD)\vst3_vstinitiids.obj: $(VST3SDK_DIR)\public.sdk\source\vst\vstinitiids.cpp
+	cl $(VST3_VENDOR_CXXFLAGS) /c $(VST3SDK_DIR)\public.sdk\source\vst\vstinitiids.cpp /Fo$@
+
+$(NATIVE_BUILD)\vst3_vstparameters.obj: $(VST3SDK_DIR)\public.sdk\source\vst\vstparameters.cpp
+	cl $(VST3_VENDOR_CXXFLAGS) /c $(VST3SDK_DIR)\public.sdk\source\vst\vstparameters.cpp /Fo$@
+
+$(NATIVE_BUILD)\vst3_vstnoteexpressiontypes.obj: $(VST3SDK_DIR)\public.sdk\source\vst\vstnoteexpressiontypes.cpp
+	cl $(VST3_VENDOR_CXXFLAGS) /c $(VST3SDK_DIR)\public.sdk\source\vst\vstnoteexpressiontypes.cpp /Fo$@
+
+$(NATIVE_BUILD)\test_vst3_load.obj: $(NATIVE_DIR)\tests\test_vst3_load.mm $(NATIVE_DIR)\src\nilamp_dsp.h $(NATIVE_DIR)\src\nilamp_host.h
+	cl $(VST3_CXXFLAGS) /TP /c $(NATIVE_DIR)\tests\test_vst3_load.mm /Fo$@
+
+$(NATIVE_BIN)\test_vst3_load.exe: $(NATIVE_BUILD)\test_vst3_load.obj $(NATIVE_OBJS) $(NATIVE_BUILD)\vst3_baseiids.obj $(NATIVE_BUILD)\vst3_coreiids.obj $(NATIVE_BUILD)\vst3_funknown.obj $(NATIVE_BUILD)\vst3_vstinitiids.obj
+	link /nologo /out:$@ $** user32.lib ole32.lib

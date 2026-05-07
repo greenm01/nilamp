@@ -10,7 +10,9 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parents[1]
-TEST_VST3_LOAD = REPO_ROOT / "native" / "bin" / "test_vst3_load"
+TEST_VST3_LOAD = REPO_ROOT / "native" / "bin" / (
+    "test_vst3_load.exe" if sys.platform == "win32" else "test_vst3_load"
+)
 
 
 def run_vst3_loader(plugin: Path) -> None:

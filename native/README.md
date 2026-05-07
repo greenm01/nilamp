@@ -91,9 +91,12 @@ On Windows, build from an x64 Native Tools prompt with:
 nmake /f Makefile.msvc native
 nmake /f Makefile.msvc native-host-test
 nmake /f Makefile.msvc install-clap-user
+nmake /f Makefile.msvc install-vst3-user
 ```
 
 The Windows user install target copies to `%LOCALAPPDATA%\Programs\Common\CLAP`.
+The Windows VST3 user install target copies to
+`%LOCALAPPDATA%\Programs\Common\VST3`.
 The system install target, `install-clap`, copies to
 `C:\Program Files\Common Files\CLAP`; run the prompt elevated or set
 `CLAP_INSTALL_DIR=...`.
@@ -107,7 +110,9 @@ make package-macos-release
 
 The Linux tarball includes `install.sh` for per-user CLAP and VST3
 installation. The macOS ZIP includes `install.command` for per-user CLAP and
-VST3 installation. Both write GPG signatures and checksums in `dist/`.
+VST3 installation. The Windows ZIP includes `install.cmd` for per-user CLAP
+and VST3 installation. Release packaging writes GPG signatures and checksums in
+`dist/`.
 
 Quick native throughput benchmark:
 

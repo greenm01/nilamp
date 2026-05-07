@@ -11,6 +11,8 @@
 
 #if defined(__APPLE__)
 #include <CoreFoundation/CoreFoundation.h>
+#elif defined(_WIN32)
+#include <windows.h>
 #else
 #include <dlfcn.h>
 #endif
@@ -24,6 +26,9 @@
 #define NILAMP_VST3_CONTROLLER_UID INLINE_UID(0x66e72a3a, 0x9187500d, 0xafa4d86a, 0x88935c65)
 #ifndef NILAMP_TEST_VST3_LINUX_BINARY
 #define NILAMP_TEST_VST3_LINUX_BINARY "x86_64-linux/nilamp-twd-mkii.so"
+#endif
+#ifndef NILAMP_TEST_VST3_WINDOWS_BINARY
+#define NILAMP_TEST_VST3_WINDOWS_BINARY "x86_64-win\\nilamp-twd-mkii.vst3"
 #endif
 
 using namespace Steinberg;
@@ -77,12 +82,12 @@ static void checkDefaultMonoBusses(IComponent *component, IAudioProcessor *proce
 
 class MemoryStream final : public IBStream {
 public:
-    tresult PLUGIN_API queryInterface(const TUID iid, void **obj) SMTG_OVERRIDE
+    tresult PLUGIN_API queryInterface(const TUID queryIid, void **obj) SMTG_OVERRIDE
     {
         if (!obj) {
             return kInvalidArgument;
         }
-        if (iidEqual(iid, IBStream::iid) || iidEqual(iid, FUnknown::iid)) {
+        if (iidEqual(queryIid, IBStream::iid) || iidEqual(queryIid, FUnknown::iid)) {
             *obj = static_cast<IBStream *>(this);
             addRef();
             return kResultOk;
@@ -179,12 +184,12 @@ public:
     {
     }
 
-    tresult PLUGIN_API queryInterface(const TUID iid, void **obj) SMTG_OVERRIDE
+    tresult PLUGIN_API queryInterface(const TUID queryIid, void **obj) SMTG_OVERRIDE
     {
         if (!obj) {
             return kInvalidArgument;
         }
-        if (iidEqual(iid, IParamValueQueue::iid) || iidEqual(iid, FUnknown::iid)) {
+        if (iidEqual(queryIid, IParamValueQueue::iid) || iidEqual(queryIid, FUnknown::iid)) {
             *obj = static_cast<IParamValueQueue *>(this);
             addRef();
             return kResultOk;
@@ -225,12 +230,12 @@ class ParameterChanges final : public IParameterChanges {
 public:
     explicit ParameterChanges(ParamQueue *paramQueue) : queue(paramQueue) {}
 
-    tresult PLUGIN_API queryInterface(const TUID iid, void **obj) SMTG_OVERRIDE
+    tresult PLUGIN_API queryInterface(const TUID queryIid, void **obj) SMTG_OVERRIDE
     {
         if (!obj) {
             return kInvalidArgument;
         }
-        if (iidEqual(iid, IParameterChanges::iid) || iidEqual(iid, FUnknown::iid)) {
+        if (iidEqual(queryIid, IParameterChanges::iid) || iidEqual(queryIid, FUnknown::iid)) {
             *obj = static_cast<IParameterChanges *>(this);
             addRef();
             return kResultOk;
@@ -375,6 +380,32 @@ int main(int argc, char **argv)
     check(bundleEntry != nullptr && bundleExit != nullptr && getFactory != nullptr,
           "missing VST3 entry points");
     check(bundleEntry(bundle), "bundleEntry failed");
+#elif defined(_WIN32)
+    char libraryPath[4096] = {};
+    const int written = std::snprintf(libraryPath, sizeof(libraryPath),
+                                      "%s\\Contents\\%s", argv[1],
+                                      NILAMP_TEST_VST3_WINDOWS_BINARY);
+    check(written > 0 && static_cast<size_t>(written) < sizeof(libraryPath),
+          "VST3 library path is too long");
+    HMODULE module = LoadLibraryA(libraryPath);
+    if (!module) {
+        std::fprintf(stderr, "test_vst3_load: failed to load VST3 module: %lu\n",
+                     static_cast<unsigned long>(GetLastError()));
+        return 1;
+    }
+
+    using ModuleEntryFn = bool (*)();
+    using ModuleExitFn = bool (*)();
+    using GetFactoryFn = IPluginFactory *(*)();
+    auto moduleEntry =
+        reinterpret_cast<ModuleEntryFn>(GetProcAddress(module, "InitDll"));
+    auto moduleExit =
+        reinterpret_cast<ModuleExitFn>(GetProcAddress(module, "ExitDll"));
+    auto getFactory =
+        reinterpret_cast<GetFactoryFn>(GetProcAddress(module, "GetPluginFactory"));
+    check(moduleEntry != nullptr && moduleExit != nullptr && getFactory != nullptr,
+          "missing VST3 entry points");
+    check(moduleEntry(), "InitDll failed");
 #else
     char libraryPath[4096] = {};
     const int written = std::snprintf(libraryPath, sizeof(libraryPath),
@@ -539,6 +570,9 @@ int main(int argc, char **argv)
 #if defined(__APPLE__)
     check(bundleExit(), "bundleExit failed");
     CFRelease(bundle);
+#elif defined(_WIN32)
+    check(moduleExit(), "ExitDll failed");
+    check(FreeLibrary(module), "FreeLibrary failed");
 #else
     check(moduleExit(), "ModuleExit failed");
     check(dlclose(module) == 0, "dlclose failed");

@@ -10,6 +10,12 @@ param(
     [string]$ClapBundle,
 
     [Parameter(Mandatory = $true)]
+    [string]$Vst3Plugin,
+
+    [Parameter(Mandatory = $true)]
+    [string]$Vst3Bundle,
+
+    [Parameter(Mandatory = $true)]
     [string]$DistDir,
 
     [Parameter(Mandatory = $true)]
@@ -22,6 +28,10 @@ $ErrorActionPreference = "Stop"
 
 if (-not (Test-Path -LiteralPath $Plugin -PathType Leaf)) {
     throw "package_windows_release: plugin not found: $Plugin"
+}
+
+if (-not (Test-Path -LiteralPath $Vst3Plugin -PathType Container)) {
+    throw "package_windows_release: VST3 bundle not found: $Vst3Plugin"
 }
 
 if (-not (Get-Command gpg -ErrorAction SilentlyContinue)) {
@@ -43,6 +53,7 @@ try {
     Remove-Item -LiteralPath $zipPath, "$zipPath.asc", $sumsPath, "$sumsPath.asc" -Force -ErrorAction SilentlyContinue
 
     Copy-Item -LiteralPath $Plugin -Destination (Join-Path $packageDir $ClapBundle) -Force
+    Copy-Item -LiteralPath $Vst3Plugin -Destination (Join-Path $packageDir $Vst3Bundle) -Recurse -Force
     Copy-Item -LiteralPath (Join-Path $repoRoot "LICENSE") -Destination (Join-Path $packageDir "LICENSE") -Force
 
     @"
@@ -50,12 +61,21 @@ try {
 setlocal
 set "SCRIPT_DIR=%~dp0"
 set "CLAP_NAME=nilamp-twd-mkii.clap"
+set "VST3_NAME=nilamp-twd-mkii.vst3"
 set "SOURCE_CLAP=%SCRIPT_DIR%%CLAP_NAME%"
+set "SOURCE_VST3=%SCRIPT_DIR%%VST3_NAME%"
 set "TARGET_DIR=%LOCALAPPDATA%\Programs\Common\CLAP"
 set "TARGET_CLAP=%TARGET_DIR%\%CLAP_NAME%"
+set "TARGET_VST3_DIR=%LOCALAPPDATA%\Programs\Common\VST3"
+set "TARGET_VST3=%TARGET_VST3_DIR%\%VST3_NAME%"
 
 if not exist "%SOURCE_CLAP%" (
     echo Could not find %CLAP_NAME% next to install.cmd 1>&2
+    exit /b 1
+)
+
+if not exist "%SOURCE_VST3%" (
+    echo Could not find %VST3_NAME% next to install.cmd 1>&2
     exit /b 1
 )
 
@@ -63,8 +83,14 @@ if not exist "%TARGET_DIR%" mkdir "%TARGET_DIR%"
 copy /Y "%SOURCE_CLAP%" "%TARGET_CLAP%"
 if errorlevel 1 exit /b 1
 
+if not exist "%TARGET_VST3_DIR%" mkdir "%TARGET_VST3_DIR%"
+if exist "%TARGET_VST3%" rmdir /S /Q "%TARGET_VST3%"
+powershell -NoProfile -Command "Copy-Item -LiteralPath '%SOURCE_VST3%' -Destination '%TARGET_VST3%' -Recurse -Force"
+if errorlevel 1 exit /b 1
+
 echo Installed %TARGET_CLAP%
-echo Restart your DAW or rescan CLAP plug-ins if nilamp was already open.
+echo Installed %TARGET_VST3%
+echo Restart your DAW or rescan plug-ins if nilamp was already open.
 "@ | Set-Content -LiteralPath (Join-Path $packageDir "install.cmd") -Encoding ASCII
 
     @"
@@ -73,13 +99,19 @@ nilamp TWD MKII v$Version for Windows x64
 Install:
   Double-click install.cmd, or copy $ClapBundle to:
   %LOCALAPPDATA%\Programs\Common\CLAP\$ClapBundle
+  and copy $Vst3Bundle to:
+  %LOCALAPPDATA%\Programs\Common\VST3\$Vst3Bundle
 
 REAPER scans CLAP plug-ins from:
   %COMMONPROGRAMFILES%\CLAP
   %LOCALAPPDATA%\Programs\Common\CLAP
   %CLAP_PATH%
 
-After installing, restart your DAW or rescan CLAP plug-ins.
+REAPER scans VST3 plug-ins from:
+  %COMMONPROGRAMFILES%\VST3
+  %LOCALAPPDATA%\Programs\Common\VST3
+
+After installing, restart your DAW or rescan plug-ins.
 
 Verify release artifacts:
   gpg --verify SHA256SUMS.asc SHA256SUMS

@@ -2,6 +2,48 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: Windows MSVC VST3 build and install
+
+**Context.** The Windows MSVC path built and installed the updated CLAP, but
+VST3 was only wired into the POSIX Makefile. Windows needed a native VST3 bundle
+so REAPER can test CLAP and VST3 side by side.
+
+**Edit summary.**
+
+- Added Windows VST3 SDK object builds, bundle layout, loader smoke, host
+  validation, per-user install, and release packaging to `Makefile.msvc`.
+- Updated the VST3 editor shell to advertise `HWND` on Windows and create the
+  Pugl GUI through `NILAMP_GUI_API_WIN32`.
+- Made `test_vst3_load` use `LoadLibraryA`, `InitDll`, `ExitDll`, and the
+  Windows bundle path.
+- Made shared host parameter text parsing use the existing Windows-safe
+  `nilamp_stricmp` shim.
+- Updated Windows package/install docs and the Windows package script so ZIPs
+  include and install both CLAP and VST3.
+
+**Verification.**
+
+- `nmake /nologo /f Makefile.msvc native-test` passes and builds
+  `native\bin\nilamp-twd-mkii.vst3\Contents\x86_64-win\nilamp-twd-mkii.vst3`.
+- Installed Steinberg's VST3 SDK validator from the official SDK source:
+  cloned `https://github.com/steinbergmedia/vst3sdk.git` to `C:\src\vst3sdk`,
+  built `validator` in `C:\src\vst3sdk-build`, added
+  `C:\src\vst3sdk-build\bin\Release` to the user PATH, and added a Scoop shim
+  at `C:\Users\mag\scoop\shims\validator.exe`.
+- `validator -version` reports `VST 3.8.0 Plug-in Validator`.
+- `nmake /nologo /f Makefile.msvc native-host-test` passes. `clap-validator`
+  reports 21 tests run, 15 passed, 0 failed, 6 skipped. Steinberg VST3
+  `validator` reports 47 tests passed, 0 failed.
+- Installed CLAP to
+  `%LOCALAPPDATA%\Programs\Common\CLAP\nilamp-twd-mkii.clap` and VST3 to
+  `%LOCALAPPDATA%\Programs\Common\VST3\nilamp-twd-mkii.vst3`.
+- Installed CLAP validation passes with 21 tests run, 15 passed, 0 failed, 6
+  skipped.
+- Installed VST3 validation passes with 47 tests passed, 0 failed. Validator
+  confirms 1 audio input bus and 1 audio output bus, and both mono and stereo
+  arrangements pass. The native smoke tests also assert default mono
+  input/output metadata, matching the Linux/macOS JSFX-aligned behavior.
+
 ### Session: Public release and parity docs
 
 **Context.** The README still described nilamp as CLAP-only and carried stale
