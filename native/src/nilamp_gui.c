@@ -1806,8 +1806,10 @@ static PuglStatus nilamp_gui_event(PuglView *view, const PuglEvent *event)
         break;
     case PUGL_TIMER:
         if (event->timer.id == NILAMP_GUI_FRAME_TIMER_ID && gui->visible) {
-            nilamp_gui_refresh_params(gui);
-            nilamp_gui_request_redraw(gui);
+            const bool changed = nilamp_gui_refresh_params(gui);
+            if (changed || gui->model.dirty) {
+                nilamp_gui_request_redraw(gui);
+            }
         }
         break;
     case PUGL_BUTTON_PRESS:

@@ -53,6 +53,7 @@
 #define NILAMP_CLAP_PORT_CONFIG_MONO 1u
 #define NILAMP_CLAP_PORT_CONFIG_STEREO 2u
 #define NILAMP_GUI_FRAME_INTERVAL_SECONDS (1.0 / 30.0)
+#define NILAMP_GUI_HOST_TIMER_MS 33u
 
 typedef NilampControlSpec NilampParamSpec;
 #define nilamp_param_specs (nilamp_control_specs(NULL))
@@ -1488,7 +1489,8 @@ static bool nilamp_gui_show_ext(const clap_plugin_t *plugin)
     if (ok && plug->host_timer && plug->host_timer->register_timer &&
         !plug->gui_timer_registered) {
         clap_id timer_id = CLAP_INVALID_ID;
-        if (plug->host_timer->register_timer(plug->host, 33u, &timer_id)) {
+        if (plug->host_timer->register_timer(plug->host, NILAMP_GUI_HOST_TIMER_MS,
+                                             &timer_id)) {
             plug->gui_timer_id = timer_id;
             plug->gui_timer_registered = true;
             nilamp_gui_log("register_timer id=%u", timer_id);

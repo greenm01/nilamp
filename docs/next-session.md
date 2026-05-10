@@ -2,6 +2,31 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: Dirty-driven editor redraw
+
+**Context.** Keller's Gig Performer report may include editor/UI overhead in
+host CPU metering. The native DSP benchmark is faster than Keller/ysfx, but
+nilamp's editor was still pumping at roughly 30 Hz while visible.
+
+**Edit summary.**
+
+- Changed the shared GUI timer path to refresh parameters without
+  unconditionally requesting a redraw.
+- Kept redraws event/dirty-driven: expose, resize, direct user input, host
+  parameter changes, or already-dirty model state still repaint promptly.
+- Kept the CLAP and VST3 editor pump timers at 33 ms for responsive embedded
+  event dispatch, but removed the continuous 30 Hz redraw when the GUI is
+  static.
+- Did not change DSP, parameter IDs, state format, or the perf benchmark
+  harness.
+
+**Verification.**
+
+- `make native-test` passes.
+- `make native-host-test` passes; external VST3 validator is not installed and
+  is skipped.
+- `make native-perf-bench PERF_BENCH_ARGS="--quick --runs 1 --warmups 0 --duration 0.25 --json-out /tmp/nilamp_perf/dirty_gui_smoke.json"` passes.
+
 ### Session: CLAP editor callback fallback hardening
 
 **Context.** The shared GUI fixes apply to CLAP, but CLAP host-side editor
