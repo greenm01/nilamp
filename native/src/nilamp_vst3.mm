@@ -42,13 +42,17 @@ using namespace Steinberg::Vst;
 
 static const FUID ProcessorUID(0xb0494b81, 0xb2385c29, 0x8c4d5734, 0x6d0b1222);
 static const FUID ControllerUID(0x66e72a3a, 0x9187500d, 0xafa4d86a, 0x88935c65);
+#if !defined(__APPLE__)
 static constexpr uint32 kEditorTimerMs = 33;
+#endif
 static constexpr double kEditorFrameIntervalSeconds = 1.0 / 30.0;
 
+#if defined(__linux__)
 static bool iidEqual(const TUID a, const TUID b)
 {
     return std::memcmp(a, b, sizeof(TUID)) == 0;
 }
+#endif
 
 static double normalizedToPlain(const NilampControlSpec *spec, double normalized)
 {
