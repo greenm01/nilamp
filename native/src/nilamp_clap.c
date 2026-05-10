@@ -435,6 +435,21 @@ static float nilamp_gui_get_param_cb(void *user, uint32_t param_id)
     return (float)nilamp_load_param_value((const NilampClap *)user, param_id);
 }
 
+static bool nilamp_gui_needs_callback_fallback(const NilampClap *plug)
+{
+    return plug && plug->gui && nilamp_gui_is_visible(plug->gui) &&
+           !plug->gui_timer_registered && plug->host && plug->host->request_callback;
+}
+
+static void nilamp_request_gui_callback(NilampClap *plug, const char *reason)
+{
+    if (!nilamp_gui_needs_callback_fallback(plug)) {
+        return;
+    }
+    plug->host->request_callback(plug->host);
+    nilamp_gui_log("request_callback fallback reason=%s", reason ? reason : "(none)");
+}
+
 static void nilamp_gui_set_param_cb(void *user, uint32_t param_id, float value)
 {
     NilampClap *plug = (NilampClap *)user;
@@ -448,9 +463,7 @@ static void nilamp_gui_set_param_cb(void *user, uint32_t param_id, float value)
     if (plug->host && plug->host->request_process) {
         plug->host->request_process(plug->host);
     }
-    if (!plug->gui_timer_registered && plug->host && plug->host->request_callback) {
-        plug->host->request_callback(plug->host);
-    }
+    nilamp_request_gui_callback(plug, "editor-param");
 }
 
 static const char *nilamp_gui_model_name_cb(void *user)
@@ -814,7 +827,9 @@ static void nilamp_on_main_thread(const clap_plugin_t *plugin)
     if (!plug || !plug->gui) {
         return;
     }
+    nilamp_gui_log("on_main_thread");
     nilamp_gui_on_main_thread(plug->gui);
+    nilamp_request_gui_callback(plug, "main-thread-pump");
 #else
     (void)plugin;
 #endif
@@ -1110,6 +1125,14 @@ static void nilamp_params_flush(const clap_plugin_t *plugin,
         for (uint32_t i = 0; i < event_count; i++) {
             nilamp_handle_event(plug, in->get(in, i));
         }
+#if NILAMP_ENABLE_CLAP_GUI
+        if (event_count > 0 && !plug->active && plug->gui &&
+            nilamp_gui_is_visible(plug->gui)) {
+            nilamp_gui_log("inactive flush host-param-events count=%u", event_count);
+            nilamp_gui_refresh(plug->gui);
+            nilamp_request_gui_callback(plug, "inactive-flush");
+        }
+#endif
     }
     nilamp_push_gui_param_events(plug, out);
 }
@@ -1238,6 +1261,13 @@ static bool nilamp_state_load(const clap_plugin_t *plugin, const clap_istream_t 
     if (plug->host_params && plug->host_params->rescan) {
         plug->host_params->rescan(plug->host, CLAP_PARAM_RESCAN_VALUES | CLAP_PARAM_RESCAN_TEXT);
     }
+#if NILAMP_ENABLE_CLAP_GUI
+    if (plug->gui && nilamp_gui_is_visible(plug->gui)) {
+        nilamp_gui_log("state load gui refresh");
+        nilamp_gui_refresh(plug->gui);
+        nilamp_request_gui_callback(plug, "state-load");
+    }
+#endif
     return true;
 }
 
@@ -1452,6 +1482,9 @@ static bool nilamp_gui_show_ext(const clap_plugin_t *plugin)
     if (ok && !nilamp_gui_start_frame_timer(plug->gui, NILAMP_GUI_FRAME_INTERVAL_SECONDS)) {
         nilamp_gui_log("start_frame_timer failed");
     }
+    if (ok) {
+        nilamp_gui_refresh(plug->gui);
+    }
     if (ok && plug->host_timer && plug->host_timer->register_timer &&
         !plug->gui_timer_registered) {
         clap_id timer_id = CLAP_INVALID_ID;
@@ -1463,9 +1496,8 @@ static bool nilamp_gui_show_ext(const clap_plugin_t *plugin)
             nilamp_gui_log("register_timer failed");
         }
     }
-    if (ok && !plug->gui_timer_registered && plug->host && plug->host->request_callback) {
-        plug->host->request_callback(plug->host);
-        nilamp_gui_log("request_callback fallback");
+    if (ok) {
+        nilamp_request_gui_callback(plug, "show");
     }
     return ok;
 }
@@ -1509,6 +1541,7 @@ static void nilamp_timer_on_timer(const clap_plugin_t *plugin, clap_id timer_id)
     if (plug->gui_timer_registered && timer_id != plug->gui_timer_id && timer_id != 0u) {
         return;
     }
+    nilamp_gui_log("timer tick id=%u", timer_id);
     nilamp_gui_on_main_thread(plug->gui);
 }
 

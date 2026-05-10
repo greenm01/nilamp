@@ -30,11 +30,12 @@ the same project.
 4. Compare rendered peak/RMS or null-test gain. Record any fixed offset; do not
    change native calibration unless the Reaper render confirms the reported
    `6 dB` delta.
-5. With the nilamp editor open, verify mouse wheel changes each knob/value
+5. Test nilamp VST3 and nilamp CLAP separately.
+6. With the nilamp editor open, verify mouse wheel changes each knob/value
    control by one parameter step per wheel tick.
-6. Move a Reaper parameter control or automation envelope while the nilamp
+7. Move a Reaper parameter control or automation envelope while the nilamp
    editor is open but unfocused. The editor should update without needing focus.
-7. Compare Reaper's CPU trend with editor closed and editor open, and record
+8. Compare Reaper's CPU trend with editor closed and editor open, and record
    buffer size, sample rate, bus layout, and plugin format.
 
 ## Carla
@@ -42,12 +43,21 @@ the same project.
 Carla is a secondary sanity host for plugin behavior, not the performance
 authority.
 
-1. Load nilamp CLAP and VST3.
+1. Load nilamp CLAP and VST3 separately.
 2. Confirm mouse-wheel editing works in the embedded editor.
 3. Change parameters from Carla's host controls while the editor is visible.
    The GUI should update immediately.
 4. Check CPU trend with editor closed and open. Treat differences from Reaper as
    host-specific until reproduced.
+
+When debugging CLAP editor refresh, launch the host with:
+
+```bash
+NILAMP_GUI_LOG=/tmp/nilamp_gui.log reaper
+```
+
+or set the same environment variable for Carla. The CLAP log distinguishes host
+timer ticks from callback fallback ticks.
 
 ## Performance Notes
 

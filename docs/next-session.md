@@ -2,6 +2,36 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: CLAP editor callback fallback hardening
+
+**Context.** The shared GUI fixes apply to CLAP, but CLAP host-side editor
+refresh depends on either host timer support or `on_main_thread()` callback
+pumping. Hosts without timer registration only received one callback when the
+GUI was shown.
+
+**Edit summary.**
+
+- Added a CLAP GUI callback fallback helper that re-requests
+  `host->request_callback()` from GUI/main-thread paths while the editor is
+  visible and no host timer is registered.
+- Kept callback requests out of `process()` and active `params.flush()`; those
+  paths continue to update atomic parameter state only.
+- Refreshed CLAP GUI values from state load, inactive `params.flush()`, GUI
+  show, timer ticks, and callback fallback ticks.
+- Added `NILAMP_GUI_LOG` messages for CLAP timer ticks, callback fallback
+  reasons, inactive host parameter flushes, and state-load refreshes.
+- Updated the Reaper/Carla validation note to test CLAP and VST3 separately.
+
+**Verification.**
+
+- `make native-test` passes.
+- `make native-host-test` passes; external VST3 validator is not installed and
+  is skipped.
+- `make native-jsfx-test` passes with sine residual `-81.7 dB`.
+- `make native-perf-bench PERF_BENCH_ARGS="--quick --runs 1 --warmups 0 --duration 0.25 --json-out /tmp/nilamp_perf/clap_editor_fallback_smoke.json"` passes.
+- `python3 -m py_compile tools/benchmark_keller_perf.py tools/abx_compare.py tools/jsfx_render/render_ysfx.py` passes.
+- `git diff --check` passes.
+
 ### Session: Keller host-feedback editor fixes
 
 **Context.** Helmut Keller reported three host-visible issues from VST3 testing:
