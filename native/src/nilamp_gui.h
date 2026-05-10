@@ -29,7 +29,9 @@ typedef NilampControlSpec NilampGuiParamSpec;
 typedef struct NilampGuiCallbacks {
     void *user;
     float (*get_param)(void *user, uint32_t param_id);
+    void (*begin_param_gesture)(void *user, uint32_t param_id);
     void (*set_param)(void *user, uint32_t param_id, float value);
+    void (*end_param_gesture)(void *user, uint32_t param_id);
     const char *(*model_name)(void *user);
 } NilampGuiCallbacks;
 

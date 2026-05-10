@@ -360,7 +360,9 @@ public:
 
 private:
     static float getParam(void *user, uint32_t id);
+    static void beginParamGesture(void *user, uint32_t id);
     static void setParam(void *user, uint32_t id, float value);
+    static void endParamGesture(void *user, uint32_t id);
     static const char *modelName(void *user);
     void startTimer();
     void stopTimer();
@@ -534,9 +536,21 @@ public:
         editorEditActive = true;
         (void)setParamNormalized(id, normalized);
         editorEditActive = false;
-        beginEdit(id);
         performEdit(id, normalized);
-        endEdit(id);
+    }
+
+    void beginRawParamGesture(uint32_t id)
+    {
+        if (nilamp_host_find_param(id)) {
+            beginEdit(id);
+        }
+    }
+
+    void endRawParamGesture(uint32_t id)
+    {
+        if (nilamp_host_find_param(id)) {
+            endEdit(id);
+        }
     }
 
     void registerEditor(Editor *editor)
@@ -624,7 +638,9 @@ tresult PLUGIN_API Editor::attached(void *parent, FIDString type)
     const NilampGuiCallbacks callbacks = {
         this,
         getParam,
+        beginParamGesture,
         setParam,
+        endParamGesture,
         modelName,
     };
     gui = nilamp_gui_create(&callbacks, (const NilampGuiParamSpec *)nilamp_control_specs(NULL),
@@ -766,11 +782,27 @@ float Editor::getParam(void *user, uint32_t id)
     return self && self->controller ? self->controller->getRawParam(id) : 0.0f;
 }
 
+void Editor::beginParamGesture(void *user, uint32_t id)
+{
+    Editor *self = static_cast<Editor *>(user);
+    if (self && self->controller) {
+        self->controller->beginRawParamGesture(id);
+    }
+}
+
 void Editor::setParam(void *user, uint32_t id, float value)
 {
     Editor *self = static_cast<Editor *>(user);
     if (self && self->controller) {
         self->controller->setRawParamFromEditor(id, value);
+    }
+}
+
+void Editor::endParamGesture(void *user, uint32_t id)
+{
+    Editor *self = static_cast<Editor *>(user);
+    if (self && self->controller) {
+        self->controller->endRawParamGesture(id);
     }
 }
 

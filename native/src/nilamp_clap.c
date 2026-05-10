@@ -68,7 +68,9 @@ typedef struct NilampClap {
     NilampEngine *engines[2];
     NilampParams params;
     _Atomic uint32_t param_bits[NILAMP_PARAM_COUNT];
+    atomic_uint gui_gesture_begin_mask;
     atomic_uint gui_dirty_mask;
+    atomic_uint gui_gesture_end_mask;
     atomic_uint params_dirty;
     clap_id gui_timer_id;
     clap_id audio_port_config_id;
@@ -467,6 +469,42 @@ static void nilamp_gui_set_param_cb(void *user, uint32_t param_id, float value)
     nilamp_request_gui_callback(plug, "editor-param");
 }
 
+static void nilamp_gui_begin_param_gesture_cb(void *user, uint32_t param_id)
+{
+    NilampClap *plug = (NilampClap *)user;
+    const uint32_t index = nilamp_param_index(param_id);
+    if (!plug || index >= NILAMP_PARAM_COUNT) {
+        return;
+    }
+    atomic_fetch_or_explicit(&plug->gui_gesture_begin_mask, 1u << index,
+                             memory_order_release);
+    if (plug->host_params && plug->host_params->request_flush) {
+        plug->host_params->request_flush(plug->host);
+    }
+    if (plug->host && plug->host->request_process) {
+        plug->host->request_process(plug->host);
+    }
+    nilamp_request_gui_callback(plug, "editor-param-gesture-begin");
+}
+
+static void nilamp_gui_end_param_gesture_cb(void *user, uint32_t param_id)
+{
+    NilampClap *plug = (NilampClap *)user;
+    const uint32_t index = nilamp_param_index(param_id);
+    if (!plug || index >= NILAMP_PARAM_COUNT) {
+        return;
+    }
+    atomic_fetch_or_explicit(&plug->gui_gesture_end_mask, 1u << index,
+                             memory_order_release);
+    if (plug->host_params && plug->host_params->request_flush) {
+        plug->host_params->request_flush(plug->host);
+    }
+    if (plug->host && plug->host->request_process) {
+        plug->host->request_process(plug->host);
+    }
+    nilamp_request_gui_callback(plug, "editor-param-gesture-end");
+}
+
 static const char *nilamp_gui_model_name_cb(void *user)
 {
     (void)user;
@@ -788,6 +826,8 @@ static void nilamp_handle_event(NilampClap *plug, const clap_event_header_t *eve
     }
 }
 
+static void nilamp_push_gui_param_events(NilampClap *plug, const clap_output_events_t *out);
+
 static clap_process_status nilamp_process(const clap_plugin_t *plugin,
                                           const clap_process_t *process)
 {
@@ -816,6 +856,7 @@ static clap_process_status nilamp_process(const clap_plugin_t *plugin,
     if (!nilamp_process_segment(plug, process, cursor, process->frames_count)) {
         return CLAP_PROCESS_ERROR;
     }
+    nilamp_push_gui_param_events(plug, process->out_events);
     return CLAP_PROCESS_CONTINUE;
 }
 
@@ -1077,10 +1118,44 @@ static bool nilamp_params_text_to_value(const clap_plugin_t *plugin, clap_id par
     return true;
 }
 
-static void nilamp_push_gui_param_events(NilampClap *plug, const clap_output_events_t *out)
+static bool nilamp_push_gui_gesture_events(NilampClap *plug,
+                                           const clap_output_events_t *out,
+                                           atomic_uint *mask_source,
+                                           uint16_t event_type)
 {
     if (!plug || !out || !out->try_push) {
-        return;
+        return false;
+    }
+
+    const uint32_t mask = atomic_exchange_explicit(mask_source, 0u,
+                                                   memory_order_acquire);
+    for (uint32_t i = 0; i < NILAMP_PARAM_COUNT; i++) {
+        if ((mask & (1u << i)) == 0u) {
+            continue;
+        }
+        const clap_event_param_gesture_t event = {
+            .header = {
+                .size = sizeof(event),
+                .time = 0,
+                .space_id = CLAP_CORE_EVENT_SPACE_ID,
+                .type = event_type,
+                .flags = CLAP_EVENT_IS_LIVE,
+            },
+            .param_id = nilamp_param_specs[i].id,
+        };
+        if (!out->try_push(out, &event.header)) {
+            atomic_fetch_or_explicit(mask_source, mask & ~((1u << i) - 1u),
+                                     memory_order_release);
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool nilamp_push_gui_value_events(NilampClap *plug, const clap_output_events_t *out)
+{
+    if (!plug || !out || !out->try_push) {
+        return false;
     }
 
     const uint32_t mask = atomic_exchange_explicit(&plug->gui_dirty_mask, 0u,
@@ -1108,9 +1183,23 @@ static void nilamp_push_gui_param_events(NilampClap *plug, const clap_output_eve
         if (!out->try_push(out, &event.header)) {
             atomic_fetch_or_explicit(&plug->gui_dirty_mask, mask & ~((1u << i) - 1u),
                                      memory_order_release);
-            return;
+            return false;
         }
     }
+    return true;
+}
+
+static void nilamp_push_gui_param_events(NilampClap *plug, const clap_output_events_t *out)
+{
+    if (!nilamp_push_gui_gesture_events(plug, out, &plug->gui_gesture_begin_mask,
+                                        CLAP_EVENT_PARAM_GESTURE_BEGIN)) {
+        return;
+    }
+    if (!nilamp_push_gui_value_events(plug, out)) {
+        return;
+    }
+    (void)nilamp_push_gui_gesture_events(plug, out, &plug->gui_gesture_end_mask,
+                                         CLAP_EVENT_PARAM_GESTURE_END);
 }
 
 static void nilamp_params_flush(const clap_plugin_t *plugin,
@@ -1316,7 +1405,9 @@ static bool nilamp_gui_create_ext(const clap_plugin_t *plugin, const char *api,
     const NilampGuiCallbacks callbacks = {
         .user = plug,
         .get_param = nilamp_gui_get_param_cb,
+        .begin_param_gesture = nilamp_gui_begin_param_gesture_cb,
         .set_param = nilamp_gui_set_param_cb,
+        .end_param_gesture = nilamp_gui_end_param_gesture_cb,
         .model_name = nilamp_gui_model_name_cb,
     };
     plug->gui = nilamp_gui_create(&callbacks, nilamp_gui_param_specs, NILAMP_PARAM_COUNT,
@@ -1604,7 +1695,9 @@ static const clap_plugin_t *nilamp_create_plugin(const clap_plugin_factory_t *fa
     plug->params = nilamp_default_params();
     plug->audio_port_config_id = NILAMP_CLAP_PORT_CONFIG_MONO;
     nilamp_store_params(plug, &plug->params);
+    atomic_store_explicit(&plug->gui_gesture_begin_mask, 0u, memory_order_release);
     atomic_store_explicit(&plug->gui_dirty_mask, 0u, memory_order_release);
+    atomic_store_explicit(&plug->gui_gesture_end_mask, 0u, memory_order_release);
     atomic_store_explicit(&plug->params_dirty, 1u, memory_order_release);
     plug->gui_timer_id = CLAP_INVALID_ID;
     plug->plugin.desc = &nilamp_descriptor;
