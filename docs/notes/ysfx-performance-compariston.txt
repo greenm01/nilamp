@@ -8,8 +8,24 @@ Native commit tested after GUI idle redraw fix: 91be464
 SUMMARY
 -------
 
-The audio-only benchmark harness shows nilamp native CLAP/VST3 processing at
-about 2.07x the throughput of Keller's JSFX running under ysfx.
+The current full audio-only benchmark harness uses unity input feed for both
+nilamp and YSFX, matching DAW-hosted YSFX behavior. It shows nilamp native
+CLAP/VST3 processing at about 2x the throughput of Keller's JSFX running under
+ysfx:
+
+    Surface        Median ns/frame  Median realtime factor
+    -------------  ---------------  ----------------------
+    Keller/ysfx             941.11                   22.14x
+    nilamp CLAP             454.10                   45.88x
+    nilamp VST3             456.84                   45.60x
+
+    Matched-condition median speedup:
+        nilamp CLAP vs Keller/ysfx:  2.08x
+        nilamp VST3 vs Keller/ysfx:  2.06x
+
+A parity run measured native/JSFX output peaks of 0.3422 / 0.3422 and best
+gain of +0.00 dB, addressing Keller's reported approximately 6 dB lower nilamp
+input level.
 
 The Reaper realtime performance meter shows a smaller but still favorable
 host-visible difference:
@@ -21,6 +37,15 @@ host-visible difference:
 These measurements are not contradictory. The harness isolates plugin audio
 processing. Reaper's realtime meter includes host scheduling, wrapper overhead,
 editor/UI behavior when the editor is open, and other DAW-side costs.
+
+Overall conclusion:
+
+    For raw audio processing, nilamp native CLAP/VST3 is consistently about 2x
+    faster than Keller's JSFX under ysfx on this machine. In a real DAW meter,
+    the observed advantage is smaller but still favorable: nilamp VST3 was
+    about 25.6% lower peak CPU in REAPER. Keller's Gig Performer observation
+    is therefore more consistent with host/editor accounting and the previous
+    6 dB calibration mismatch than with the native DSP being slower than YSFX.
 
 
 TEST MACHINE
@@ -97,7 +122,7 @@ AUDIO-ONLY HARNESS SUMMARY
 
 Source:
 
-    /tmp/nilamp_perf/results.json
+    /tmp/nilamp_perf/results_unity_input_full.json
 
 Harness:
 
@@ -126,43 +151,46 @@ Median steady-state processing:
 
     Surface        Median ns/frame  Median realtime factor
     -------------  ---------------  ----------------------
-    Keller/ysfx             931.24                   22.37x
-    nilamp CLAP             449.12                   46.39x
-    nilamp VST3             446.45                   46.66x
+    Keller/ysfx             941.11                   22.14x
+    nilamp CLAP             454.10                   45.88x
+    nilamp VST3             456.84                   45.60x
 
 Matched-condition speedup vs Keller/ysfx:
 
     Surface        Median speedup  Min speedup  Max speedup
     -------------  --------------  -----------  -----------
-    nilamp CLAP             2.08x        1.68x        2.34x
-    nilamp VST3             2.07x        1.68x        2.39x
+    nilamp CLAP             2.08x        1.68x        2.35x
+    nilamp VST3             2.06x        1.65x        2.42x
 
 Speedup by block size:
 
     Block  nilamp CLAP median  nilamp VST3 median
     -----  ------------------  ------------------
-       32               2.08x               2.10x
-       64               2.06x               2.07x
-      128               2.07x               2.07x
-      512               2.09x               2.06x
+       32               2.05x               2.04x
+       64               2.13x               2.07x
+      128               2.07x               2.02x
+      512               2.07x               2.08x
 
 VST3 speedup by input:
 
     Input     Median speedup vs Keller/ysfx
     --------  -----------------------------
-    di_like                           2.07x
-    silence                           2.07x
+    di_like                           2.01x
+    silence                           2.06x
     sine                              2.07x
     sweep                             2.08x
 
-Residual sanity:
+Native-vs-YSFX output residual sanity:
 
-    Median residual vs Keller peak:  -77.0 dB
-    Range observed:                 -101.6 dB to -23.2 dB
+    Median RMS(native output - YSFX output) vs Keller peak:  -77.2 dB
+    Range observed:                                        -109.0 dB to -23.2 dB
 
-The residual range varies by input/case because the harness covers both linear
-and nonlinear settings. The benchmark is for performance; the ABX/parity tests
-remain the public behavior gate.
+This is not an input-to-output noise-floor measurement. It is the RMS
+difference between nilamp native output and Keller/YSFX output, after the
+benchmark trims the first 100 ms warm-up window, normalized against the peak
+Keller/YSFX output for that condition. The residual range varies by input/case
+because the harness covers both linear and nonlinear settings. The benchmark is
+for performance; the ABX/parity tests remain the public behavior gate.
 
 
 LIFECYCLE AND RELOAD
@@ -172,7 +200,7 @@ Median warm-path lifecycle/reload timings from the same harness:
 
     Phase             Surface        Median wall time
     ----------------  -------------  ----------------
-    plugin_lifecycle  Keller/ysfx             8.73 ms
+    plugin_lifecycle  Keller/ysfx             8.53 ms
     plugin_lifecycle  nilamp CLAP             0.70 ms
     plugin_lifecycle  nilamp VST3             0.002 ms
     reload            Keller/ysfx             8.55 ms

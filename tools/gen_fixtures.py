@@ -294,7 +294,7 @@ def gen_nilamp_taps(input_buf: np.ndarray) -> tuple[np.ndarray, ...]:
     """Reference for the nilamp tap-render diagnostic.
 
     Mirrors the current native top-level cascade at default params:
-    gain=0 dB plus Keller/REAPER mono calibration; volume/bass/mid/treble/sag=50%.
+    gain=0 dB plus Keller's fixed input calibration; volume/bass/mid/treble/sag=50%.
     """
     hp10 = ko.FltIi1Hp(10.0, SAMPLE_RATE)
     tone = ko.FltSv2Tst(0.25, 0.25, 0.25, 630.0, 0.5, 1, 1, SAMPLE_RATE)
@@ -319,7 +319,7 @@ def gen_nilamp_taps(input_buf: np.ndarray) -> tuple[np.ndarray, ...]:
     p1 = ko.TubePss(r=125.0, tau=0.008, sr=SAMPLE_RATE)
     p2 = ko.TubePss(r=5100.0, tau=0.0816, sr=SAMPLE_RATE)
     p3 = ko.TubePss(r=11000.0, tau=0.352, sr=SAMPLE_RATE)
-    input_gain = 0.5 * np.power(10.0, 0.05 * 12.0) * np.sqrt(1.2)
+    input_gain = np.power(10.0, 0.05 * 12.0) * np.sqrt(1.2)
 
     n = len(input_buf)
     v_out_buf = np.empty(n, dtype=np.float32)

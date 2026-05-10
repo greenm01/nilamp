@@ -58,6 +58,7 @@ NILAMP_RENDER = REPO_ROOT / "native" / "bin" / "nilamp_render"
 JSFX_RENDER = [sys.executable, "-m", "tools.jsfx_render.render_ysfx"]
 JSFX_RENDER_DRIVER = REPO_ROOT / "native" / "bin" / "ysfx_render"
 JSFX_SOURCE = REPO_ROOT / "native" / "build" / "jsfx" / "Effects" / "nilamp_abx" / "twd_dlx_ii_harness.jsfx"
+JSFX_INPUT_GAIN = 1.0
 
 # JSFX warm-up window (see module docstring).
 JSFX_WARMUP_S = 0.100
@@ -298,6 +299,8 @@ def render_jsfx(input_wav: Path, output_wav: Path, params: Params, timeout_s: fl
         str(output_wav),
         "--timeout",
         str(timeout_s),
+        "--input-gain",
+        str(JSFX_INPUT_GAIN),
         *params.to_jsfx_args(),
     ]
     subprocess.run(cmd, check=True, capture_output=True, cwd=REPO_ROOT)
@@ -307,7 +310,9 @@ def jsfx_cache_key(input_wav: Path, params: Params) -> str:
     if not JSFX_SOURCE.is_file():
         subprocess.run([sys.executable, "-m", "tools.jsfx_render.stage_jsfx"], check=True, cwd=REPO_ROOT)
     h = hashlib.sha256()
-    h.update(b"nilamp-ysfx-cache-v1\0")
+    h.update(b"nilamp-ysfx-cache-v2\0")
+    h.update(f"input_gain={JSFX_INPUT_GAIN:.9g}".encode("utf-8"))
+    h.update(b"\0")
     h.update(input_wav.read_bytes())
     h.update(b"\0")
     for path in (JSFX_RENDER_DRIVER, JSFX_SOURCE):

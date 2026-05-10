@@ -2,6 +2,32 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: Keller/YSFX unity input calibration
+
+**Context.** Keller reported nilamp VST3 as roughly `6 dB` lower than his
+plugin. The old headless YSFX parity harness applied a `0.5` input feed before
+JSFX processing, but DAW-hosted YSFX receives unity input from the host.
+
+**Edit summary.**
+
+- Changed the Keller TWD DLX II model input feed from `0.5` to `1.0`, with no
+  state migration or backwards compatibility because existing projects do not
+  need preservation for this calibration.
+- Updated the YSFX render wrapper, performance harness, and ABX cache key to
+  use unity input gain by default.
+- Regenerated nilamp tap fixtures for the new unity-input reference.
+- Kept CLAP/VST3 state schema and parameter IDs unchanged.
+
+**Verification.**
+
+- `make native-test` passes.
+- `make native-host-test` passes with Steinberg VST3 validator installed; VST3
+  validator result is `47 tests passed, 0 tests failed`.
+- `make native-jsfx-test` passes with sine residual `-84.3 dB`, peak
+  native/JSFX `0.3422 / 0.3422`, and best gain `+0.00 dB`.
+- `make native-perf-bench PERF_BENCH_ARGS="--json-out /tmp/nilamp_perf/results_unity_input_full.json"` passes; median matched speedups are `2.08x` for CLAP and `2.06x` for VST3 versus Keller/YSFX.
+- `python3 -m py_compile tools/benchmark_keller_perf.py tools/abx_compare.py tools/jsfx_render/render_ysfx.py` passes.
+
 ### Session: Dirty-driven editor redraw
 
 **Context.** Keller's Gig Performer report may include editor/UI overhead in

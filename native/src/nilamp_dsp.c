@@ -951,9 +951,8 @@ static NilampTapFrame nilamp_twd_dlx_ii_process_sample(NilampTwdDlxIiState *st, 
     const StageCfg *t1_cfg = nilamp_tube1_cfg(tube1);
     const SplitterModeCfg *splitter_cfg = nilamp_splitter_cfg(splitter);
 
-    /* Keller g1 uses sqrt(1.2); REAPER's mono JSFX render path contributes
-       the 0.5 feed factor that the parity harness measures at the first tap.
-       The visible Keller input gain also includes a fixed +12 dB calibration. */
+    /* Keller g1 uses sqrt(1.2) and the visible input gain includes a fixed
+       +12 dB calibration in the reference JSFX. */
     const float gain =
         db_to_linear(params->gain_db + model->input_gain_offset_db) *
         model->input_feed_gain * sqrtf(model->input_keller_gain_sq);

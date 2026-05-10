@@ -272,7 +272,7 @@ def main() -> int:
     ap.add_argument("--json-out", type=Path)
     ap.add_argument("--jsfx-source", type=Path, default=DEFAULT_JSFX)
     ap.add_argument("--import-root", type=Path, default=DEFAULT_IMPORT_ROOT)
-    ap.add_argument("--ysfx-input-gain", type=float, default=0.5)
+    ap.add_argument("--ysfx-input-gain", type=float, default=1.0)
     ap.add_argument("--clap-plugin", type=Path, default=DEFAULT_CLAP)
     ap.add_argument("--vst3-plugin", type=Path, default=DEFAULT_VST3)
     args = ap.parse_args()

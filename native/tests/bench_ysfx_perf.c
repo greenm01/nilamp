@@ -30,7 +30,7 @@ static void usage(FILE *f)
             "\n"
             "ysfx options:\n"
             "  --import-root DIR\n"
-            "  --ysfx-input-gain X   Input gain before Keller JSFX (default 0.5)\n");
+            "  --ysfx-input-gain X   Input gain before Keller JSFX (default 1.0)\n");
 }
 
 static void log_report(intptr_t userdata, ysfx_log_level level, const char *message)
@@ -45,7 +45,7 @@ static int parse_args(int argc, char **argv, Args *args)
 {
     memset(args, 0, sizeof(*args));
     nilamp_bench_args_init(&args->common);
-    args->ysfx_input_gain = 0.5f;
+    args->ysfx_input_gain = 1.0f;
 
     for (int i = 1; i < argc; i++) {
         const char *name = argv[i];

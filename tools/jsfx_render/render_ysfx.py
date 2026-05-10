@@ -18,7 +18,7 @@ DEFAULT_JSFX_ROOT = REPO_ROOT / "native" / "build" / "jsfx"
 DEFAULT_IMPORT_ROOT = DEFAULT_JSFX_ROOT / "Effects"
 DEFAULT_JSFX_SOURCE = DEFAULT_IMPORT_ROOT / "nilamp_abx" / "twd_dlx_ii_harness.jsfx"
 DEFAULT_EFFECT_NAME = "nilamp_abx/twd_dlx_ii_harness"
-REAPER_MONO_INPUT_GAIN = 0.5
+UNITY_INPUT_GAIN = 1.0
 
 
 def _default_source_for_effect(effect_name: str) -> Path:
@@ -60,7 +60,7 @@ def render(
     jsfx_source: str | os.PathLike[str] | None = None,
     channels: int = 1,
     ysfx_render_bin: str | os.PathLike[str] = YSFX_RENDER,
-    input_gain: float = REAPER_MONO_INPUT_GAIN,
+    input_gain: float = UNITY_INPUT_GAIN,
 ) -> Path:
     """Render `input_wav` through a staged JSFX harness."""
     del sample_rate
@@ -136,8 +136,8 @@ def _cli() -> int:
     ap.add_argument("--jsfx-source", type=Path)
     ap.add_argument("--channels", type=int, default=1)
     ap.add_argument("--ysfx-render-bin", type=Path, default=YSFX_RENDER)
-    ap.add_argument("--input-gain", type=float, default=REAPER_MONO_INPUT_GAIN,
-                    help="Input gain before JSFX processing (default: 0.5, matching the old REAPER mono harness).")
+    ap.add_argument("--input-gain", type=float, default=UNITY_INPUT_GAIN,
+                    help="Input gain before JSFX processing (default: 1.0, matching DAW-hosted YSFX input).")
     ap.add_argument("--list-sliders", action="store_true")
     args = ap.parse_args()
 

@@ -56,9 +56,8 @@ Pinned JSFX sliders:
 | `fm` / `qm` / `fs` / `gout` | `56` / `-6` / `62` / `0` | TWD DLX II defaults |
 
 The ysfx runner sets the JSFX sample rate and block size before `@init`, then
-sets sliders before the first processing block. The Python wrapper applies a
-default `0.5` input gain before JSFX processing to preserve the old REAPER mono
-harness calibration that native currently matches.
+sets sliders before the first processing block. The Python wrapper uses unity
+input gain by default so the headless reference matches DAW-hosted YSFX.
 
 ## Warm-up Trim
 
