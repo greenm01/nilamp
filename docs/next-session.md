@@ -2,6 +2,35 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: Keller/ysfx performance benchmark harness
+
+**Context.** Need a repeatable benchmark that compares nilamp native plugin
+runtime against Keller's JSFX implementation under ysfx, while keeping ysfx
+load/compile/JIT cost visible but separate from steady-state plugin processing.
+
+**Edit summary.**
+
+- Added native in-memory benchmark drivers for Keller/ysfx, loaded CLAP, and
+  loaded VST3.
+- Added `tools/benchmark_keller_perf.py` to run the extended matrix, summarize
+  steady-state runtime as the headline, report lifecycle/reload phases
+  separately, and optionally emit JSON.
+- Added `make native-perf-bench` with `PERF_BENCH_ARGS` passthrough.
+- Documented the benchmark in README and `docs/notes/perf-benchmark.md`.
+
+**Verification.**
+
+- `make native-perf-bench PERF_BENCH_ARGS="--quick --runs 1 --warmups 0 --duration 0.25 --json-out /tmp/nilamp_perf/smoke.json"` passes.
+- Smoke run reports steady-state plugin processing for Keller/ysfx, CLAP, and
+  VST3, plus separate lifecycle and reload sections.
+- Smoke residual sanity after JSFX warm-up trim is about `-73.1 dB` for CLAP
+  and VST3 versus Keller/ysfx on the short sine case.
+- `make native-test` passes.
+- `make native-host-test` passes; external VST3 validator is not installed and
+  is skipped.
+- `make native-jsfx-test` passes with sine residual `-81.7 dB`.
+- `git diff --check` passes.
+
 ### Session: Windows CLAP/VST3 release package upload
 
 **Context.** The Windows release asset on GitHub still contained the older

@@ -203,6 +203,18 @@ python3 tools/abx_compare.py --preset sine
 python3 tools/abx_compare.py --preset sweep
 ```
 
+Run the Keller/ysfx-vs-native performance benchmark:
+
+```bash
+make native-perf-bench
+make native-perf-bench PERF_BENCH_ARGS="--quick --runs 1 --warmups 0"
+```
+
+The headline table compares steady-state in-memory plugin processing after
+Keller/ysfx JIT and native plugin activation are complete. Separate lifecycle
+and reload sections track ysfx load/compile/JIT cost against native CLAP/VST3
+load, instantiate, activate, and destroy cost.
+
 Build Linux and macOS release packages with:
 
 ```bash

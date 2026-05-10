@@ -198,7 +198,7 @@ ifeq ($(YSFX_AVAILABLE),1)
 NATIVE_TARGETS += $(NATIVE_BIN)/ysfx_render
 endif
 
-.PHONY: all native native-test native-bench native-host-test native-reaper-host-test native-jsfx-test native-jsfx-matrix-test native-loaded-clap-diagnose install-clap-user install-vst3-user package-linux-release package-macos-release setup-python clean-native FORCE
+.PHONY: all native native-test native-bench native-perf-bench native-host-test native-reaper-host-test native-jsfx-test native-jsfx-matrix-test native-loaded-clap-diagnose install-clap-user install-vst3-user package-linux-release package-macos-release setup-python clean-native FORCE
 
 all: native
 
@@ -244,6 +244,10 @@ native-test: $(NATIVE_BIN)/test_native $(NATIVE_BIN)/test_clap_load $(NATIVE_TES
 
 native-bench: $(NATIVE_BIN)/bench_native
 	$(NATIVE_BIN)/bench_native
+
+PERF_BENCH_ARGS ?=
+native-perf-bench: $(NATIVE_BIN)/bench_ysfx_perf $(NATIVE_BIN)/bench_clap_perf $(NATIVE_BIN)/bench_vst3_perf $(CLAP_PLUGIN) $(VST3_PLUGIN)
+	$(PYTHON) tools/benchmark_keller_perf.py $(PERF_BENCH_ARGS)
 
 native-host-test: native-test
 	$(PYTHON) tools/clap_validate/validate_clap.py --plugin $(CLAP_PLUGIN)
@@ -493,6 +497,32 @@ $(NATIVE_BUILD)/bench_native.o: $(NATIVE_DIR)/tests/bench_native.c $(NATIVE_DIR)
 
 $(NATIVE_BIN)/bench_native: $(NATIVE_BUILD)/bench_native.o $(NATIVE_BUILD)/nilamp_dsp_test.o $(NATIVE_BUILD)/nilamp_tables.o | $(NATIVE_BIN)
 	$(CC) $(LDFLAGS) $^ $(LDLIBS) -o $@
+
+$(NATIVE_BUILD)/bench_ysfx_perf.o: $(NATIVE_DIR)/tests/bench_ysfx_perf.c $(NATIVE_DIR)/tests/bench_perf_common.h $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_DIR)/src/nilamp_cpu.h $(YSFX_ROOT)/include/ysfx.h | $(NATIVE_BUILD)
+	$(CC) $(YSFX_CFLAGS) -c $< -o $@
+
+$(NATIVE_BIN)/bench_ysfx_perf: $(NATIVE_BUILD)/bench_ysfx_perf.o $(NATIVE_BUILD)/nilamp_dsp.o $(NATIVE_BUILD)/nilamp_tables.o $(YSFX_LIB) | $(NATIVE_BIN)
+	$(CXX) $(LDFLAGS) $^ $(YSFX_LDLIBS) -o $@
+
+$(NATIVE_BUILD)/bench_clap_perf.o: $(NATIVE_DIR)/tests/bench_clap_perf.c $(NATIVE_DIR)/tests/bench_perf_common.h $(NATIVE_DIR)/src/nilamp_dsp.h $(CLAP_INCLUDE)/clap/clap.h | $(NATIVE_BUILD)
+	$(CC) $(CLAP_CFLAGS) -c $< -o $@
+
+$(NATIVE_BIN)/bench_clap_perf: $(NATIVE_BUILD)/bench_clap_perf.o $(NATIVE_BUILD)/nilamp_dsp.o $(NATIVE_BUILD)/nilamp_tables.o | $(NATIVE_BIN)
+	$(CC) $(LDFLAGS) $^ $(LDLIBS) $(DL_LDLIBS) -o $@
+
+$(NATIVE_BUILD)/bench_vst3_perf.o: $(NATIVE_DIR)/tests/bench_vst3_perf.mm $(NATIVE_DIR)/tests/bench_perf_common.h $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_DIR)/src/nilamp_host.h | $(NATIVE_BUILD)
+ifeq ($(UNAME_S),Linux)
+	$(CXX) $(TEST_VST3_CXXFLAGS) -x c++ -c $< -o $@
+else
+	$(OBJCXX) $(TEST_VST3_CXXFLAGS) -c $< -o $@
+endif
+
+$(NATIVE_BIN)/bench_vst3_perf: $(NATIVE_BUILD)/bench_vst3_perf.o $(NATIVE_OBJS) $(NATIVE_BUILD)/vst3_baseiids.o $(NATIVE_BUILD)/vst3_coreiids.o $(NATIVE_BUILD)/vst3_funknown.o $(NATIVE_BUILD)/vst3_vstinitiids.o | $(NATIVE_BIN)
+ifeq ($(UNAME_S),Linux)
+	$(CXX) $(LDFLAGS) $^ $(LDLIBS) $(DL_LDLIBS) -o $@
+else
+	$(OBJCXX) $(LDFLAGS) $^ $(LDLIBS) -framework CoreFoundation -o $@
+endif
 
 $(NATIVE_BUILD)/test_clap_load.o: $(NATIVE_DIR)/tests/test_clap_load.c $(NATIVE_DIR)/src/nilamp_dsp.h $(CLAP_INCLUDE)/clap/clap.h | $(NATIVE_BUILD)
 	$(CC) $(TEST_CLAP_CFLAGS) -c $< -o $@
