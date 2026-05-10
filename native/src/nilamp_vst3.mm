@@ -352,6 +352,7 @@ public:
 #if !defined(__APPLE__)
     void onTimer(Timer *timer) SMTG_OVERRIDE;
 #endif
+    void hostParamsChanged();
 
 private:
     static float getParam(void *user, uint32_t id);
@@ -434,6 +435,7 @@ public:
             return kResultFalse;
         }
         syncParamsFromCore();
+        notifyEditorParamsChanged();
         return kResultOk;
     }
 
@@ -498,6 +500,9 @@ public:
         const NilampControlSpec *spec = nilamp_host_find_param(tag);
         if (result == kResultOk && spec) {
             (void)nilamp_host_core_set_param(&core, tag, normalizedToPlain(spec, value));
+            if (!editorEditActive) {
+                notifyEditorParamsChanged();
+            }
         }
         return result;
     }
@@ -522,10 +527,24 @@ public:
             return;
         }
         const ParamValue normalized = plainToNormalized(spec, value);
+        editorEditActive = true;
         (void)setParamNormalized(id, normalized);
+        editorEditActive = false;
         beginEdit(id);
         performEdit(id, normalized);
         endEdit(id);
+    }
+
+    void registerEditor(Editor *editor)
+    {
+        activeEditor = editor;
+    }
+
+    void unregisterEditor(Editor *editor)
+    {
+        if (activeEditor == editor) {
+            activeEditor = nullptr;
+        }
     }
 
 #if defined(__linux__)
@@ -545,7 +564,16 @@ private:
         }
     }
 
+    void notifyEditorParamsChanged()
+    {
+        if (activeEditor) {
+            activeEditor->hostParamsChanged();
+        }
+    }
+
     NilampHostCore core = {};
+    Editor *activeEditor = nullptr;
+    bool editorEditActive = false;
 #if defined(__linux__)
     FUnknownPtr<Linux::IRunLoop> runLoop;
 #endif
@@ -562,6 +590,9 @@ Editor::Editor(Controller *controllerIn) : CPluginView(nullptr), controller(cont
 Editor::~Editor()
 {
     stopTimer();
+    if (controller) {
+        controller->unregisterEditor(this);
+    }
     nilamp_gui_destroy(gui);
     gui = nullptr;
     if (controller) {
@@ -611,6 +642,7 @@ tresult PLUGIN_API Editor::attached(void *parent, FIDString type)
         gui = nullptr;
         return kResultFalse;
     }
+    controller->registerEditor(this);
     systemWindow = parent;
     (void)nilamp_gui_start_frame_timer(gui, kEditorFrameIntervalSeconds);
     nilamp_gui_on_main_thread(gui);
@@ -704,6 +736,9 @@ tresult PLUGIN_API Editor::removed()
         nilamp_gui_destroy(gui);
         gui = nullptr;
     }
+    if (controller) {
+        controller->unregisterEditor(this);
+    }
     systemWindow = nullptr;
     return kResultOk;
 }
@@ -762,6 +797,15 @@ void Editor::onTimer(Timer *timerIn)
 void Editor::tick()
 {
     if (gui) {
+        nilamp_gui_refresh(gui);
+        nilamp_gui_on_main_thread(gui);
+    }
+}
+
+void Editor::hostParamsChanged()
+{
+    if (gui) {
+        nilamp_gui_refresh(gui);
         nilamp_gui_on_main_thread(gui);
     }
 }

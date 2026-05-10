@@ -51,6 +51,7 @@ bool nilamp_gui_set_size(NilampGui *gui, uint32_t width, uint32_t height);
 bool nilamp_gui_is_visible(const NilampGui *gui);
 bool nilamp_gui_start_frame_timer(NilampGui *gui, double interval_seconds);
 void nilamp_gui_stop_frame_timer(NilampGui *gui);
+void nilamp_gui_refresh(NilampGui *gui);
 void nilamp_gui_on_main_thread(NilampGui *gui);
 
 #ifdef __cplusplus

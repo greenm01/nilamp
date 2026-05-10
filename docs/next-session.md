@@ -2,6 +2,42 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: Keller host-feedback editor fixes
+
+**Context.** Helmut Keller reported three host-visible issues from VST3 testing:
+mouse wheel did not change GUI parameters, DAW-side parameter edits did not
+refresh the GUI until focus returned, and a possible `6 dB` input-level mismatch.
+Local validation is through REAPER and Carla rather than Gig Performer.
+
+**Edit summary.**
+
+- Added Pugl scroll handling to the custom GUI and applied wheel deltas to
+  hovered knobs, value boxes, toggles, and enum selectors using existing
+  parameter step sizes.
+- Added a public GUI refresh hook and made the VST3 editor refresh from host
+  parameter changes immediately, with a guard to avoid reentrant refreshes for
+  editor-originated edits.
+- Documented a REAPER/Carla host-validation workflow for input calibration,
+  mouse wheel behavior, host parameter refresh, and editor-open CPU trends.
+- Clarified that the synthetic perf harness excludes DAW editor and host CPU
+  metering behavior, and that VST3 cold lifecycle timing needs real-host or
+  subprocess validation.
+- Did not change input calibration yet; the current ysfx parity gate still
+  matches, and the reported `6 dB` delta should be confirmed in REAPER before a
+  DSP calibration change.
+
+**Verification.**
+
+- `make native-test` passes.
+- `make native-host-test` passes; external VST3 validator is not installed and
+  is skipped.
+- `make native-jsfx-test` passes with sine residual `-81.7 dB`.
+- `make native-perf-bench PERF_BENCH_ARGS="--quick --runs 1 --warmups 0 --duration 0.25 --json-out /tmp/nilamp_perf/host_feedback_smoke.json"` passes.
+- Installed CLAP to `~/.clap/nilamp-twd-mkii.clap` and VST3 to
+  `~/.vst3/nilamp-twd-mkii.vst3`; installed loader smokes pass.
+- `python3 -m py_compile tools/benchmark_keller_perf.py tools/abx_compare.py tools/jsfx_render/render_ysfx.py` passes.
+- `git diff --check` passes.
+
 ### Session: Keller/ysfx performance benchmark harness
 
 **Context.** Need a repeatable benchmark that compares nilamp native plugin

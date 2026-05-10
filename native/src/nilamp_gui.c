@@ -92,6 +92,8 @@ struct NilampGui {
     bool mouse_up[3];
     bool mouse_motion;
     bool mouse_double_click;
+    float scroll_x;
+    float scroll_y;
     double last_click_time;
     int last_click_x;
     int last_click_y;
@@ -403,15 +405,24 @@ static void nilamp_gui_sync_edit_text(NilampGui *gui, uint32_t index)
                                  sizeof(gui->model.edit_text[index]));
 }
 
-static void nilamp_gui_refresh_params(NilampGui *gui)
+static bool nilamp_gui_refresh_params(NilampGui *gui)
 {
     if (!gui) {
-        return;
+        return false;
     }
+    bool changed = false;
     for (uint32_t i = 0; i < gui->param_count && i < NILAMP_GUI_MAX_PARAMS; i++) {
-        gui->model.param_values[i] = nilamp_gui_read_param(gui, i);
+        const float value = nilamp_gui_read_param(gui, i);
+        if (value != gui->model.param_values[i]) {
+            gui->model.param_values[i] = value;
+            changed = true;
+        }
         nilamp_gui_sync_edit_text(gui, i);
     }
+    if (changed) {
+        gui->model.dirty = true;
+    }
+    return changed;
 }
 
 static void nilamp_gui_emit(NilampGuiMsg *outbox, uint32_t *outbox_count,
@@ -529,6 +540,9 @@ static void nilamp_gui_feed_input(NilampGui *gui, struct nk_context *ctx)
             gui->mouse_up[i] = false;
         }
     }
+    if (gui->scroll_x != 0.0f || gui->scroll_y != 0.0f) {
+        nk_input_scroll(ctx, nk_vec2(gui->scroll_x, gui->scroll_y));
+    }
     nk_input_end(ctx);
     gui->mouse_motion = false;
 }
@@ -545,6 +559,8 @@ static void nilamp_gui_clear_transient_input(NilampGui *gui)
     gui->key_escape = false;
     gui->key_backspace = false;
     gui->key_delete = false;
+    gui->scroll_x = 0.0f;
+    gui->scroll_y = 0.0f;
 }
 
 static float nilamp_gui_minf(float a, float b)
@@ -818,6 +834,45 @@ static float nilamp_gui_knob_noon_value(const NilampGuiParamSpec *param,
                                       (param->max_value - param->min_value) * 0.5f);
 }
 
+static bool nilamp_gui_has_vertical_scroll(const NilampGui *gui)
+{
+    return gui && fabsf(gui->scroll_y) >= 0.0001f;
+}
+
+static float nilamp_gui_scroll_step_value(const NilampGuiParamSpec *param, float value,
+                                          float scroll_y)
+{
+    if (!param || scroll_y == 0.0f) {
+        return value;
+    }
+    const float range = param->max_value - param->min_value;
+    if (range <= 0.0f) {
+        return value;
+    }
+    const float step = param->step > 0.0f ? param->step : range / 100.0f;
+    return nilamp_gui_quantize(param, value + step * scroll_y);
+}
+
+static bool nilamp_gui_emit_param_value(NilampGui *gui, uint32_t index, float value,
+                                        NilampGuiMsg *outbox, uint32_t *outbox_count)
+{
+    if (!gui || index >= gui->param_count || index >= NILAMP_GUI_MAX_PARAMS) {
+        return false;
+    }
+    const NilampGuiParamSpec *param = &gui->params[index];
+    value = nilamp_gui_quantize(param, value);
+    if (value == gui->model.param_values[index]) {
+        return false;
+    }
+    nilamp_gui_emit(outbox, outbox_count, NILAMP_GUI_MAX_PARAMS,
+                    (NilampGuiMsg){
+                        .type = NILAMP_GUI_MSG_PARAM_CHANGED,
+                        .param_id = param->id,
+                        .value = value,
+                    });
+    return true;
+}
+
 static bool nilamp_gui_knob(NilampGui *gui, struct nk_context *ctx,
                             struct nk_command_buffer *canvas, uint32_t index,
                             struct nk_rect bounds, NilampGuiMsg *outbox,
@@ -843,17 +898,14 @@ static bool nilamp_gui_knob(NilampGui *gui, struct nk_context *ctx,
     const bool hovered = nk_input_is_mouse_hovering_rect(&ctx->input, bounds);
     const bool knob_hovered = nk_input_is_mouse_hovering_rect(&ctx->input, circle);
     const bool pressed = knob_hovered && nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT);
+    if (hovered && nilamp_gui_has_vertical_scroll(gui) && gui->active_edit < 0) {
+        value = nilamp_gui_scroll_step_value(param, value, gui->scroll_y);
+        (void)nilamp_gui_emit_param_value(gui, index, value, outbox, outbox_count);
+    }
     if (pressed && gui->mouse_double_click) {
         value = nilamp_gui_knob_noon_value(param, knob_style);
         gui->active_knob = -1;
-        if (value != gui->model.param_values[index]) {
-            nilamp_gui_emit(outbox, outbox_count, NILAMP_GUI_MAX_PARAMS,
-                            (NilampGuiMsg){
-                                .type = NILAMP_GUI_MSG_PARAM_CHANGED,
-                                .param_id = param->id,
-                                .value = value,
-                            });
-        }
+        (void)nilamp_gui_emit_param_value(gui, index, value, outbox, outbox_count);
     } else if (pressed) {
         gui->active_knob = (int)index;
     }
@@ -867,14 +919,7 @@ static bool nilamp_gui_knob(NilampGui *gui, struct nk_context *ctx,
                             range / 180.0f;
         if (delta != 0.0f) {
             value = nilamp_gui_quantize(param, value + delta);
-            if (value != gui->model.param_values[index]) {
-                nilamp_gui_emit(outbox, outbox_count, NILAMP_GUI_MAX_PARAMS,
-                                (NilampGuiMsg){
-                                    .type = NILAMP_GUI_MSG_PARAM_CHANGED,
-                                    .param_id = param->id,
-                                    .value = value,
-                                });
-            }
+            (void)nilamp_gui_emit_param_value(gui, index, value, outbox, outbox_count);
         }
     }
 
@@ -1009,12 +1054,15 @@ static void nilamp_gui_enum_toggle(NilampGui *gui, struct nk_context *ctx,
         if (gui->active_edit >= 0) {
             nilamp_gui_end_edit(gui, true, outbox, outbox_count);
         }
-        nilamp_gui_emit(outbox, outbox_count, NILAMP_GUI_MAX_PARAMS,
-                        (NilampGuiMsg){
-                            .type = NILAMP_GUI_MSG_PARAM_CHANGED,
-                            .param_id = spec->id,
-                            .value = safe_value == 0u ? 1.0f : 0.0f,
-                        });
+        (void)nilamp_gui_emit_param_value(gui, index,
+                                          safe_value == 0u ? 1.0f : 0.0f,
+                                          outbox, outbox_count);
+    } else if (hovered && nilamp_gui_has_vertical_scroll(gui) && gui->active_edit < 0) {
+        nilamp_gui_close_dropdown(gui);
+        (void)nilamp_gui_emit_param_value(
+            gui, index, nilamp_gui_scroll_step_value(spec, gui->model.param_values[index],
+                                                     gui->scroll_y),
+            outbox, outbox_count);
     }
 }
 
@@ -1063,6 +1111,12 @@ static void nilamp_gui_enum_dropdown(NilampGui *gui, struct nk_context *ctx,
             gui->open_dropdown_param = spec->id;
             gui->open_dropdown_selector = selector;
         }
+    } else if (hovered && nilamp_gui_has_vertical_scroll(gui) && gui->active_edit < 0) {
+        nilamp_gui_close_dropdown(gui);
+        (void)nilamp_gui_emit_param_value(
+            gui, index, nilamp_gui_scroll_step_value(spec, gui->model.param_values[index],
+                                                     gui->scroll_y),
+            outbox, outbox_count);
     }
 }
 
@@ -1108,12 +1162,8 @@ static void nilamp_gui_draw_open_dropdown(NilampGui *gui, struct nk_context *ctx
                                                  item.w - 8.0f, item.h - 6.0f),
                              spec->enum_names[i], gold, true);
         if (item_hovered && nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT)) {
-            nilamp_gui_emit(outbox, outbox_count, NILAMP_GUI_MAX_PARAMS,
-                            (NilampGuiMsg){
-                                .type = NILAMP_GUI_MSG_PARAM_CHANGED,
-                                .param_id = gui->open_dropdown_param,
-                                .value = (float)i,
-                            });
+            (void)nilamp_gui_emit_param_value(gui, index, (float)i,
+                                              outbox, outbox_count);
             nilamp_gui_close_dropdown(gui);
             break;
         }
@@ -1794,6 +1844,13 @@ static PuglStatus nilamp_gui_event(PuglView *view, const PuglEvent *event)
         gui->mouse_motion = true;
         nilamp_gui_request_redraw(gui);
         break;
+    case PUGL_SCROLL:
+        gui->mouse_x = (int)event->scroll.x;
+        gui->mouse_y = (int)event->scroll.y;
+        gui->scroll_x += (float)event->scroll.dx;
+        gui->scroll_y += (float)event->scroll.dy;
+        nilamp_gui_request_redraw(gui);
+        break;
     case PUGL_KEY_PRESS:
     case PUGL_KEY_RELEASE: {
         const bool down = event->type == PUGL_KEY_PRESS;
@@ -2144,11 +2201,22 @@ void nilamp_gui_stop_frame_timer(NilampGui *gui)
     gui->frame_timer_running = false;
 }
 
+void nilamp_gui_refresh(NilampGui *gui)
+{
+    if (!gui) {
+        return;
+    }
+    if (nilamp_gui_refresh_params(gui)) {
+        nilamp_gui_request_redraw(gui);
+    }
+}
+
 void nilamp_gui_on_main_thread(NilampGui *gui)
 {
     if (!gui || !gui->world || !gui->visible) {
         return;
     }
+    nilamp_gui_refresh(gui);
     (void)puglUpdate(gui->world, 0.0);
     if (gui->model.dirty) {
         nilamp_gui_request_redraw(gui);
