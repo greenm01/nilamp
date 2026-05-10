@@ -545,7 +545,8 @@ static void check_param_metadata(const clap_plugin_t *plugin,
         const NilampControlSpec *spec = &specs[i];
         check(params->get_info(plugin, i, &info), "param metadata read failed");
         check(info.id == spec->id, "param metadata id mismatch");
-        check(strcmp(info.name, spec->name) == 0, "param metadata name mismatch");
+        const char *expected_name = spec->host_name ? spec->host_name : spec->name;
+        check(strcmp(info.name, expected_name) == 0, "param metadata name mismatch");
         check(strcmp(info.module, spec->module) == 0, "param metadata module mismatch");
         check(fabs(info.min_value - spec->min_value) < 0.000001,
               "param metadata minimum mismatch");
@@ -819,6 +820,7 @@ int main(int argc, char **argv)
     clap_param_info_t param_info = {0};
     check(params->get_info(plugin, NILAMP_PARAM_GAIN_DB, &param_info),
           "gain info read failed");
+    check(strcmp(param_info.name, "Input Gain") == 0, "unexpected input gain host name");
     check(fabs(param_info.min_value + 12.0) < 0.000001,
           "unexpected minimum gain info");
     check(fabs(param_info.max_value - 12.0) < 0.000001,
@@ -827,6 +829,7 @@ int main(int argc, char **argv)
           "unexpected default gain info");
     check(params->get_info(plugin, NILAMP_PARAM_OUTPUT_GAIN_DB, &param_info),
           "output gain info read failed");
+    check(strcmp(param_info.name, "Output Gain") == 0, "unexpected output gain host name");
     check(fabs(param_info.min_value + 12.0) < 0.000001,
           "unexpected minimum output gain info");
     check(fabs(param_info.max_value - 12.0) < 0.000001,

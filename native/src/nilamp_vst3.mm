@@ -64,7 +64,7 @@ static double normalizedToPlain(const NilampControlSpec *spec, double normalized
         normalized = 1.0;
     }
     const double value = spec->min_value + normalized * (spec->max_value - spec->min_value);
-    if (spec->step > 0.0f) {
+    if (spec->display == NILAMP_CONTROL_DISPLAY_ENUM && spec->step > 0.0f) {
         const double steps = std::round((value - spec->min_value) / spec->step);
         return nilamp_host_clamp_param(spec->min_value + steps * spec->step, spec);
     }
@@ -399,7 +399,7 @@ public:
             const NilampControlSpec *spec = &specs[i];
             String128 title = {};
             String128 units = {};
-            copyAsciiToTChar(title, spec->name);
+            copyAsciiToTChar(title, spec->host_name ? spec->host_name : spec->name);
             copyAsciiToTChar(units, spec->unit);
             const double normalizedDefault = plainToNormalized(spec, spec->default_value);
             const int32 stepCount = spec->display == NILAMP_CONTROL_DISPLAY_ENUM ?

@@ -615,6 +615,9 @@ def validate_amp(node: Node) -> dict[str, Any]:
             "key": key,
             "id": control_id,
             "name": required_prop(control, "name", str),
+            "host_name": required_prop(control, "host_name", str)
+            if "host_name" in control.props
+            else required_prop(control, "name", str),
             "module": required_prop(control, "module", str),
             "unit": required_prop(control, "unit", str),
             "min": minimum,
@@ -706,6 +709,7 @@ def render(models: list[dict[str, Any]]) -> str:
             lines.append("    {")
             lines.append(f"        .id = {control['id']},")
             lines.append(f"        .name = {c_string(control['name'])},")
+            lines.append(f"        .host_name = {c_string(control['host_name'])},")
             lines.append(f"        .module = {c_string(control['module'])},")
             lines.append(f"        .unit = {c_string(control['unit'])},")
             lines.append(f"        .min_value = {c_float(control['min'])},")

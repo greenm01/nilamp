@@ -2,6 +2,34 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: Unique host parameter names and VST3 smooth automation
+
+**Context.** REAPER showed two host parameters named `Gain`, and envelope-lane
+controls appeared to pull back toward center in read/default automation states.
+The duplicate names came from shared GUI/host labels; VST3 also quantized
+continuous host-normalized values to display steps before applying automation.
+
+**Edit summary.**
+
+- Added generated `host_name` metadata to controls so CLAP/VST3 can expose
+  unique DAW names while the custom GUI keeps compact labels.
+- Renamed host-visible ambiguous parameters to `Input Gain`, `Output Gain`,
+  `Speaker Resonance Gain 1/2`, and `Speaker Inductor Gain 1/2`.
+- Kept parameter IDs, state version, DSP defaults, and GUI labels unchanged.
+- Changed VST3 normalized-to-plain conversion so continuous parameters remain
+  smooth; enum/list parameters still resolve to discrete choices.
+- Added CLAP and VST3 loader checks for the new host names and VST3 continuous
+  conversion behavior.
+
+**Verification.**
+
+- `make native-test` passes.
+- `make native-host-test` passes; VST3 validator reports the unique parameter
+  titles and `47 tests passed, 0 tests failed`.
+- `make native-jsfx-test` passes with sine residual `-84.3 dB`, peak
+  native/JSFX `0.3422 / 0.3422`, and best gain `+0.00 dB`.
+- `python3 -m py_compile tools/gen_amp_models.py` passes.
+
 ### Session: Keller/YSFX unity input calibration
 
 **Context.** Keller reported nilamp VST3 as roughly `6 dB` lower than his

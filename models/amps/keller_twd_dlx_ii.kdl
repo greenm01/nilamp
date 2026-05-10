@@ -43,21 +43,21 @@ amp "keller_twd_dlx_ii" {
     process input_feed_gain=1.0 input_gain_offset_db=12.0 input_keller_gain_sq=1.2 gain_comp_12ax7=0.572 gain_comp_ltp_base=0.0345 phase_t4_gain=0.797 phase_t5_gain=0.940 screen_current_feedback=0.025
 
     controls {
-    control "input_gain" id="NILAMP_PARAM_GAIN_DB" name="Gain" module="Input" unit="dB" min=-12.0 max=12.0 default=0.0 step=0.5 display="linear"
+    control "input_gain" id="NILAMP_PARAM_GAIN_DB" name="Gain" host_name="Input Gain" module="Input" unit="dB" min=-12.0 max=12.0 default=0.0 step=0.5 display="linear"
     control "volume" id="NILAMP_PARAM_VOLUME_PCT" name="Volume" module="Pre Amp" unit="%" min=0.0 max=100.0 default=50.0 step=2.5 display="linear"
     control "bass" id="NILAMP_PARAM_BASS_PCT" name="Bass" module="Pre Amp" unit="%" min=0.0 max=100.0 default=50.0 step=2.5 display="linear"
     control "mid" id="NILAMP_PARAM_MID_PCT" name="Mid" module="Pre Amp" unit="%" min=0.0 max=100.0 default=50.0 step=2.5 display="linear"
     control "treble" id="NILAMP_PARAM_TREBLE_PCT" name="Treble" module="Pre Amp" unit="%" min=0.0 max=100.0 default=50.0 step=2.5 display="linear"
     control "sag" id="NILAMP_PARAM_SAG_PCT" name="Sag" module="Power" unit="%" min=0.0 max=100.0 default=50.0 step=2.5 display="linear"
-    control "output_gain" id="NILAMP_PARAM_OUTPUT_GAIN_DB" name="Gain" module="Output" unit="dB" min=-12.0 max=12.0 default=0.0 step=0.5 display="linear"
+    control "output_gain" id="NILAMP_PARAM_OUTPUT_GAIN_DB" name="Gain" host_name="Output Gain" module="Output" unit="dB" min=-12.0 max=12.0 default=0.0 step=0.5 display="linear"
     control "tone_fmid" id="NILAMP_PARAM_TONE_FMID_DBHZ" name="Fmid" module="Tone Stack" unit="Hz" min=44.0 max=68.0 default=56.0 step=0.5 display="iso266"
     control "tone_qmid" id="NILAMP_PARAM_TONE_QMID_DB" name="Qmid" module="Tone Stack" unit="" min=-18.0 max=6.0 default=-6.0 step=0.5 display="iso266"
-    control "speaker_res_gain1" id="NILAMP_PARAM_SPK_RES_GAIN1_DB" name="Gain 1" module="Speaker Resonance" unit="dB" min=0.0 max=24.0 default=1.0 step=0.5 display="linear"
-    control "speaker_res_gain2" id="NILAMP_PARAM_SPK_RES_GAIN2_DB" name="Gain 2" module="Speaker Resonance" unit="dB" min=0.0 max=24.0 default=2.0 step=0.5 display="linear"
+    control "speaker_res_gain1" id="NILAMP_PARAM_SPK_RES_GAIN1_DB" name="Gain 1" host_name="Speaker Resonance Gain 1" module="Speaker Resonance" unit="dB" min=0.0 max=24.0 default=1.0 step=0.5 display="linear"
+    control "speaker_res_gain2" id="NILAMP_PARAM_SPK_RES_GAIN2_DB" name="Gain 2" host_name="Speaker Resonance Gain 2" module="Speaker Resonance" unit="dB" min=0.0 max=24.0 default=2.0 step=0.5 display="linear"
     control "speaker_res_fres" id="NILAMP_PARAM_SPK_RES_FRES_DBHZ" name="Fres" module="Speaker Resonance" unit="Hz" min=26.0 max=50.0 default=38.0 step=0.5 display="iso266"
     control "speaker_res_qts" id="NILAMP_PARAM_SPK_RES_QTS_DB" name="Qts" module="Speaker Resonance" unit="" min=-6.0 max=18.0 default=6.0 step=0.5 display="iso266"
-    control "speaker_ind_gain1" id="NILAMP_PARAM_SPK_IND_GAIN1_DB" name="Gain 1" module="Speaker Inductor" unit="dB" min=0.0 max=24.0 default=3.0 step=0.5 display="linear"
-    control "speaker_ind_gain2" id="NILAMP_PARAM_SPK_IND_GAIN2_DB" name="Gain 2" module="Speaker Inductor" unit="dB" min=0.0 max=24.0 default=3.0 step=0.5 display="linear"
+    control "speaker_ind_gain1" id="NILAMP_PARAM_SPK_IND_GAIN1_DB" name="Gain 1" host_name="Speaker Inductor Gain 1" module="Speaker Inductor" unit="dB" min=0.0 max=24.0 default=3.0 step=0.5 display="linear"
+    control "speaker_ind_gain2" id="NILAMP_PARAM_SPK_IND_GAIN2_DB" name="Gain 2" host_name="Speaker Inductor Gain 2" module="Speaker Inductor" unit="dB" min=0.0 max=24.0 default=3.0 step=0.5 display="linear"
     control "speaker_ind_find" id="NILAMP_PARAM_SPK_IND_FIND_DBHZ" name="Find" module="Speaker Inductor" unit="Hz" min=50.0 max=74.0 default=62.0 step=0.5 display="iso266"
     control "gain_comp" id="NILAMP_PARAM_GAIN_COMP" name="Compens." module="Gain" unit="" min=0.0 max=3.0 default=2.0 step=1.0 display="enum" {
       option "Off"

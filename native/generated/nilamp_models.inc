@@ -74,6 +74,7 @@ static const NilampControlSpec KELLER_TWD_DLX_II_CONTROLS[] = {
     {
         .id = NILAMP_PARAM_GAIN_DB,
         .name = "Gain",
+        .host_name = "Input Gain",
         .module = "Input",
         .unit = "dB",
         .min_value = -12.0f,
@@ -87,6 +88,7 @@ static const NilampControlSpec KELLER_TWD_DLX_II_CONTROLS[] = {
     {
         .id = NILAMP_PARAM_VOLUME_PCT,
         .name = "Volume",
+        .host_name = "Volume",
         .module = "Pre Amp",
         .unit = "%",
         .min_value = 0.0f,
@@ -100,6 +102,7 @@ static const NilampControlSpec KELLER_TWD_DLX_II_CONTROLS[] = {
     {
         .id = NILAMP_PARAM_BASS_PCT,
         .name = "Bass",
+        .host_name = "Bass",
         .module = "Pre Amp",
         .unit = "%",
         .min_value = 0.0f,
@@ -113,6 +116,7 @@ static const NilampControlSpec KELLER_TWD_DLX_II_CONTROLS[] = {
     {
         .id = NILAMP_PARAM_MID_PCT,
         .name = "Mid",
+        .host_name = "Mid",
         .module = "Pre Amp",
         .unit = "%",
         .min_value = 0.0f,
@@ -126,6 +130,7 @@ static const NilampControlSpec KELLER_TWD_DLX_II_CONTROLS[] = {
     {
         .id = NILAMP_PARAM_TREBLE_PCT,
         .name = "Treble",
+        .host_name = "Treble",
         .module = "Pre Amp",
         .unit = "%",
         .min_value = 0.0f,
@@ -139,6 +144,7 @@ static const NilampControlSpec KELLER_TWD_DLX_II_CONTROLS[] = {
     {
         .id = NILAMP_PARAM_SAG_PCT,
         .name = "Sag",
+        .host_name = "Sag",
         .module = "Power",
         .unit = "%",
         .min_value = 0.0f,
@@ -152,6 +158,7 @@ static const NilampControlSpec KELLER_TWD_DLX_II_CONTROLS[] = {
     {
         .id = NILAMP_PARAM_OUTPUT_GAIN_DB,
         .name = "Gain",
+        .host_name = "Output Gain",
         .module = "Output",
         .unit = "dB",
         .min_value = -12.0f,
@@ -165,6 +172,7 @@ static const NilampControlSpec KELLER_TWD_DLX_II_CONTROLS[] = {
     {
         .id = NILAMP_PARAM_TONE_FMID_DBHZ,
         .name = "Fmid",
+        .host_name = "Fmid",
         .module = "Tone Stack",
         .unit = "Hz",
         .min_value = 44.0f,
@@ -178,6 +186,7 @@ static const NilampControlSpec KELLER_TWD_DLX_II_CONTROLS[] = {
     {
         .id = NILAMP_PARAM_TONE_QMID_DB,
         .name = "Qmid",
+        .host_name = "Qmid",
         .module = "Tone Stack",
         .unit = "",
         .min_value = -18.0f,
@@ -191,6 +200,7 @@ static const NilampControlSpec KELLER_TWD_DLX_II_CONTROLS[] = {
     {
         .id = NILAMP_PARAM_SPK_RES_GAIN1_DB,
         .name = "Gain 1",
+        .host_name = "Speaker Resonance Gain 1",
         .module = "Speaker Resonance",
         .unit = "dB",
         .min_value = 0.0f,
@@ -204,6 +214,7 @@ static const NilampControlSpec KELLER_TWD_DLX_II_CONTROLS[] = {
     {
         .id = NILAMP_PARAM_SPK_RES_GAIN2_DB,
         .name = "Gain 2",
+        .host_name = "Speaker Resonance Gain 2",
         .module = "Speaker Resonance",
         .unit = "dB",
         .min_value = 0.0f,
@@ -217,6 +228,7 @@ static const NilampControlSpec KELLER_TWD_DLX_II_CONTROLS[] = {
     {
         .id = NILAMP_PARAM_SPK_RES_FRES_DBHZ,
         .name = "Fres",
+        .host_name = "Fres",
         .module = "Speaker Resonance",
         .unit = "Hz",
         .min_value = 26.0f,
@@ -230,6 +242,7 @@ static const NilampControlSpec KELLER_TWD_DLX_II_CONTROLS[] = {
     {
         .id = NILAMP_PARAM_SPK_RES_QTS_DB,
         .name = "Qts",
+        .host_name = "Qts",
         .module = "Speaker Resonance",
         .unit = "",
         .min_value = -6.0f,
@@ -243,6 +256,7 @@ static const NilampControlSpec KELLER_TWD_DLX_II_CONTROLS[] = {
     {
         .id = NILAMP_PARAM_SPK_IND_GAIN1_DB,
         .name = "Gain 1",
+        .host_name = "Speaker Inductor Gain 1",
         .module = "Speaker Inductor",
         .unit = "dB",
         .min_value = 0.0f,
@@ -256,6 +270,7 @@ static const NilampControlSpec KELLER_TWD_DLX_II_CONTROLS[] = {
     {
         .id = NILAMP_PARAM_SPK_IND_GAIN2_DB,
         .name = "Gain 2",
+        .host_name = "Speaker Inductor Gain 2",
         .module = "Speaker Inductor",
         .unit = "dB",
         .min_value = 0.0f,
@@ -269,6 +284,7 @@ static const NilampControlSpec KELLER_TWD_DLX_II_CONTROLS[] = {
     {
         .id = NILAMP_PARAM_SPK_IND_FIND_DBHZ,
         .name = "Find",
+        .host_name = "Find",
         .module = "Speaker Inductor",
         .unit = "Hz",
         .min_value = 50.0f,
@@ -282,6 +298,7 @@ static const NilampControlSpec KELLER_TWD_DLX_II_CONTROLS[] = {
     {
         .id = NILAMP_PARAM_GAIN_COMP,
         .name = "Compens.",
+        .host_name = "Compens.",
         .module = "Gain",
         .unit = "",
         .min_value = 0.0f,
@@ -295,6 +312,7 @@ static const NilampControlSpec KELLER_TWD_DLX_II_CONTROLS[] = {
     {
         .id = NILAMP_PARAM_TUBE1,
         .name = "Tube 1",
+        .host_name = "Tube 1",
         .module = "Pre Amp",
         .unit = "",
         .min_value = 0.0f,
@@ -308,6 +326,7 @@ static const NilampControlSpec KELLER_TWD_DLX_II_CONTROLS[] = {
     {
         .id = NILAMP_PARAM_PHASE_SPLITTER,
         .name = "Circuit",
+        .host_name = "Circuit",
         .module = "Splitter",
         .unit = "",
         .min_value = 0.0f,

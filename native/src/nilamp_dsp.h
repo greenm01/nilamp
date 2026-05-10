@@ -48,6 +48,7 @@ typedef enum NilampControlDisplay {
 typedef struct NilampControlSpec {
     uint32_t id;
     const char *name;
+    const char *host_name;
     const char *module;
     const char *unit;
     float min_value;

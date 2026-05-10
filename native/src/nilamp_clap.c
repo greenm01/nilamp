@@ -993,7 +993,8 @@ static bool nilamp_params_get_info(const clap_plugin_t *plugin, uint32_t param_i
     param_info->id = spec->id;
     param_info->flags = CLAP_PARAM_IS_AUTOMATABLE | CLAP_PARAM_REQUIRES_PROCESS;
     param_info->cookie = (void *)spec;
-    nilamp_copy_text(param_info->name, sizeof(param_info->name), spec->name);
+    nilamp_copy_text(param_info->name, sizeof(param_info->name),
+                     spec->host_name ? spec->host_name : spec->name);
     nilamp_copy_text(param_info->module, sizeof(param_info->module), spec->module);
     param_info->min_value = spec->min_value;
     param_info->max_value = spec->max_value;

@@ -268,6 +268,18 @@ static double normalized(uint32_t id, double plain)
     return (plain - spec->min_value) / (spec->max_value - spec->min_value);
 }
 
+static void copyTitleAscii(const String128 title, char *dst, size_t dstSize)
+{
+    if (!dst || dstSize == 0) {
+        return;
+    }
+    size_t i = 0;
+    for (; i + 1 < dstSize && i < 128 && title[i] != 0; i++) {
+        dst[i] = static_cast<char>(title[i]);
+    }
+    dst[i] = '\0';
+}
+
 static void fillInput(float *left, float *right, uint32_t frames)
 {
     for (uint32_t i = 0; i < frames; i++) {
@@ -456,6 +468,21 @@ int main(int argc, char **argv)
     check(controller->getParameterInfo(NILAMP_PARAM_GAIN_DB, info) == kResultOk,
           "gain parameter info failed");
     check(info.id == NILAMP_PARAM_GAIN_DB, "unexpected gain parameter id");
+    char title[128] = {};
+    copyTitleAscii(info.title, title, sizeof(title));
+    check(std::strcmp(title, "Input Gain") == 0, "unexpected VST3 input gain title");
+    check(controller->getParameterInfo(NILAMP_PARAM_OUTPUT_GAIN_DB, info) == kResultOk,
+          "output gain parameter info failed");
+    copyTitleAscii(info.title, title, sizeof(title));
+    check(std::strcmp(title, "Output Gain") == 0, "unexpected VST3 output gain title");
+
+    const ParamValue smoothVolume =
+        controller->normalizedParamToPlain(NILAMP_PARAM_VOLUME_PCT, 0.513);
+    check(std::fabs(smoothVolume - 51.3) < 0.000001,
+          "VST3 continuous parameter conversion is stepped");
+    const ParamValue discreteTube = controller->normalizedParamToPlain(NILAMP_PARAM_TUBE1, 0.51);
+    check(std::fabs(discreteTube - 1.0) < 0.000001,
+          "VST3 enum parameter conversion is not discrete");
 
     SpeakerArrangement inputArrangement = SpeakerArr::kMono;
     SpeakerArrangement outputArrangement = SpeakerArr::kMono;
