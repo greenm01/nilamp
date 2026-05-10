@@ -1,0 +1,212 @@
+YSFX VS NILAMP PERFORMANCE COMPARISON
+=====================================
+
+Date: 2026-05-10
+Native commit tested after GUI idle redraw fix: 91be464
+
+
+SUMMARY
+-------
+
+The audio-only benchmark harness shows nilamp native CLAP/VST3 processing at
+about 2.07x the throughput of Keller's JSFX running under ysfx.
+
+The Reaper realtime performance meter shows a smaller but still favorable
+host-visible difference:
+
+    nilamp VST3 peak CPU:       about 0.58%
+    Keller JSFX via ysfx peak:  about 0.78%
+    Relative reduction:         about 25.6%
+
+These measurements are not contradictory. The harness isolates plugin audio
+processing. Reaper's realtime meter includes host scheduling, wrapper overhead,
+editor/UI behavior when the editor is open, and other DAW-side costs.
+
+
+TEST MACHINE
+------------
+
+Local hardware and OS context for these measurements:
+
+    CPU:              AMD Ryzen 9 7950X3D 16-Core Processor
+    Cores / threads:  16 cores / 32 threads
+    Max boost:        about 5.76 GHz, boost enabled
+    CPU governor:     performance
+    Scaling driver:   amd-pstate-epp
+    L3 cache:         128 MiB across 2 instances
+    Memory:           61 GiB total, about 51 GiB available during check
+    Swap:             61 GiB configured, effectively unused during check
+    GPU:              AMD Radeon RX 7900-series / Navi 31
+    OS/kernel:        CachyOS Linux 7.0.5-2-cachyos, PREEMPT_DYNAMIC
+
+Interpretation:
+
+    The audio-only harness is effectively a single-thread throughput test. Its
+    near-100% CPU readings mean the benchmark worker is saturating one CPU
+    thread while running as fast as possible, not that the full 32-thread
+    system is loaded.
+
+    The Reaper peak CPU readings are small in absolute terms because this is a
+    high-end desktop CPU. The relative difference is the useful signal:
+    nilamp VST3 was about 25.6% lower than Keller JSFX via ysfx in this Reaper
+    test.
+
+    Memory is not a bottleneck for these measurements. Plugin and harness
+    footprints are tiny relative to the installed RAM.
+
+    The 7950X3D's dual-CCD design can introduce some run-to-run variation
+    depending on scheduler placement, but same-session nilamp-vs-ysfx
+    comparisons remain meaningful.
+
+
+REAPER REALTIME OBSERVATION
+---------------------------
+
+Environment:
+
+    Host:        REAPER
+    Measurement: REAPER Performance Meter, realtime playback
+    Compared:    nilamp VST3 vs Keller JSFX loaded through ysfx
+
+Observed peak CPU:
+
+    Surface                 Peak CPU
+    ----------------------  --------
+    nilamp VST3              0.58%
+    Keller JSFX via ysfx     0.78%
+
+Derived comparison:
+
+    Difference:              0.20 percentage points
+    Relative reduction:      (0.78 - 0.58) / 0.78 = 25.6%
+
+Interpretation:
+
+    nilamp VST3 is lower in REAPER's host-visible realtime meter, but not by
+    the same factor as the isolated audio benchmark. This is expected because a
+    DAW meter includes work outside the raw DSP loop.
+
+    Keller's Gig Performer report of native VST3 being similar or slightly
+    higher than ysfx may have been influenced by editor/GUI cost, host meter
+    accounting, or host-specific plugin scheduling. The nilamp GUI now avoids
+    continuous idle redraws while keeping the editor event pump responsive.
+
+
+AUDIO-ONLY HARNESS SUMMARY
+--------------------------
+
+Source:
+
+    /tmp/nilamp_perf/results.json
+
+Harness:
+
+    make native-perf-bench
+
+Matrix:
+
+    Inputs:       di_like, silence, sine, sweep
+    Cases:        hot_input_nonlinear, keller_default,
+                  low_input_linear, splitter_cd_5e3
+    Block sizes:  32, 64, 128, 512
+    Runs:         5 per condition
+    Phases:       steady_plugin_process, plugin_lifecycle, reload
+    Surfaces:     keller_ysfx, nilamp_clap, nilamp_vst3
+    Records:      2880 total
+
+Headline phase:
+
+    steady_plugin_process
+
+This phase loads and warms each plugin/effect first, then times only in-memory
+audio processing blocks. It intentionally excludes DAW editor cost, host meter
+behavior, and host-specific scheduling.
+
+Median steady-state processing:
+
+    Surface        Median ns/frame  Median realtime factor
+    -------------  ---------------  ----------------------
+    Keller/ysfx             931.24                   22.37x
+    nilamp CLAP             449.12                   46.39x
+    nilamp VST3             446.45                   46.66x
+
+Matched-condition speedup vs Keller/ysfx:
+
+    Surface        Median speedup  Min speedup  Max speedup
+    -------------  --------------  -----------  -----------
+    nilamp CLAP             2.08x        1.68x        2.34x
+    nilamp VST3             2.07x        1.68x        2.39x
+
+Speedup by block size:
+
+    Block  nilamp CLAP median  nilamp VST3 median
+    -----  ------------------  ------------------
+       32               2.08x               2.10x
+       64               2.06x               2.07x
+      128               2.07x               2.07x
+      512               2.09x               2.06x
+
+VST3 speedup by input:
+
+    Input     Median speedup vs Keller/ysfx
+    --------  -----------------------------
+    di_like                           2.07x
+    silence                           2.07x
+    sine                              2.07x
+    sweep                             2.08x
+
+Residual sanity:
+
+    Median residual vs Keller peak:  -77.0 dB
+    Range observed:                 -101.6 dB to -23.2 dB
+
+The residual range varies by input/case because the harness covers both linear
+and nonlinear settings. The benchmark is for performance; the ABX/parity tests
+remain the public behavior gate.
+
+
+LIFECYCLE AND RELOAD
+--------------------
+
+Median warm-path lifecycle/reload timings from the same harness:
+
+    Phase             Surface        Median wall time
+    ----------------  -------------  ----------------
+    plugin_lifecycle  Keller/ysfx             8.73 ms
+    plugin_lifecycle  nilamp CLAP             0.70 ms
+    plugin_lifecycle  nilamp VST3             0.002 ms
+    reload            Keller/ysfx             8.55 ms
+    reload            nilamp CLAP             0.69 ms
+    reload            nilamp VST3             0.002 ms
+
+Notes:
+
+    Keller/ysfx lifecycle and reload include JSFX load/compile/JIT behavior.
+
+    The VST3 lifecycle/reload numbers are warm-path measurements inside one
+    process and can retain SDK/module state. They are useful for regression
+    spotting, but cold VST3 startup should be checked in a real host or a
+    subprocess-based driver.
+
+
+POST-GUI-FIX SMOKE RESULT
+-------------------------
+
+Source:
+
+    /tmp/nilamp_perf/dirty_gui_smoke.json
+
+Command:
+
+    make native-perf-bench PERF_BENCH_ARGS="--quick --runs 1 --warmups 0 --duration 0.25 --json-out /tmp/nilamp_perf/dirty_gui_smoke.json"
+
+Quick steady-state result, sine / keller_default / block 64:
+
+    Surface        ns/frame  Realtime factor  Residual vs Keller peak
+    -------------  --------  ---------------  -----------------------
+    Keller/ysfx       997.0            20.90x
+    nilamp CLAP       446.5            46.66x                 -73.1 dB
+    nilamp VST3       468.2            44.49x                 -73.1 dB
+
+The smoke confirms the GUI redraw change did not alter the audio-only
+performance story.
