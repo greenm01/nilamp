@@ -1,17 +1,22 @@
 YSFX VS NILAMP PERFORMANCE COMPARISON
 =====================================
 
-Date: 2026-05-10
-Native commit tested after GUI idle redraw fix: 91be464
+Updated: 2026-05-10
 
 
 SUMMARY
 -------
 
-The current full audio-only benchmark harness uses unity input feed for both
-nilamp and YSFX, matching DAW-hosted YSFX behavior. It shows nilamp native
-CLAP/VST3 processing at about 2x the throughput of Keller's JSFX running under
-ysfx:
+I measured nilamp against Keller's TWD DLX II JSFX in two different ways.
+They answer different questions.
+
+The command-line benchmark, run on Linux, measures audio processing only. It
+loads Keller's JSFX under headless ysfx, loads nilamp as CLAP and VST3, warms
+the effects, and then times in-memory processing blocks. It excludes REAPER,
+plugin editors, host scheduling, meters, graphics, and UI event processing.
+
+That benchmark shows nilamp processing about twice as fast as Keller's JSFX
+under ysfx:
 
     Surface        Median ns/frame  Median realtime factor
     -------------  ---------------  ----------------------
@@ -23,119 +28,55 @@ ysfx:
         nilamp CLAP vs Keller/ysfx:  2.08x
         nilamp VST3 vs Keller/ysfx:  2.06x
 
-A parity run measured native/JSFX output peaks of 0.3422 / 0.3422 and best
-gain of +0.00 dB, addressing Keller's reported approximately 6 dB lower nilamp
-input level.
+The REAPER benchmark, run on Windows, measures host-visible process CPU. It
+plays a recorded mono DI part in REAPER 7.71. A ReaScript switches between
+nilamp VST3 and Keller's JSFX on the same track. A PowerShell sampler records
+REAPER process CPU while the editor is closed and open.
 
-The earlier Reaper realtime performance meter check showed a smaller but still
-favorable host-visible difference:
+The REAPER run shows median host CPU essentially tied. The p95 values favor
+nilamp, especially with the editor open:
 
-    nilamp VST3 peak CPU:       about 0.58%
-    Keller JSFX via ysfx peak:  about 0.78%
-    Relative reduction:         about 25.6%
+    Scenario                   Median CPU  p95 CPU  Max CPU
+    -------------------------  ----------  -------  -------
+    Keller/ysfx, editor closed     0.192%   1.392%   4.208%
+    Keller/ysfx, editor open       0.193%   1.467%   4.240%
+    nilamp VST3, editor closed     0.192%   1.282%   3.282%
+    nilamp VST3, editor open       0.192%   0.958%   3.858%
 
-These measurements are not contradictory. The harness isolates plugin audio
-processing. Reaper's realtime meter includes host scheduling, wrapper overhead,
-editor/UI behavior when the editor is open, and other DAW-side costs.
+In this REAPER run, nilamp VST3 was not more expensive than Keller JSFX. The
+median values are too close to call. At p95, nilamp was about 7.9% lower with
+the editor closed and about 34.7% lower with the editor open.
 
-Important measurement note:
-
-    The Reaper numbers above were read visually from the Performance Meter and
-    should be treated as a rough observation, not a quantitative benchmark.
-    Future REAPER host-visible measurements should use the scripted workflow in
-    tools/reaper_perf/: PowerShell samples REAPER process CPU while a ReaScript
-    drives nilamp/Keller scenarios with editors closed and open. REAPER's public
-    ReaScript API is used to control FX windows, but the benchmark does not
-    scrape REAPER's FX CPU meter. Use make native-perf-bench for FX/audio-only
-    cost.
-
-Overall conclusion:
-
-    For raw audio processing, nilamp native CLAP/VST3 is consistently about 2x
-    faster than Keller's JSFX under ysfx on this machine. The visual REAPER
-    check suggested nilamp VST3 was lower in host-visible CPU, but that number
-    needs replacement with the scripted REAPER process CPU workflow before it
-    should be used as a quantitative claim. Keller's Gig Performer observation
-    is therefore more consistent with host/editor accounting and the previous
-    6 dB calibration mismatch than with the native DSP being slower than YSFX.
+These results are not contradictory. The Linux benchmark isolates raw audio
+processing. The REAPER benchmark includes the host, the plugin wrapper, editor
+windows, transport, scheduling, and whatever REAPER itself does while playing.
+The command-line result is the better DSP-throughput measurement. The REAPER
+result is the better "what does the DAW see?" measurement.
 
 
-TEST MACHINE
-------------
+REAPER CPU MEASUREMENT FILES
+----------------------------
 
-Local hardware and OS context for these measurements:
+The REAPER numbers come from a scripted run:
 
-    CPU:              AMD Ryzen 9 7950X3D 16-Core Processor
-    Cores / threads:  16 cores / 32 threads
-    Max boost:        about 5.76 GHz, boost enabled
-    CPU governor:     performance
-    Scaling driver:   amd-pstate-epp
-    L3 cache:         128 MiB across 2 instances
-    Memory:           61 GiB total, about 51 GiB available during check
-    Swap:             61 GiB configured, effectively unused during check
-    GPU:              AMD Radeon RX 7900-series / Navi 31
-    OS/kernel:        CachyOS Linux 7.0.5-2-cachyos, PREEMPT_DYNAMIC
+    Summary JSON:
+        dist/reaper-perf/reaper-cpu-summary-20260510-211724.json
 
-Interpretation:
+    Raw samples:
+        dist/reaper-perf/reaper-cpu-samples-20260510-211724.json
 
-    The audio-only harness is effectively a single-thread throughput test. Its
-    near-100% CPU readings mean the benchmark worker is saturating one CPU
-    thread while running as fast as possible, not that the full 32-thread
-    system is loaded.
+    Scenario markers:
+        dist/reaper-perf/reaper-markers-20260510-211724.json
 
-    The Reaper peak CPU readings are small in absolute terms because this is a
-    high-end desktop CPU. The visual relative difference is only a rough signal;
-    replace it with scripted REAPER process CPU measurements before publishing
-    or relying on the host-visible comparison.
-
-    Memory is not a bottleneck for these measurements. Plugin and harness
-    footprints are tiny relative to the installed RAM.
-
-    The 7950X3D's dual-CCD design can introduce some run-to-run variation
-    depending on scheduler placement, but same-session nilamp-vs-ysfx
-    comparisons remain meaningful.
+The sampler records REAPER process CPU from Windows process time deltas. It
+does not scrape REAPER's "CPU" or "FX CPU" meters. REAPER exposes good scripting
+control for FX windows and playback, but not a stable public API for reading
+those Performance Meter values. For FX-only cost, I use the command-line
+benchmark instead.
 
 
-REAPER REALTIME OBSERVATION
----------------------------
-
-Environment:
-
-    Host:        REAPER
-    Measurement: REAPER Performance Meter, realtime playback, read visually
-    Compared:    nilamp VST3 vs Keller JSFX loaded through ysfx
-
-Observed peak CPU:
-
-    Surface                 Peak CPU
-    ----------------------  --------
-    nilamp VST3              0.58%
-    Keller JSFX via ysfx     0.78%
-
-Derived comparison:
-
-    Difference:              0.20 percentage points
-    Relative reduction:      (0.78 - 0.58) / 0.78 = 25.6%
-
-Interpretation:
-
-    nilamp VST3 appeared lower in REAPER's host-visible realtime meter, but not
-    by the same factor as the isolated audio benchmark. This is expected because
-    a DAW meter includes work outside the raw DSP loop.
-
-    This section is a historical observation. It should be superseded by the
-    scripted workflow in `tools/reaper_perf/`, which records REAPER process CPU
-    over fixed scenarios and summarizes median/p95/max values without relying
-    on visual meter reads.
-
-    Keller's Gig Performer report of native VST3 being similar or slightly
-    higher than ysfx may have been influenced by editor/GUI cost, host meter
-    accounting, or host-specific plugin scheduling. The nilamp GUI now avoids
-    continuous idle redraws while keeping the editor event pump responsive.
-
-
-AUDIO-ONLY HARNESS SUMMARY
---------------------------
+COMMAND-LINE AUDIO-ONLY BENCHMARK
+---------------------------------
 
 Source:
 
@@ -145,6 +86,15 @@ Harness:
 
     make native-perf-bench
 
+Platform:
+
+    OS/kernel:        CachyOS Linux 7.0.5-2-cachyos, PREEMPT_DYNAMIC
+    CPU:              AMD Ryzen 9 7950X3D 16-Core Processor
+    Cores / threads:  16 cores / 32 threads
+    CPU governor:     performance
+    Scaling driver:   amd-pstate-epp
+    Memory:           61 GiB total
+
 Matrix:
 
     Inputs:       di_like, silence, sine, sweep
@@ -153,16 +103,16 @@ Matrix:
     Block sizes:  32, 64, 128, 512
     Runs:         5 per condition
     Phases:       steady_plugin_process, plugin_lifecycle, reload
-    Surfaces:     keller_ysfx, nilamp_clap, nilamp_vst3
+    Surfaces:     Keller JSFX under ysfx, nilamp CLAP, nilamp VST3
     Records:      2880 total
 
 Headline phase:
 
     steady_plugin_process
 
-This phase loads and warms each plugin/effect first, then times only in-memory
-audio processing blocks. It intentionally excludes DAW editor cost, host meter
-behavior, and host-specific scheduling.
+This phase loads and warms each effect first, then times only in-memory audio
+processing blocks. Keller/ysfx JIT and native plugin activation are complete
+before the timed processing section.
 
 Median steady-state processing:
 
@@ -203,17 +153,85 @@ Native-vs-YSFX output residual sanity:
     Range observed:                                        -109.0 dB to -23.2 dB
 
 This is not an input-to-output noise-floor measurement. It is the RMS
-difference between nilamp native output and Keller/YSFX output, after the
-benchmark trims the first 100 ms warm-up window, normalized against the peak
-Keller/YSFX output for that condition. The residual range varies by input/case
-because the harness covers both linear and nonlinear settings. The benchmark is
-for performance; the ABX/parity tests remain the public behavior gate.
+difference between nilamp native output and Keller/YSFX output, after trimming
+the first 100 ms warm-up window, normalized against the peak Keller/YSFX output
+for that condition. The residual range varies because the matrix includes both
+linear and nonlinear settings.
+
+
+REAPER HOST-VISIBLE CPU BENCHMARK
+---------------------------------
+
+Source:
+
+    dist/reaper-perf/reaper-cpu-summary-20260510-211724.json
+
+Host:
+
+    REAPER 7.71 on Windows
+
+Project:
+
+    C:\Users\mag\Documents\REAPER Media\nilamp.rpp
+
+    Sample rate:       44100 Hz
+    Input item:        Media\01-260510_2114.wav
+    Input format:      mono 24-bit PCM WAV
+    Compared FX:       nilamp VST3 vs HK/TWD DLX II.jsfx
+    Disabled FX:       nilamp CLAP bypassed
+
+Method:
+
+    1. Start REAPER with the saved comparison project.
+    2. Start tools/reaper_perf/measure_reaper_cpu.ps1.
+    3. Run tools/reaper_perf/run_reaper_perf_scenarios.lua from REAPER.
+    4. The ReaScript runs three passes of four scenarios:
+           nilamp VST3, editor closed
+           nilamp VST3, editor open
+           Keller JSFX under ysfx, editor closed
+           Keller JSFX under ysfx, editor open
+    5. The script enables one amp at a time on the same track and restores the
+       original state when done.
+    6. The PowerShell sampler records REAPER process CPU every 250 ms.
+
+Each scenario uses about 30 seconds of measurement. The sampler trims the first
+2 seconds and the last 1 second from each scenario before summarizing. The
+aggregate rows below combine the three passes.
+
+Aggregate results, normalized to total logical CPU capacity:
+
+    Scenario                   Samples  Mean CPU  Median CPU  p95 CPU  Max CPU
+    -------------------------  -------  --------  ----------  -------  -------
+    Keller/ysfx, editor closed     317    0.335%      0.192%   1.392%   4.208%
+    Keller/ysfx, editor open       313    0.430%      0.193%   1.467%   4.240%
+    nilamp VST3, editor closed     315    0.337%      0.192%   1.282%   3.282%
+    nilamp VST3, editor open       315    0.327%      0.192%   0.958%   3.858%
+
+The medians are effectively the same. They sit around 0.192% of total machine
+CPU in all four scenarios. That is too small a difference to use as a ranking.
+
+The p95 values are more useful because they show the upper part of the normal
+run, without giving all the weight to a single maximum sample:
+
+    Editor closed:
+        Keller/ysfx p95:   1.392%
+        nilamp VST3 p95:   1.282%
+        nilamp reduction:  7.9%
+
+    Editor open:
+        Keller/ysfx p95:   1.467%
+        nilamp VST3 p95:   0.958%
+        nilamp reduction:  34.7%
+
+This Windows REAPER run does not support the idea that nilamp VST3 is heavier
+than Keller's JSFX under ysfx. With the editor closed, the two are very close.
+With the editor open, nilamp's p95 process CPU is lower in this run.
 
 
 LIFECYCLE AND RELOAD
 --------------------
 
-Median warm-path lifecycle/reload timings from the same harness:
+The command-line benchmark also reports warm-path lifecycle/reload timings:
 
     Phase             Surface        Median wall time
     ----------------  -------------  ----------------
@@ -224,34 +242,29 @@ Median warm-path lifecycle/reload timings from the same harness:
     reload            nilamp CLAP             0.69 ms
     reload            nilamp VST3             0.002 ms
 
-Notes:
-
-    Keller/ysfx lifecycle and reload include JSFX load/compile/JIT behavior.
-
-    The VST3 lifecycle/reload numbers are warm-path measurements inside one
-    process and can retain SDK/module state. They are useful for regression
-    spotting, but cold VST3 startup should be checked in a real host or a
-    subprocess-based driver.
+Keller/ysfx lifecycle and reload include JSFX load/compile/JIT behavior. The
+VST3 lifecycle/reload numbers are warm-path measurements inside one process, so
+they are useful for regression checks but not for a cold-start DAW claim.
 
 
-POST-GUI-FIX SMOKE RESULT
--------------------------
+CONCLUSION
+----------
 
-Source:
+For isolated audio processing, nilamp native CLAP/VST3 is about twice as fast
+as Keller's JSFX under ysfx on this machine.
 
-    /tmp/nilamp_perf/dirty_gui_smoke.json
+Inside REAPER, the difference is much smaller because REAPER measures a larger
+system: the DAW, transport, wrappers, editor windows, and scheduling. In the
+scripted Windows REAPER run, median process CPU was tied, and nilamp VST3 had
+lower p95 CPU than Keller's JSFX under ysfx.
 
-Command:
+The cleanest summary is:
 
-    make native-perf-bench PERF_BENCH_ARGS="--quick --runs 1 --warmups 0 --duration 0.25 --json-out /tmp/nilamp_perf/dirty_gui_smoke.json"
+    Audio-only command-line benchmark:
+        nilamp is about 2x faster.
 
-Quick steady-state result, sine / keller_default / block 64:
+    REAPER host-visible benchmark:
+        median CPU is tied; p95 favors nilamp in this run.
 
-    Surface        ns/frame  Realtime factor  Residual vs Keller peak
-    -------------  --------  ---------------  -----------------------
-    Keller/ysfx       997.0            20.90x
-    nilamp CLAP       446.5            46.66x                 -73.1 dB
-    nilamp VST3       468.2            44.49x                 -73.1 dB
-
-The smoke confirms the GUI redraw change did not alter the audio-only
-performance story.
+That is the expected shape. Raw DSP improvements show up strongly in an
+isolated harness. In a real DAW, the host and UI costs dilute the difference.
