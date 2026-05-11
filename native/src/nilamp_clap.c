@@ -7,9 +7,13 @@
 #include <clap/clap.h>
 #include <clap/ext/audio-ports-config.h>
 #include <clap/ext/gui.h>
+#include <clap/ext/latency.h>
 #include <clap/ext/note-ports.h>
+#include <clap/ext/param-indication.h>
 #include <clap/ext/remote-controls.h>
 #include <clap/ext/timer-support.h>
+#include <clap/ext/state-context.h>
+#include <clap/ext/tail.h>
 
 #include <errno.h>
 #include <float.h>
@@ -65,6 +69,7 @@
 #define NILAMP_MIDI_CC_SUSTAIN 64u
 #define NILAMP_MIDI_CC_GPC5 80u
 #define NILAMP_MIDI_CC_GPC6 81u
+#define NILAMP_CLAP_INDICATION_LABEL_LEN 24u
 #define NILAMP_GUI_FRAME_INTERVAL_SECONDS (1.0 / 30.0)
 #define NILAMP_GUI_HOST_TIMER_MS 33u
 
@@ -74,6 +79,16 @@
 
 typedef NilampControlSpec NilampParamSpec;
 #define nilamp_param_specs (nilamp_control_specs(NULL))
+
+typedef struct NilampClapParamIndication {
+    bool has_mapping;
+    bool has_mapping_color;
+    NilampGuiIndicationColor mapping_color;
+    char mapping_label[NILAMP_CLAP_INDICATION_LABEL_LEN];
+    uint32_t automation_state;
+    bool has_automation_color;
+    NilampGuiIndicationColor automation_color;
+} NilampClapParamIndication;
 
 typedef struct NilampClap {
     clap_plugin_t plugin;
@@ -85,6 +100,7 @@ typedef struct NilampClap {
     NilampEngine *engines[2];
     NilampParams params;
     _Atomic uint32_t param_bits[NILAMP_PARAM_COUNT];
+    NilampClapParamIndication indications[NILAMP_PARAM_COUNT];
     atomic_uint gui_gesture_begin_mask;
     atomic_uint gui_dirty_mask;
     atomic_uint gui_gesture_end_mask;
@@ -1601,6 +1617,58 @@ static const clap_plugin_state_t nilamp_state_ext = {
     .load = nilamp_state_load,
 };
 
+static bool nilamp_state_context_valid(uint32_t context_type)
+{
+    return context_type == CLAP_STATE_CONTEXT_FOR_PRESET ||
+           context_type == CLAP_STATE_CONTEXT_FOR_DUPLICATE ||
+           context_type == CLAP_STATE_CONTEXT_FOR_PROJECT;
+}
+
+static bool nilamp_state_context_save(const clap_plugin_t *plugin,
+                                      const clap_ostream_t *stream,
+                                      uint32_t context_type)
+{
+    if (!nilamp_state_context_valid(context_type)) {
+        return false;
+    }
+    return nilamp_state_save(plugin, stream);
+}
+
+static bool nilamp_state_context_load(const clap_plugin_t *plugin,
+                                      const clap_istream_t *stream,
+                                      uint32_t context_type)
+{
+    if (!nilamp_state_context_valid(context_type)) {
+        return false;
+    }
+    return nilamp_state_load(plugin, stream);
+}
+
+static const clap_plugin_state_context_t nilamp_state_context_ext = {
+    .save = nilamp_state_context_save,
+    .load = nilamp_state_context_load,
+};
+
+static uint32_t nilamp_latency_get(const clap_plugin_t *plugin)
+{
+    (void)plugin;
+    return 0u;
+}
+
+static const clap_plugin_latency_t nilamp_latency_ext = {
+    .get = nilamp_latency_get,
+};
+
+static uint32_t nilamp_tail_get(const clap_plugin_t *plugin)
+{
+    (void)plugin;
+    return 0u;
+}
+
+static const clap_plugin_tail_t nilamp_tail_ext = {
+    .get = nilamp_tail_get,
+};
+
 static uint32_t nilamp_remote_controls_count(const clap_plugin_t *plugin)
 {
     (void)plugin;
@@ -1661,6 +1729,98 @@ static const clap_plugin_remote_controls_t nilamp_remote_controls_ext = {
 };
 
 #if NILAMP_ENABLE_CLAP_GUI
+static NilampGuiIndicationColor nilamp_gui_indication_color_from_clap(
+    const clap_color_t *color)
+{
+    if (!color) {
+        return (NilampGuiIndicationColor){0};
+    }
+    return (NilampGuiIndicationColor){
+        .alpha = color->alpha,
+        .red = color->red,
+        .green = color->green,
+        .blue = color->blue,
+    };
+}
+
+static void nilamp_apply_param_indication_to_gui(NilampClap *plug, uint32_t index)
+{
+    if (!plug || !plug->gui || index >= NILAMP_PARAM_COUNT) {
+        return;
+    }
+
+    const clap_id param_id = nilamp_param_specs[index].id;
+    const NilampClapParamIndication *indication = &plug->indications[index];
+    nilamp_gui_set_param_mapping_indication(
+        plug->gui, param_id, indication->has_mapping,
+        indication->has_mapping_color ? &indication->mapping_color : NULL,
+        indication->mapping_label);
+    nilamp_gui_set_param_automation_indication(
+        plug->gui, param_id, indication->automation_state,
+        indication->has_automation_color ? &indication->automation_color : NULL);
+}
+
+static void nilamp_apply_param_indications_to_gui(NilampClap *plug)
+{
+    if (!plug || !plug->gui) {
+        return;
+    }
+    for (uint32_t i = 0; i < NILAMP_PARAM_COUNT; i++) {
+        nilamp_apply_param_indication_to_gui(plug, i);
+    }
+}
+
+static void nilamp_param_indication_set_mapping(const clap_plugin_t *plugin,
+                                                clap_id param_id,
+                                                bool has_mapping,
+                                                const clap_color_t *color,
+                                                const char *label,
+                                                const char *description)
+{
+    (void)description;
+    NilampClap *plug = nilamp_from_plugin(plugin);
+    const uint32_t index = nilamp_param_index(param_id);
+    if (!plug || index >= NILAMP_PARAM_COUNT) {
+        return;
+    }
+
+    NilampClapParamIndication *indication = &plug->indications[index];
+    indication->has_mapping = has_mapping;
+    indication->has_mapping_color = color != NULL;
+    indication->mapping_color = nilamp_gui_indication_color_from_clap(color);
+    indication->mapping_label[0] = '\0';
+    if (has_mapping && label) {
+        nilamp_copy_text(indication->mapping_label, sizeof(indication->mapping_label),
+                         label);
+    }
+    nilamp_apply_param_indication_to_gui(plug, index);
+}
+
+static void nilamp_param_indication_set_automation(const clap_plugin_t *plugin,
+                                                   clap_id param_id,
+                                                   uint32_t automation_state,
+                                                   const clap_color_t *color)
+{
+    NilampClap *plug = nilamp_from_plugin(plugin);
+    const uint32_t index = nilamp_param_index(param_id);
+    if (!plug || index >= NILAMP_PARAM_COUNT ||
+        automation_state > CLAP_PARAM_INDICATION_AUTOMATION_OVERRIDING) {
+        return;
+    }
+
+    NilampClapParamIndication *indication = &plug->indications[index];
+    indication->automation_state = automation_state;
+    indication->has_automation_color = color != NULL &&
+                                       automation_state != CLAP_PARAM_INDICATION_AUTOMATION_NONE;
+    indication->automation_color = nilamp_gui_indication_color_from_clap(color);
+    nilamp_apply_param_indication_to_gui(plug, index);
+}
+
+static const clap_plugin_param_indication_t nilamp_param_indication_ext = {
+    .set_mapping = nilamp_param_indication_set_mapping,
+    .set_automation = nilamp_param_indication_set_automation,
+};
+
 static bool nilamp_gui_is_api_supported(const clap_plugin_t *plugin, const char *api,
                                         bool is_floating)
 {
@@ -1708,6 +1868,9 @@ static bool nilamp_gui_create_ext(const clap_plugin_t *plugin, const char *api,
                                   NILAMP_GUI_NATIVE_API, is_floating);
     const bool ok = plug->gui != NULL;
     plug->gui_is_floating = ok && is_floating;
+    if (ok) {
+        nilamp_apply_param_indications_to_gui(plug);
+    }
     nilamp_gui_log("create api=%s floating=%d -> %d", api ? api : "(null)",
                    is_floating ? 1 : 0, ok ? 1 : 0);
     return ok;
@@ -1962,11 +2125,24 @@ static const void *nilamp_get_extension(const clap_plugin_t *plugin, const char 
     if (strcmp(id, CLAP_EXT_STATE) == 0) {
         return &nilamp_state_ext;
     }
+    if (strcmp(id, CLAP_EXT_STATE_CONTEXT) == 0) {
+        return &nilamp_state_context_ext;
+    }
+    if (strcmp(id, CLAP_EXT_LATENCY) == 0) {
+        return &nilamp_latency_ext;
+    }
+    if (strcmp(id, CLAP_EXT_TAIL) == 0) {
+        return &nilamp_tail_ext;
+    }
     if (strcmp(id, CLAP_EXT_REMOTE_CONTROLS) == 0 ||
         strcmp(id, CLAP_EXT_REMOTE_CONTROLS_COMPAT) == 0) {
         return &nilamp_remote_controls_ext;
     }
 #if NILAMP_ENABLE_CLAP_GUI
+    if (strcmp(id, CLAP_EXT_PARAM_INDICATION) == 0 ||
+        strcmp(id, CLAP_EXT_PARAM_INDICATION_COMPAT) == 0) {
+        return &nilamp_param_indication_ext;
+    }
     if (strcmp(id, CLAP_EXT_GUI) == 0) {
         return &nilamp_gui_ext;
     }

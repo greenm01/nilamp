@@ -27,23 +27,21 @@ nilamp does not implement.
   plus the default-screen amp-face knobs.
 - MIDI CC-style parameter control through one `clap.note-ports` MIDI input,
   matching the VST3 CC map for bypass and amp-face knobs.
+- Host-provided GUI mapping and automation indicators through
+  `clap.param-indication/4` when CLAP GUI support is enabled.
+- Context-aware state save/load through `clap.state-context/2`, delegating to
+  the versioned state implementation for project, duplicate, and preset
+  contexts.
+- Explicit zero latency and zero tail declarations through `clap.latency` and
+  `clap.tail`.
 - Embedded GUI support for the supported platform parent API.
 - GUI timer support through `clap.timer-support` when CLAP GUI support is
   enabled.
 
 ## Guitar-Amp-Relevant Backlog
 
-1. Consider `clap.param-indication/4` as later GUI polish.
-   This could let hosts mark mapped or automated parameters in the custom GUI,
-   but it only matters if target hosts expose useful indication data.
-
-2. Consider `clap.state-context/2` after presets exist.
-   It could initially delegate to the existing state implementation, but its
-   main value is distinguishing project, duplicate, and preset load semantics.
-
-3. Consider `clap.latency` and `clap.tail` as low-value compatibility polish.
-   nilamp is currently zero-latency and does not expose a meaningful effect tail,
-   so these extensions would mostly make that explicit.
+No remaining CLAP API gaps are currently worth implementing for nilamp's guitar
+amp scope without a concrete host requirement.
 
 ## Low-Value For This Plugin
 

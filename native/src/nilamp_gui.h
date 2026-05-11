@@ -24,6 +24,13 @@ typedef struct NilampGuiParent {
     uintptr_t handle;
 } NilampGuiParent;
 
+typedef struct NilampGuiIndicationColor {
+    uint8_t alpha;
+    uint8_t red;
+    uint8_t green;
+    uint8_t blue;
+} NilampGuiIndicationColor;
+
 typedef NilampControlSpec NilampGuiParamSpec;
 
 typedef struct NilampGuiCallbacks {
@@ -55,6 +62,15 @@ bool nilamp_gui_start_frame_timer(NilampGui *gui, double interval_seconds);
 void nilamp_gui_stop_frame_timer(NilampGui *gui);
 void nilamp_gui_refresh(NilampGui *gui);
 void nilamp_gui_on_main_thread(NilampGui *gui);
+void nilamp_gui_set_param_mapping_indication(NilampGui *gui,
+                                             uint32_t param_id,
+                                             bool has_mapping,
+                                             const NilampGuiIndicationColor *color,
+                                             const char *label);
+void nilamp_gui_set_param_automation_indication(NilampGui *gui,
+                                                uint32_t param_id,
+                                                uint32_t automation_state,
+                                                const NilampGuiIndicationColor *color);
 
 #ifdef __cplusplus
 }

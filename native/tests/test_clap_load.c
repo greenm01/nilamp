@@ -4,8 +4,12 @@
 #include <clap/clap.h>
 #include <clap/ext/audio-ports-config.h>
 #include <clap/ext/gui.h>
+#include <clap/ext/latency.h>
 #include <clap/ext/note-ports.h>
+#include <clap/ext/param-indication.h>
 #include <clap/ext/remote-controls.h>
+#include <clap/ext/state-context.h>
+#include <clap/ext/tail.h>
 #include <clap/ext/timer-support.h>
 
 #if defined(_WIN32)
@@ -1213,6 +1217,75 @@ int main(int argc, char **argv)
         (const clap_plugin_state_t *)plugin->get_extension(plugin, CLAP_EXT_STATE);
     check(state != NULL, "missing state extension");
 
+    const clap_plugin_state_context_t *state_context =
+        (const clap_plugin_state_context_t *)plugin->get_extension(plugin,
+                                                                   CLAP_EXT_STATE_CONTEXT);
+    check(state_context != NULL, "missing state context extension");
+    const clap_plugin_latency_t *latency =
+        (const clap_plugin_latency_t *)plugin->get_extension(plugin, CLAP_EXT_LATENCY);
+    check(latency != NULL, "missing latency extension");
+    check(latency->get(plugin) == 0u, "unexpected CLAP latency");
+    const clap_plugin_tail_t *tail =
+        (const clap_plugin_tail_t *)plugin->get_extension(plugin, CLAP_EXT_TAIL);
+    check(tail != NULL, "missing tail extension");
+    check(tail->get(plugin) == 0u, "unexpected CLAP tail");
+
+#if NILAMP_EXPECT_CLAP_GUI
+    const clap_plugin_param_indication_t *param_indication =
+        (const clap_plugin_param_indication_t *)plugin->get_extension(
+            plugin, CLAP_EXT_PARAM_INDICATION);
+    check(param_indication != NULL, "missing param indication extension");
+    check(plugin->get_extension(plugin, CLAP_EXT_PARAM_INDICATION_COMPAT) ==
+              param_indication,
+          "missing param indication compat extension");
+
+    MemoryStream indication_before = {0};
+    clap_ostream_t indication_before_out = {
+        .ctx = &indication_before,
+        .write = stream_write,
+    };
+    check(state->save(plugin, &indication_before_out),
+          "pre-indication state save failed");
+    const double gain_before_indication = gain;
+    const clap_color_t indication_color = {
+        .alpha = 230u,
+        .red = 82u,
+        .green = 190u,
+        .blue = 255u,
+    };
+    param_indication->set_mapping(plugin, NILAMP_PARAM_GAIN_DB, true,
+                                  &indication_color, "GPC1", "mapped");
+    param_indication->set_automation(plugin, NILAMP_PARAM_GAIN_DB,
+                                     CLAP_PARAM_INDICATION_AUTOMATION_PLAYING,
+                                     &indication_color);
+    param_indication->set_mapping(plugin, CLAP_INVALID_ID, true, &indication_color,
+                                  "bad", "bad");
+    param_indication->set_automation(plugin, CLAP_INVALID_ID,
+                                     CLAP_PARAM_INDICATION_AUTOMATION_PLAYING,
+                                     &indication_color);
+    param_indication->set_mapping(plugin, NILAMP_PARAM_GAIN_DB, false, NULL, NULL, NULL);
+    param_indication->set_automation(plugin, NILAMP_PARAM_GAIN_DB,
+                                     CLAP_PARAM_INDICATION_AUTOMATION_NONE, NULL);
+    check(params->get_value(plugin, NILAMP_PARAM_GAIN_DB, &gain),
+          "post-indication gain read failed");
+    check(fabs(gain - gain_before_indication) < 0.000001,
+          "param indication changed gain");
+    MemoryStream indication_after = {0};
+    clap_ostream_t indication_after_out = {
+        .ctx = &indication_after,
+        .write = stream_write,
+    };
+    check(state->save(plugin, &indication_after_out),
+          "post-indication state save failed");
+    check(indication_before.size == indication_after.size &&
+              memcmp(indication_before.data, indication_after.data,
+                     (size_t)indication_before.size) == 0,
+          "param indication changed state");
+#else
+    check(plugin->get_extension(plugin, CLAP_EXT_PARAM_INDICATION) == NULL,
+          "unexpected param indication extension");
+#endif
+
     const clap_plugin_remote_controls_t *remote_controls =
         (const clap_plugin_remote_controls_t *)plugin->get_extension(
             plugin, CLAP_EXT_REMOTE_CONTROLS);
@@ -1480,6 +1553,53 @@ int main(int argc, char **argv)
     check(fabs(splitter - 4.0) < 0.000001, "state did not restore splitter");
     check(params->get_value(plugin, NILAMP_PARAM_BYPASS, &bypass), "bypass state reread failed");
     check(fabs(bypass - 1.0) < 0.000001, "state did not restore bypass");
+
+    const uint32_t state_context_types[] = {
+        CLAP_STATE_CONTEXT_FOR_PRESET,
+        CLAP_STATE_CONTEXT_FOR_DUPLICATE,
+        CLAP_STATE_CONTEXT_FOR_PROJECT,
+    };
+    for (uint32_t i = 0; i < sizeof(state_context_types) / sizeof(state_context_types[0]); i++) {
+        MemoryStream context_memory = {0};
+        clap_ostream_t context_ostream = {
+            .ctx = &context_memory,
+            .write = stream_write,
+        };
+        check(state_context->save(plugin, &context_ostream, state_context_types[i]),
+              "state context save failed");
+        gain_event.value = 12.0;
+        check(plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE,
+              "state context mutation process returned failure");
+        check(params->get_value(plugin, NILAMP_PARAM_GAIN_DB, &gain),
+              "state context mutation gain read failed");
+        check(fabs(gain - 12.0) < 0.000001,
+              "state context mutation gain was not applied");
+        context_memory.offset = 0;
+        clap_istream_t context_istream = {
+            .ctx = &context_memory,
+            .read = stream_read,
+        };
+        check(state_context->load(plugin, &context_istream, state_context_types[i]),
+              "state context load failed");
+        check(params->get_value(plugin, NILAMP_PARAM_GAIN_DB, &gain),
+              "state context gain reread failed");
+        check(fabs(gain + 6.0) < 0.000001,
+              "state context did not restore negative gain");
+    }
+    MemoryStream invalid_context_memory = {0};
+    clap_ostream_t invalid_context_ostream = {
+        .ctx = &invalid_context_memory,
+        .write = stream_write,
+    };
+    check(!state_context->save(plugin, &invalid_context_ostream, 999u),
+          "invalid state context save succeeded");
+    memory.offset = 0;
+    clap_istream_t invalid_context_istream = {
+        .ctx = &memory,
+        .read = stream_read,
+    };
+    check(!state_context->load(plugin, &invalid_context_istream, 999u),
+          "invalid state context load succeeded");
 
     struct {
         uint32_t magic;

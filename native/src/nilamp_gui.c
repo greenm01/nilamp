@@ -33,6 +33,7 @@
 #define NILAMP_GUI_MAX_PARAMS 24u
 #define NILAMP_GUI_MAX_MSGS (NILAMP_GUI_MAX_PARAMS * 3u)
 #define NILAMP_GUI_EDIT_TEXT_LEN 32u
+#define NILAMP_GUI_INDICATION_LABEL_LEN 24u
 #define NILAMP_GUI_TEXT_INPUT_LEN 64u
 #define NILAMP_GUI_MAX_VERTICES 32768u
 #define NILAMP_GUI_DOUBLE_CLICK_SECONDS 0.35
@@ -79,6 +80,16 @@ typedef struct NilampGuiModel {
     bool dirty;
 } NilampGuiModel;
 
+typedef struct NilampGuiParamIndication {
+    bool has_mapping;
+    bool has_mapping_color;
+    NilampGuiIndicationColor mapping_color;
+    char mapping_label[NILAMP_GUI_INDICATION_LABEL_LEN];
+    uint32_t automation_state;
+    bool has_automation_color;
+    NilampGuiIndicationColor automation_color;
+} NilampGuiParamIndication;
+
 struct NilampGui {
     PuglWorld *world;
     PuglView *view;
@@ -88,6 +99,7 @@ struct NilampGui {
     const NilampGuiLayoutSpec *layout;
     NilampGuiApi api;
     NilampGuiModel model;
+    NilampGuiParamIndication indications[NILAMP_GUI_MAX_PARAMS];
     double scale;
     int mouse_x;
     int mouse_y;
@@ -1295,6 +1307,16 @@ static struct nk_color nilamp_gui_color(uint32_t rgb)
                   (int)(rgb & 0xffu));
 }
 
+static struct nk_color nilamp_gui_indication_color(const NilampGuiIndicationColor *color,
+                                                   struct nk_color fallback)
+{
+    if (!color) {
+        return fallback;
+    }
+    return nk_rgba((int)color->red, (int)color->green, (int)color->blue,
+                   (int)color->alpha);
+}
+
 static struct nk_rect nilamp_gui_scale_spec_rect(float sx, float sy,
                                                  NilampGuiRectSpec rect)
 {
@@ -1344,6 +1366,49 @@ static NilampGuiKnobStyle nilamp_gui_knob_style_from_spec(NilampGuiKnobDisplay d
     }
 }
 
+static void nilamp_gui_draw_param_indication(NilampGui *gui,
+                                             struct nk_context *ctx,
+                                             struct nk_command_buffer *canvas,
+                                             uint32_t index,
+                                             struct nk_rect bounds)
+{
+    if (!gui || !ctx || !canvas || index >= gui->param_count ||
+        index >= NILAMP_GUI_MAX_PARAMS) {
+        return;
+    }
+
+    const NilampGuiParamIndication *indication = &gui->indications[index];
+    if (!indication->has_mapping && indication->automation_state == 0u) {
+        return;
+    }
+
+    const struct nk_color mapping_default = nk_rgba(82, 190, 255, 230);
+    const struct nk_color automation_default = nk_rgba(255, 96, 112, 230);
+    if (indication->has_mapping) {
+        const struct nk_color color = nilamp_gui_indication_color(
+            indication->has_mapping_color ? &indication->mapping_color : NULL,
+            mapping_default);
+        const struct nk_rect badge = nk_rect(bounds.x + bounds.w - 18.0f, bounds.y + 3.0f,
+                                            14.0f, 14.0f);
+        nk_fill_rect(canvas, badge, 3.0f, color);
+        if (indication->mapping_label[0]) {
+            nilamp_gui_draw_text(ctx, canvas,
+                                 nk_rect(bounds.x + bounds.w - 64.0f, bounds.y + 1.0f,
+                                         44.0f, 16.0f),
+                                 indication->mapping_label, color, false);
+        }
+    }
+
+    if (indication->automation_state != 0u) {
+        const struct nk_color color = nilamp_gui_indication_color(
+            indication->has_automation_color ? &indication->automation_color : NULL,
+            automation_default);
+        nk_fill_rect(canvas, nk_rect(bounds.x + 8.0f, bounds.y + bounds.h - 3.0f,
+                                     bounds.w - 16.0f, 2.0f),
+                     1.0f, color);
+    }
+}
+
 static void nilamp_gui_draw_layout_widget(NilampGui *gui, struct nk_context *ctx,
                                           struct nk_command_buffer *canvas,
                                           const NilampGuiWidgetSpec *widget,
@@ -1358,6 +1423,7 @@ static void nilamp_gui_draw_layout_widget(NilampGui *gui, struct nk_context *ctx
         return;
     }
     const struct nk_rect bounds = nilamp_gui_scale_spec_rect(sx, sy, widget->bounds);
+    uint32_t indication_index = NILAMP_GUI_MAX_PARAMS;
     switch (widget->type) {
     case NILAMP_GUI_WIDGET_TEXT:
         nilamp_gui_draw_text_with_font(
@@ -1379,25 +1445,27 @@ static void nilamp_gui_draw_layout_widget(NilampGui *gui, struct nk_context *ctx
         nilamp_gui_draw_panel(ctx, canvas, bounds, widget->label, panel, border, text);
         break;
     case NILAMP_GUI_WIDGET_KNOB:
+        indication_index = nilamp_gui_find_param_index(gui, widget->param_id);
         (void)nilamp_gui_knob(gui, ctx, canvas,
-                              nilamp_gui_find_param_index(gui, widget->param_id),
+                              indication_index,
                               bounds, outbox, outbox_count,
                               widget->radius * s,
                               nilamp_gui_knob_style_from_spec(widget->knob_display));
         break;
     case NILAMP_GUI_WIDGET_ENUM:
+        indication_index = nilamp_gui_find_param_index(gui, widget->param_id);
         nilamp_gui_enum_dropdown(gui, ctx, canvas,
-                                  nilamp_gui_find_param_index(gui, widget->param_id),
-                                  bounds, outbox, outbox_count);
+                                  indication_index, bounds, outbox, outbox_count);
         break;
     case NILAMP_GUI_WIDGET_TOGGLE:
+        indication_index = nilamp_gui_find_param_index(gui, widget->param_id);
         nilamp_gui_enum_toggle(gui, ctx, canvas,
-                               nilamp_gui_find_param_index(gui, widget->param_id),
-                               bounds, outbox, outbox_count);
+                               indication_index, bounds, outbox, outbox_count);
         break;
     default:
         break;
     }
+    nilamp_gui_draw_param_indication(gui, ctx, canvas, indication_index, bounds);
 }
 
 static bool nilamp_gui_build_generated(NilampGui *gui, struct nk_context *ctx,
@@ -2344,4 +2412,53 @@ void nilamp_gui_on_main_thread(NilampGui *gui)
     if (gui->model.dirty) {
         nilamp_gui_request_redraw(gui);
     }
+}
+
+void nilamp_gui_set_param_mapping_indication(NilampGui *gui,
+                                             uint32_t param_id,
+                                             bool has_mapping,
+                                             const NilampGuiIndicationColor *color,
+                                             const char *label)
+{
+    if (!gui) {
+        return;
+    }
+    const uint32_t index = nilamp_gui_find_param_index(gui, param_id);
+    if (index >= gui->param_count || index >= NILAMP_GUI_MAX_PARAMS) {
+        return;
+    }
+
+    NilampGuiParamIndication *indication = &gui->indications[index];
+    indication->has_mapping = has_mapping;
+    indication->has_mapping_color = color != NULL;
+    indication->mapping_color = color ? *color : (NilampGuiIndicationColor){0};
+    indication->mapping_label[0] = '\0';
+    if (has_mapping && label) {
+        (void)snprintf(indication->mapping_label, sizeof(indication->mapping_label),
+                       "%s", label);
+    }
+    gui->model.dirty = true;
+    nilamp_gui_request_redraw(gui);
+}
+
+void nilamp_gui_set_param_automation_indication(NilampGui *gui,
+                                                uint32_t param_id,
+                                                uint32_t automation_state,
+                                                const NilampGuiIndicationColor *color)
+{
+    if (!gui) {
+        return;
+    }
+    const uint32_t index = nilamp_gui_find_param_index(gui, param_id);
+    if (index >= gui->param_count || index >= NILAMP_GUI_MAX_PARAMS) {
+        return;
+    }
+
+    NilampGuiParamIndication *indication = &gui->indications[index];
+    indication->automation_state = automation_state;
+    indication->has_automation_color = color != NULL && automation_state != 0u;
+    indication->automation_color =
+        indication->has_automation_color ? *color : (NilampGuiIndicationColor){0};
+    gui->model.dirty = true;
+    nilamp_gui_request_redraw(gui);
 }
