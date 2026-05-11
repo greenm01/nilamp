@@ -80,6 +80,11 @@ typedef struct TestEvents {
     uint32_t count;
 } TestEvents;
 
+typedef struct TestOutputEvents {
+    clap_event_param_value_t params[32];
+    uint32_t count;
+} TestOutputEvents;
+
 typedef struct MemoryStream {
     uint8_t data[128];
     uint64_t size;
@@ -249,6 +254,20 @@ static bool events_try_push(const clap_output_events_t *list, const clap_event_h
     (void)list;
     (void)event;
     return false;
+}
+
+static bool events_capture_try_push(const clap_output_events_t *list,
+                                    const clap_event_header_t *event)
+{
+    TestOutputEvents *events = (TestOutputEvents *)list->ctx;
+    if (!events || !event || event->type != CLAP_EVENT_PARAM_VALUE ||
+        event->size < sizeof(clap_event_param_value_t) ||
+        events->count >= sizeof(events->params) / sizeof(events->params[0])) {
+        return false;
+    }
+    memcpy(&events->params[events->count], event, sizeof(events->params[events->count]));
+    events->count++;
+    return true;
 }
 
 static int64_t stream_write(const clap_ostream_t *stream, const void *buffer, uint64_t size)
@@ -536,6 +555,72 @@ static void init_param_event(clap_event_param_value_t *event, clap_id id, double
     event->value = value;
 }
 
+static void init_midi_cc_event(clap_event_midi_t *event, uint32_t time,
+                               uint16_t port_index, uint8_t channel,
+                               uint8_t controller, uint8_t value)
+{
+    memset(event, 0, sizeof(*event));
+    event->header.size = sizeof(*event);
+    event->header.time = time;
+    event->header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+    event->header.type = CLAP_EVENT_MIDI;
+    event->header.flags = CLAP_EVENT_IS_LIVE;
+    event->port_index = port_index;
+    event->data[0] = (uint8_t)(0xb0u | (channel & 0x0fu));
+    event->data[1] = controller;
+    event->data[2] = value;
+}
+
+static void init_midi_note_on_event(clap_event_midi_t *event, uint32_t time)
+{
+    memset(event, 0, sizeof(*event));
+    event->header.size = sizeof(*event);
+    event->header.time = time;
+    event->header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+    event->header.type = CLAP_EVENT_MIDI;
+    event->header.flags = CLAP_EVENT_IS_LIVE;
+    event->port_index = 0;
+    event->data[0] = 0x90u;
+    event->data[1] = 60u;
+    event->data[2] = 100u;
+}
+
+static double midi_cc_plain_value(clap_id id, uint8_t value)
+{
+    const NilampControlSpec *spec = nilamp_control_specs(NULL);
+    check(id < NILAMP_PARAM_COUNT, "invalid MIDI expected param id");
+    if (id == NILAMP_PARAM_BYPASS) {
+        return value >= 64u ? 1.0 : 0.0;
+    }
+    return spec[id].min_value +
+           ((double)value / 127.0) * (spec[id].max_value - spec[id].min_value);
+}
+
+static void reset_clap_params_to_defaults(const clap_plugin_t *plugin,
+                                          const clap_plugin_params_t *params,
+                                          clap_output_events_t *out_events)
+{
+    uint32_t spec_count = 0;
+    const NilampControlSpec *specs = nilamp_control_specs(&spec_count);
+    clap_event_param_value_t param_events[NILAMP_PARAM_COUNT];
+    const clap_event_header_t *event_ptrs[NILAMP_PARAM_COUNT];
+
+    check(spec_count == NILAMP_PARAM_COUNT, "default reset spec count mismatch");
+    for (uint32_t i = 0; i < spec_count; i++) {
+        init_param_event(&param_events[i], specs[i].id, specs[i].default_value);
+        event_ptrs[i] = &param_events[i].header;
+    }
+
+    TestEvents events = {.events = event_ptrs, .count = spec_count};
+    clap_input_events_t input = {
+        .ctx = &events,
+        .size = events_size,
+        .get = events_get,
+    };
+    params->flush(plugin, &input, out_events);
+    plugin->reset(plugin);
+}
+
 static void check_param_metadata(const clap_plugin_t *plugin,
                                  const clap_plugin_params_t *params)
 {
@@ -798,6 +883,147 @@ static void run_clap_bypass_test(const clap_plugin_t *plugin,
     params->flush(plugin, &bypass_input, out_events);
 }
 
+static void run_clap_midi_test(const clap_plugin_t *plugin,
+                               const clap_plugin_params_t *params,
+                               clap_process_t *process,
+                               clap_output_events_t *scratch_out_events)
+{
+    enum { Frames = 64 };
+    const clap_process_t original_process = *process;
+    static float in_l[Frames];
+    static float in_r[Frames];
+    static float out_l[Frames];
+    static float out_r[Frames];
+
+    reset_clap_params_to_defaults(plugin, params, scratch_out_events);
+    fill_input(in_l, in_r, Frames);
+    memset(out_l, 0, sizeof(out_l));
+    memset(out_r, 0, sizeof(out_r));
+
+    float *input_channels[2] = {in_l, in_r};
+    float *output_channels[2] = {out_l, out_r};
+    clap_audio_buffer_t input = {
+        .data32 = input_channels,
+        .data64 = NULL,
+        .channel_count = 2,
+        .latency = 0,
+        .constant_mask = 0,
+    };
+    clap_audio_buffer_t output = {
+        .data32 = output_channels,
+        .data64 = NULL,
+        .channel_count = 2,
+        .latency = 0,
+        .constant_mask = 0,
+    };
+
+    const clap_id mapped_ids[] = {
+        NILAMP_PARAM_BYPASS,
+        NILAMP_PARAM_GAIN_DB,
+        NILAMP_PARAM_OUTPUT_GAIN_DB,
+        NILAMP_PARAM_VOLUME_PCT,
+        NILAMP_PARAM_BASS_PCT,
+        NILAMP_PARAM_MID_PCT,
+        NILAMP_PARAM_TREBLE_PCT,
+    };
+    const uint8_t mapped_ccs[] = {64u, 16u, 17u, 18u, 19u, 80u, 81u};
+    const uint8_t mapped_values[] = {127u, 127u, 0u, 64u, 32u, 96u, 48u};
+    clap_event_midi_t midi_events[sizeof(mapped_ids) / sizeof(mapped_ids[0])];
+    const clap_event_header_t *event_ptrs[sizeof(mapped_ids) / sizeof(mapped_ids[0])];
+    for (uint32_t i = 0; i < sizeof(mapped_ids) / sizeof(mapped_ids[0]); i++) {
+        init_midi_cc_event(&midi_events[i], i, 0u, (uint8_t)i, mapped_ccs[i],
+                           mapped_values[i]);
+        event_ptrs[i] = &midi_events[i].header;
+    }
+
+    TestEvents input_events = {
+        .events = event_ptrs,
+        .count = sizeof(mapped_ids) / sizeof(mapped_ids[0]),
+    };
+    clap_input_events_t midi_input = {
+        .ctx = &input_events,
+        .size = events_size,
+        .get = events_get,
+    };
+    TestOutputEvents captured = {0};
+    clap_output_events_t captured_output = {
+        .ctx = &captured,
+        .try_push = events_capture_try_push,
+    };
+
+    process->audio_inputs = &input;
+    process->audio_outputs = &output;
+    process->audio_inputs_count = 1;
+    process->audio_outputs_count = 1;
+    process->in_events = &midi_input;
+    process->out_events = &captured_output;
+    process->frames_count = Frames;
+    check(plugin->process(plugin, process) == CLAP_PROCESS_CONTINUE,
+          "MIDI mapped process returned failure");
+    check(captured.count == sizeof(mapped_ids) / sizeof(mapped_ids[0]),
+          "unexpected MIDI output param event count");
+    for (uint32_t i = 0; i < sizeof(mapped_ids) / sizeof(mapped_ids[0]); i++) {
+        const double expected = midi_cc_plain_value(mapped_ids[i], mapped_values[i]);
+        double actual = NAN;
+        check(params->get_value(plugin, mapped_ids[i], &actual),
+              "MIDI mapped param read failed");
+        check(fabs(actual - expected) < 0.00001, "MIDI mapped param value mismatch");
+        check(captured.params[i].header.time == i, "MIDI output event time mismatch");
+        check((captured.params[i].header.flags & CLAP_EVENT_DONT_RECORD) != 0u,
+              "MIDI output event is recordable");
+        check((captured.params[i].header.flags & CLAP_EVENT_IS_LIVE) != 0u,
+              "MIDI output event is not live");
+        check(captured.params[i].param_id == mapped_ids[i],
+              "MIDI output event param id mismatch");
+        check(fabs(captured.params[i].value - expected) < 0.00001,
+              "MIDI output event value mismatch");
+    }
+
+    clap_event_midi_t ignored_events[3];
+    init_midi_cc_event(&ignored_events[0], 0u, 1u, 0u, 16u, 0u);
+    init_midi_note_on_event(&ignored_events[1], 1u);
+    init_midi_cc_event(&ignored_events[2], 2u, 0u, 0u, 82u, 127u);
+    const clap_event_header_t *ignored_ptrs[3] = {
+        &ignored_events[0].header,
+        &ignored_events[1].header,
+        &ignored_events[2].header,
+    };
+    TestEvents ignored_input_events = {.events = ignored_ptrs, .count = 3u};
+    midi_input.ctx = &ignored_input_events;
+    captured.count = 0u;
+    check(plugin->process(plugin, process) == CLAP_PROCESS_CONTINUE,
+          "MIDI ignored process returned failure");
+    check(captured.count == 0u, "ignored MIDI produced output param events");
+    double gain = NAN;
+    check(params->get_value(plugin, NILAMP_PARAM_GAIN_DB, &gain),
+          "MIDI ignored gain read failed");
+    check(fabs(gain - midi_cc_plain_value(NILAMP_PARAM_GAIN_DB, 127u)) < 0.00001,
+          "ignored MIDI changed mapped gain");
+
+    reset_clap_params_to_defaults(plugin, params, scratch_out_events);
+    fill_input(in_l, in_r, Frames);
+    float ref_l[Frames];
+    float ref_r[Frames];
+    render_engine_pair(in_l, in_r, ref_l, ref_r, Frames, false);
+    memset(out_l, 0, sizeof(out_l));
+    memset(out_r, 0, sizeof(out_r));
+    clap_event_midi_t bypass_event;
+    init_midi_cc_event(&bypass_event, 32u, 0u, 0u, 64u, 127u);
+    const clap_event_header_t *bypass_ptrs[1] = {&bypass_event.header};
+    TestEvents bypass_input_events = {.events = bypass_ptrs, .count = 1u};
+    midi_input.ctx = &bypass_input_events;
+    captured.count = 0u;
+    check(plugin->process(plugin, process) == CLAP_PROCESS_CONTINUE,
+          "MIDI bypass split process returned failure");
+    compare_output(out_l, ref_l, 32u, "MIDI pre-bypass left");
+    compare_output(out_r, ref_r, 32u, "MIDI pre-bypass right");
+    compare_output(out_l + 32u, in_l + 32u, Frames - 32u, "MIDI post-bypass left");
+    compare_output(out_r + 32u, in_r + 32u, Frames - 32u, "MIDI post-bypass right");
+
+    reset_clap_params_to_defaults(plugin, params, scratch_out_events);
+    *process = original_process;
+}
+
 int main(int argc, char **argv)
 {
     const char *plugin_path = argc > 1 ? argv[1] : "native/bin/nilamp-twd-mkii.clap";
@@ -1018,8 +1244,24 @@ int main(int argc, char **argv)
     }
     check(!remote_controls->get(plugin, 1, &remote_page),
           "remote controls invalid page succeeded");
-    check(plugin->get_extension(plugin, CLAP_EXT_NOTE_PORTS) == NULL,
-          "unexpected note ports extension");
+
+    const clap_plugin_note_ports_t *note_ports =
+        (const clap_plugin_note_ports_t *)plugin->get_extension(plugin, CLAP_EXT_NOTE_PORTS);
+    check(note_ports != NULL, "missing note ports extension");
+    check(note_ports->count(plugin, true) == 1, "unexpected input note port count");
+    check(note_ports->count(plugin, false) == 0, "unexpected output note port count");
+    clap_note_port_info_t note_port = {0};
+    check(note_ports->get(plugin, 0, true, &note_port), "note port info read failed");
+    check(note_port.id == 0, "unexpected note port id");
+    check(strcmp(note_port.name, "MIDI In") == 0, "unexpected note port name");
+    check(note_port.supported_dialects == CLAP_NOTE_DIALECT_MIDI,
+          "unexpected note port supported dialects");
+    check(note_port.preferred_dialect == CLAP_NOTE_DIALECT_MIDI,
+          "unexpected note port preferred dialect");
+    check(!note_ports->get(plugin, 1, true, &note_port),
+          "invalid input note port read succeeded");
+    check(!note_ports->get(plugin, 0, false, &note_port),
+          "invalid output note port read succeeded");
 
     const clap_plugin_gui_t *gui =
         (const clap_plugin_gui_t *)plugin->get_extension(plugin, CLAP_EXT_GUI);
@@ -1163,6 +1405,7 @@ int main(int argc, char **argv)
     process.audio_inputs_count = 1;
     process.audio_outputs_count = 1;
     process.frames_count = Frames;
+    run_clap_midi_test(plugin, params, &process, &out_events);
     run_all_param_automation_test(plugin, params, &process, &out_events);
 
     clap_event_param_value_t gain_event = {

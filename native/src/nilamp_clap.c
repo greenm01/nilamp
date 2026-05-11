@@ -7,6 +7,7 @@
 #include <clap/clap.h>
 #include <clap/ext/audio-ports-config.h>
 #include <clap/ext/gui.h>
+#include <clap/ext/note-ports.h>
 #include <clap/ext/remote-controls.h>
 #include <clap/ext/timer-support.h>
 
@@ -55,7 +56,15 @@
 #define NILAMP_CLAP_OUTPUT_LIMIT 1.0f
 #define NILAMP_CLAP_PORT_CONFIG_MONO 1u
 #define NILAMP_CLAP_PORT_CONFIG_STEREO 2u
+#define NILAMP_CLAP_MIDI_PORT_MAIN 0u
 #define NILAMP_CLAP_REMOTE_PAGE_AMP_FACE 1u
+#define NILAMP_MIDI_CC_GPC1 16u
+#define NILAMP_MIDI_CC_GPC2 17u
+#define NILAMP_MIDI_CC_GPC3 18u
+#define NILAMP_MIDI_CC_GPC4 19u
+#define NILAMP_MIDI_CC_SUSTAIN 64u
+#define NILAMP_MIDI_CC_GPC5 80u
+#define NILAMP_MIDI_CC_GPC6 81u
 #define NILAMP_GUI_FRAME_INTERVAL_SECONDS (1.0 / 30.0)
 #define NILAMP_GUI_HOST_TIMER_MS 33u
 
@@ -878,6 +887,97 @@ static bool nilamp_process_segment(NilampClap *plug, const clap_process_t *proce
     return true;
 }
 
+static bool nilamp_midi_cc_to_param(uint8_t cc, clap_id *out_param_id)
+{
+    if (!out_param_id) {
+        return false;
+    }
+    if (cc == NILAMP_MIDI_CC_SUSTAIN) {
+        *out_param_id = NILAMP_PARAM_BYPASS;
+        return true;
+    }
+
+    static const uint8_t front_face_ccs[] = {
+        NILAMP_MIDI_CC_GPC1,
+        NILAMP_MIDI_CC_GPC2,
+        NILAMP_MIDI_CC_GPC3,
+        NILAMP_MIDI_CC_GPC4,
+        NILAMP_MIDI_CC_GPC5,
+        NILAMP_MIDI_CC_GPC6,
+    };
+
+    const NilampGuiLayoutSpec *layout = nilamp_model_gui_layout(NILAMP_MODEL_DEFAULT);
+    if (!layout) {
+        return false;
+    }
+    uint32_t cc_index = 0u;
+    for (uint32_t screen_index = 0; screen_index < layout->screen_count; screen_index++) {
+        const NilampGuiScreenSpec *screen = &layout->screens[screen_index];
+        if (screen->id != layout->default_screen) {
+            continue;
+        }
+        for (uint32_t widget_index = 0; widget_index < screen->widget_count; widget_index++) {
+            const NilampGuiWidgetSpec *widget = &screen->widgets[widget_index];
+            if (widget->type != NILAMP_GUI_WIDGET_KNOB ||
+                widget->param_id >= NILAMP_PARAM_COUNT) {
+                continue;
+            }
+            if (cc_index >= sizeof(front_face_ccs) / sizeof(front_face_ccs[0])) {
+                return false;
+            }
+            if (front_face_ccs[cc_index] == cc) {
+                *out_param_id = widget->param_id;
+                return true;
+            }
+            cc_index++;
+        }
+        return false;
+    }
+    return false;
+}
+
+static double nilamp_midi_cc_to_plain_value(clap_id param_id, uint8_t value)
+{
+    const NilampParamSpec *spec = nilamp_find_param(param_id);
+    if (!spec) {
+        return 0.0;
+    }
+    if (param_id == NILAMP_PARAM_BYPASS) {
+        return value >= 64u ? 1.0 : 0.0;
+    }
+    const double normalized = (double)value / 127.0;
+    return nilamp_clamp(spec->min_value + normalized * (spec->max_value - spec->min_value),
+                        spec);
+}
+
+static void nilamp_push_midi_param_event(const clap_output_events_t *out,
+                                         const clap_event_header_t *source_event,
+                                         clap_id param_id, double value)
+{
+    if (!out || !out->try_push || !source_event) {
+        return;
+    }
+
+    const clap_event_param_value_t event = {
+        .header = {
+            .size = sizeof(event),
+            .time = source_event->time,
+            .space_id = CLAP_CORE_EVENT_SPACE_ID,
+            .type = CLAP_EVENT_PARAM_VALUE,
+            .flags = CLAP_EVENT_DONT_RECORD |
+                     (source_event->flags & CLAP_EVENT_IS_LIVE),
+        },
+        .param_id = param_id,
+        .cookie = NULL,
+        .note_id = -1,
+        .port_index = -1,
+        .channel = -1,
+        .key = -1,
+        .value = value,
+    };
+    (void)out->try_push(out, &event.header);
+}
+
 static void nilamp_handle_event(NilampClap *plug, const clap_event_header_t *event)
 {
     if (!event || event->space_id != CLAP_CORE_EVENT_SPACE_ID ||
@@ -892,6 +992,39 @@ static void nilamp_handle_event(NilampClap *plug, const clap_event_header_t *eve
     }
 }
 
+static void nilamp_handle_process_event(NilampClap *plug, const clap_event_header_t *event,
+                                        const clap_output_events_t *out)
+{
+    if (!event || event->space_id != CLAP_CORE_EVENT_SPACE_ID) {
+        return;
+    }
+    if (event->type == CLAP_EVENT_PARAM_VALUE &&
+        event->size >= sizeof(clap_event_param_value_t)) {
+        nilamp_handle_event(plug, event);
+        return;
+    }
+    if (event->type != CLAP_EVENT_MIDI || event->size < sizeof(clap_event_midi_t)) {
+        return;
+    }
+
+    const clap_event_midi_t *midi = (const clap_event_midi_t *)event;
+    if (midi->port_index != NILAMP_CLAP_MIDI_PORT_MAIN ||
+        (midi->data[0] & 0xf0u) != 0xb0u) {
+        return;
+    }
+
+    clap_id param_id = CLAP_INVALID_ID;
+    if (!nilamp_midi_cc_to_param(midi->data[1], &param_id)) {
+        return;
+    }
+
+    const double value = nilamp_midi_cc_to_plain_value(param_id, midi->data[2]);
+    if (nilamp_store_param_value(plug, param_id, value, false)) {
+        nilamp_apply_params_if_dirty(plug);
+        nilamp_push_midi_param_event(out, event, param_id, value);
+    }
+}
+
 static void nilamp_push_gui_param_events(NilampClap *plug, const clap_output_events_t *out);
 
 static clap_process_status nilamp_process(const clap_plugin_t *plugin,
@@ -903,6 +1036,7 @@ static clap_process_status nilamp_process(const clap_plugin_t *plugin,
         return CLAP_PROCESS_CONTINUE;
     }
     nilamp_apply_params_if_dirty(plug);
+    nilamp_push_gui_param_events(plug, process->out_events);
 
     uint32_t cursor = 0;
     const uint32_t event_count =
@@ -915,14 +1049,13 @@ static clap_process_status nilamp_process(const clap_plugin_t *plugin,
         if (!nilamp_process_segment(plug, process, cursor, event_time)) {
             return CLAP_PROCESS_ERROR;
         }
-        nilamp_handle_event(plug, event);
+        nilamp_handle_process_event(plug, event, process->out_events);
         cursor = event_time;
     }
 
     if (!nilamp_process_segment(plug, process, cursor, process->frames_count)) {
         return CLAP_PROCESS_ERROR;
     }
-    nilamp_push_gui_param_events(plug, process->out_events);
     return CLAP_PROCESS_CONTINUE;
 }
 
@@ -971,6 +1104,33 @@ static bool nilamp_audio_ports_get(const clap_plugin_t *plugin, uint32_t index,
 static const clap_plugin_audio_ports_t nilamp_audio_ports_ext = {
     .count = nilamp_audio_ports_count,
     .get = nilamp_audio_ports_get,
+};
+
+static uint32_t nilamp_note_ports_count(const clap_plugin_t *plugin, bool is_input)
+{
+    (void)plugin;
+    return is_input ? 1u : 0u;
+}
+
+static bool nilamp_note_ports_get(const clap_plugin_t *plugin, uint32_t index,
+                                  bool is_input, clap_note_port_info_t *info)
+{
+    (void)plugin;
+    if (!is_input || index != 0u || !info) {
+        return false;
+    }
+
+    memset(info, 0, sizeof(*info));
+    info->id = NILAMP_CLAP_MIDI_PORT_MAIN;
+    info->supported_dialects = CLAP_NOTE_DIALECT_MIDI;
+    info->preferred_dialect = CLAP_NOTE_DIALECT_MIDI;
+    nilamp_copy_text(info->name, sizeof(info->name), "MIDI In");
+    return true;
+}
+
+static const clap_plugin_note_ports_t nilamp_note_ports_ext = {
+    .count = nilamp_note_ports_count,
+    .get = nilamp_note_ports_get,
 };
 
 static bool nilamp_audio_port_config_info(clap_id config_id,
@@ -1785,6 +1945,9 @@ static const void *nilamp_get_extension(const clap_plugin_t *plugin, const char 
     }
     if (strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) {
         return &nilamp_audio_ports_ext;
+    }
+    if (strcmp(id, CLAP_EXT_NOTE_PORTS) == 0) {
+        return &nilamp_note_ports_ext;
     }
     if (strcmp(id, CLAP_EXT_AUDIO_PORTS_CONFIG) == 0) {
         return &nilamp_audio_ports_config_ext;

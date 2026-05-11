@@ -2,13 +2,13 @@
 
 nilamp implements a focused CLAP audio-effect subset, not the full optional CLAP
 API surface. The current shell is appropriate for a guitar amp plugin: one main
-audio input, one main audio output, host automation, state save/load, mono and
-stereo audio configurations, and an embedded editor when CLAP GUI support is
-enabled.
+audio input, one main audio output, MIDI CC control, host automation, state
+save/load, mono and stereo audio configurations, and an embedded editor when
+CLAP GUI support is enabled.
 
-The CLAP validator currently passes with `21 tests run, 16 passed, 0 failed, 5
-skipped`. The skipped validator cases are for optional preset discovery and note
-ports that nilamp does not implement.
+The CLAP validator currently passes with `21 tests run, 18 passed, 0 failed, 3
+skipped`. The skipped validator cases are for optional preset discovery that
+nilamp does not implement.
 
 ## Implemented
 
@@ -25,35 +25,30 @@ ports that nilamp does not implement.
 - Versioned state save/load with compatibility for older nilamp state blobs.
 - Hardware-controller pages through `clap.remote-controls/2`, exposing bypass
   plus the default-screen amp-face knobs.
+- MIDI CC-style parameter control through one `clap.note-ports` MIDI input,
+  matching the VST3 CC map for bypass and amp-face knobs.
 - Embedded GUI support for the supported platform parent API.
 - GUI timer support through `clap.timer-support` when CLAP GUI support is
   enabled.
 
 ## Guitar-Amp-Relevant Backlog
 
-1. Consider MIDI CC-style control only if a CLAP host workflow needs it.
-   VST3 handles this with `IMidiMapping`, where the host turns MIDI CC input
-   into normal parameter automation. CLAP remote controls are now implemented,
-   so only add note-port MIDI event handling if a target CLAP host cannot map
-   hardware controls another way.
-
-2. Consider `clap.param-indication/4` as later GUI polish.
+1. Consider `clap.param-indication/4` as later GUI polish.
    This could let hosts mark mapped or automated parameters in the custom GUI,
    but it only matters if target hosts expose useful indication data.
 
-3. Consider `clap.state-context/2` after presets exist.
+2. Consider `clap.state-context/2` after presets exist.
    It could initially delegate to the existing state implementation, but its
    main value is distinguishing project, duplicate, and preset load semantics.
 
-4. Consider `clap.latency` and `clap.tail` as low-value compatibility polish.
+3. Consider `clap.latency` and `clap.tail` as low-value compatibility polish.
    nilamp is currently zero-latency and does not expose a meaningful effect tail,
    so these extensions would mostly make that explicit.
 
 ## Low-Value For This Plugin
 
-- Direct MIDI note/CC processing, note ports, note names, note expression,
-  voice info, tuning, and triggers unless target-host testing proves remote
-  controls insufficient.
+- MIDI learn, MIDI2, MPE, sysex, note names, note expression, voice info,
+  tuning, and triggers.
 - Factory preset support until nilamp has real presets to ship. A complete CLAP
   preset story would include `clap.preset-load/2` plus the preset discovery
   factory, but the API is only useful once preset names, values, locations, and
