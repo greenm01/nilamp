@@ -13,6 +13,8 @@ The Steinberg validator currently passes with `47 tests passed, 0 tests failed`.
 - 32-bit floating-point audio processing.
 - Main mono/stereo audio bus arrangements.
 - Host-visible parameter registration, text conversion, and automation.
+- Parameter units/groups via `IUnitInfo`, derived from shared control module
+  metadata.
 - Shared CLAP/VST3 bypass parameter and pass-through processing.
 - Sample-offset parameter changes inside `process()`.
 - Component and controller state save/load.
@@ -24,20 +26,15 @@ The Steinberg validator currently passes with `47 tests passed, 0 tests failed`.
 
 ## Guitar-Amp-Relevant Backlog
 
-1. Add parameter units/groups if host parameter organization becomes important.
-   `IUnitInfo` could expose groups such as Input, Tone, Power Amp, and Speaker.
-   This should be backed by real control metadata, not a parallel hand-written
-   hierarchy.
-
-2. Add factory presets/program lists only when nilamp has real presets to ship.
+1. Add factory presets/program lists only when nilamp has real presets to ship.
    Program-list API support without an actual preset story adds complexity but
    little value.
 
-3. Add MIDI CC mapping for live foot-controller workflows.
+2. Add MIDI CC mapping for live foot-controller workflows.
    This can make sense for bypass, gain, output, sag, and mode parameters. It
    does not imply MIDI note input or note processing.
 
-4. Consider 64-bit audio processing as a compatibility/polish item, not a
+3. Consider 64-bit audio processing as a compatibility/polish item, not a
    performance optimization.
    Double-precision VST3 processing mainly reduces plugin I/O rounding and lets
    hosts exercise their 64-bit processing path. It is usually neutral to slower

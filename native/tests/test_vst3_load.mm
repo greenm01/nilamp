@@ -10,6 +10,7 @@
 #include "pluginterfaces/vst/ivstcomponent.h"
 #include "pluginterfaces/vst/ivsteditcontroller.h"
 #include "pluginterfaces/vst/ivstparameterchanges.h"
+#include "pluginterfaces/vst/ivstunits.h"
 
 #if defined(__APPLE__)
 #include <CoreFoundation/CoreFoundation.h>
@@ -285,6 +286,28 @@ static void copyTitleAscii(const String128 title, char *dst, size_t dstSize)
     dst[i] = '\0';
 }
 
+static void checkUnit(IUnitInfo *unitInfo, int32 index, UnitID expectedId,
+                      UnitID expectedParentId, const char *expectedName)
+{
+    UnitInfo info = {};
+    check(unitInfo->getUnitInfo(index, info) == kResultTrue, "VST3 unit info failed");
+    check(info.id == expectedId, "unexpected VST3 unit id");
+    check(info.parentUnitId == expectedParentId, "unexpected VST3 unit parent id");
+    check(info.programListId == kNoProgramListId, "unexpected VST3 unit program list");
+
+    char name[128] = {};
+    copyTitleAscii(info.name, name, sizeof(name));
+    check(std::strcmp(name, expectedName) == 0, "unexpected VST3 unit name");
+}
+
+static void checkParamUnit(IEditController *controller, int32 parameterIndex,
+                           UnitID expectedUnitId, const char *message)
+{
+    ParameterInfo info = {};
+    check(controller->getParameterInfo(parameterIndex, info) == kResultOk, message);
+    check(info.unitId == expectedUnitId, "unexpected VST3 parameter unit id");
+}
+
 static void fillInput(float *left, float *right, uint32_t frames)
 {
     for (uint32_t i = 0; i < frames; i++) {
@@ -487,15 +510,18 @@ int main(int argc, char **argv)
     check(controller->getParameterInfo(NILAMP_PARAM_GAIN_DB, info) == kResultOk,
           "gain parameter info failed");
     check(info.id == NILAMP_PARAM_GAIN_DB, "unexpected gain parameter id");
+    check(info.unitId == 1, "unexpected VST3 input gain unit id");
     char title[128] = {};
     copyTitleAscii(info.title, title, sizeof(title));
     check(std::strcmp(title, "Input Gain") == 0, "unexpected VST3 input gain title");
     check(controller->getParameterInfo(NILAMP_PARAM_OUTPUT_GAIN_DB, info) == kResultOk,
           "output gain parameter info failed");
+    check(info.unitId == 4, "unexpected VST3 output gain unit id");
     copyTitleAscii(info.title, title, sizeof(title));
     check(std::strcmp(title, "Output Gain") == 0, "unexpected VST3 output gain title");
     check(controller->getParameterInfo(NILAMP_PARAM_BYPASS, info) == kResultOk,
           "bypass parameter info failed");
+    check(info.unitId == 10, "unexpected VST3 bypass unit id");
     copyTitleAscii(info.title, title, sizeof(title));
     check(std::strcmp(title, "Bypass") == 0, "unexpected VST3 bypass title");
     check(info.stepCount == 1, "VST3 bypass is not a toggle");
@@ -503,6 +529,34 @@ int main(int argc, char **argv)
           "VST3 bypass flag is missing");
     check(std::fabs(info.defaultNormalizedValue) < 0.000001,
           "unexpected VST3 bypass default");
+
+    IUnitInfo *unitInfo = nullptr;
+    check(controller->queryInterface(IUnitInfo::iid, (void **)&unitInfo) == kResultOk,
+          "VST3 unit info query failed");
+    check(unitInfo->getUnitCount() == 11, "unexpected VST3 unit count");
+    checkUnit(unitInfo, 0, kRootUnitId, kNoParentUnitId, "nilamp TWD MKII");
+    checkUnit(unitInfo, 1, 1, kRootUnitId, "Input");
+    checkUnit(unitInfo, 2, 2, kRootUnitId, "Pre Amp");
+    checkUnit(unitInfo, 3, 3, kRootUnitId, "Power");
+    checkUnit(unitInfo, 4, 4, kRootUnitId, "Output");
+    checkUnit(unitInfo, 5, 5, kRootUnitId, "Tone Stack");
+    checkUnit(unitInfo, 6, 6, kRootUnitId, "Speaker Resonance");
+    checkUnit(unitInfo, 7, 7, kRootUnitId, "Speaker Inductor");
+    checkUnit(unitInfo, 8, 8, kRootUnitId, "Gain");
+    checkUnit(unitInfo, 9, 9, kRootUnitId, "Splitter");
+    checkUnit(unitInfo, 10, 10, kRootUnitId, "Global");
+    check(unitInfo->getProgramListCount() == 0, "unexpected VST3 program list count");
+    checkParamUnit(controller, NILAMP_PARAM_VOLUME_PCT, 2, "volume parameter info failed");
+    checkParamUnit(controller, NILAMP_PARAM_TONE_FMID_DBHZ, 5,
+                   "tone fmid parameter info failed");
+    checkParamUnit(controller, NILAMP_PARAM_SPK_RES_GAIN1_DB, 6,
+                   "speaker resonance parameter info failed");
+    checkParamUnit(controller, NILAMP_PARAM_SPK_IND_GAIN1_DB, 7,
+                   "speaker inductor parameter info failed");
+    checkParamUnit(controller, NILAMP_PARAM_GAIN_COMP, 8, "gain comp parameter info failed");
+    checkParamUnit(controller, NILAMP_PARAM_PHASE_SPLITTER, 9,
+                   "phase splitter parameter info failed");
+    unitInfo->release();
 
     IPlugView *view = controller->createView(ViewType::kEditor);
     check(view != nullptr, "editor view create failed");

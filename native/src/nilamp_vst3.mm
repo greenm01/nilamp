@@ -394,14 +394,26 @@ private:
     double contentScale = 1.0;
 };
 
-class Controller final : public EditController {
+static UnitID findUnitIdForModule(const char *module,
+                                  const std::array<const char *, NILAMP_PARAM_COUNT> &modules,
+                                  uint32_t moduleCount)
+{
+    for (uint32_t i = 0; i < moduleCount; i++) {
+        if (module && modules[i] && std::strcmp(module, modules[i]) == 0) {
+            return static_cast<UnitID>(i + 1u);
+        }
+    }
+    return kRootUnitId;
+}
+
+class Controller final : public EditControllerEx1 {
 public:
     Controller() { nilamp_host_core_init(&core); }
     ~Controller() override { nilamp_host_core_deinit(&core); }
 
     tresult PLUGIN_API initialize(FUnknown *context) SMTG_OVERRIDE
     {
-        const tresult result = EditController::initialize(context);
+        const tresult result = EditControllerEx1::initialize(context);
         if (result != kResultOk) {
             return result;
         }
@@ -410,6 +422,28 @@ public:
 #endif
 
         const NilampControlSpec *specs = nilamp_control_specs(NULL);
+        String128 rootName = {};
+        copyAsciiToTChar(rootName, NILAMP_VST3_NAME);
+        addUnit(new Unit(rootName, kRootUnitId, kNoParentUnitId, kNoProgramListId));
+
+        std::array<const char *, NILAMP_PARAM_COUNT> modules = {};
+        uint32_t moduleCount = 0;
+        for (uint32_t i = 0; i < NILAMP_PARAM_COUNT; i++) {
+            const char *module = specs[i].module;
+            if (!module || module[0] == '\0') {
+                continue;
+            }
+            if (findUnitIdForModule(module, modules, moduleCount) != kRootUnitId) {
+                continue;
+            }
+            modules[moduleCount] = module;
+            String128 unitName = {};
+            copyAsciiToTChar(unitName, module);
+            addUnit(new Unit(unitName, static_cast<UnitID>(moduleCount + 1u), kRootUnitId,
+                             kNoProgramListId));
+            moduleCount++;
+        }
+
         for (uint32_t i = 0; i < NILAMP_PARAM_COUNT; i++) {
             const NilampControlSpec *spec = &specs[i];
             String128 title = {};
@@ -427,8 +461,9 @@ public:
                                 (spec->id == NILAMP_PARAM_BYPASS ?
                                      ParameterInfo::kIsBypass :
                                      0);
+            const UnitID unitId = findUnitIdForModule(spec->module, modules, moduleCount);
             if (spec->display == NILAMP_CONTROL_DISPLAY_ENUM && spec->enum_names) {
-                auto *param = new StringListParameter(title, spec->id, units, flags);
+                auto *param = new StringListParameter(title, spec->id, units, flags, unitId);
                 for (uint32_t item = 0; item < spec->enum_count; item++) {
                     String128 itemName = {};
                     copyAsciiToTChar(itemName, spec->enum_names[item]);
@@ -439,7 +474,7 @@ public:
             } else {
                 auto *param = new RangeParameter(title, spec->id, units, spec->min_value,
                                                  spec->max_value, spec->default_value,
-                                                 stepCount, flags);
+                                                 stepCount, flags, unitId);
                 param->setNormalized(normalizedDefault);
                 parameters.addParameter(param);
             }
@@ -514,7 +549,7 @@ public:
 
     tresult PLUGIN_API setParamNormalized(ParamID tag, ParamValue value) SMTG_OVERRIDE
     {
-        const tresult result = EditController::setParamNormalized(tag, value);
+        const tresult result = EditControllerEx1::setParamNormalized(tag, value);
         const NilampControlSpec *spec = nilamp_host_find_param(tag);
         if (result == kResultOk && spec) {
             (void)nilamp_host_core_set_param(&core, tag, normalizedToPlain(spec, value));
