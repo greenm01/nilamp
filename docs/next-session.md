@@ -2,6 +2,42 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: Windows v1.0.2 release package deploy
+
+**Context.** The GitHub `v1.0.2` release already had macOS and Linux packages
+plus checksum files. This session built, signed, and uploaded the Windows x64
+package and refreshed release notes/checksums.
+
+**Edit summary.**
+
+- Downloaded the current release `SHA256SUMS` into
+  `dist/release-v1.0.2-current` so the existing macOS and Linux hashes were
+  preserved.
+- Fixed an MSVC `/W4 /WX` build failure in `native/src/nilamp_vst3.mm` by
+  renaming the local VST3 parameter unit-label variable that hid the SDK
+  `EditControllerEx1::units` member.
+- Ran the Windows MSVC host-test build and `package-windows-release`, producing
+  `dist/nilamp-twd-mkii-v1.0.2-windows-x64.zip`, its `.asc` signature, and a
+  refreshed `SHA256SUMS`/`SHA256SUMS.asc`.
+- Uploaded the Windows ZIP, ZIP signature, `SHA256SUMS`, and `SHA256SUMS.asc`
+  to GitHub release `v1.0.2` with `gh release upload --clobber`.
+- Updated the `v1.0.2` GitHub release notes so the downloads, validation, and
+  install instructions list Windows, macOS, and Linux packages.
+
+**Verification.**
+
+- `nmake /nologo /f Makefile.msvc native-host-test package-windows-release`
+- Windows CLAP validator: 21 tests run, 17 passed, 0 failed, 4 skipped.
+- Windows VST3 validator: 47 tests passed, 0 failed.
+- Windows package contents verified with `tar -tf`: CLAP, VST3, `install.cmd`,
+  `README-Windows.txt`, and `LICENSE`.
+- Windows package hash:
+  `3b91c6bb565b5e2e057b268504b17060186ed597d18a46e0ac59bafe626a56b6`.
+- GPG reported `Good signature` for the Windows ZIP and `SHA256SUMS`; the
+  sandbox still returned nonzero status because the trustdb is not writable.
+- `gh release view v1.0.2` confirms the uploaded Windows ZIP is 1,298,859 bytes
+  and the refreshed `SHA256SUMS` is 316 bytes.
+
 ### Session: VST3 editor-open CPU investigation tooling
 
 **Context.** REAPER showed VST3 using more CPU than CLAP with the custom editor

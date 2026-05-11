@@ -468,9 +468,9 @@ public:
         for (uint32_t i = 0; i < NILAMP_PARAM_COUNT; i++) {
             const NilampControlSpec *spec = &specs[i];
             String128 title = {};
-            String128 units = {};
+            String128 unitLabel = {};
             copyAsciiToTChar(title, spec->host_name ? spec->host_name : spec->name);
-            copyAsciiToTChar(units, spec->unit);
+            copyAsciiToTChar(unitLabel, spec->unit);
             const double normalizedDefault = plainToNormalized(spec, spec->default_value);
             const int32 stepCount = spec->display == NILAMP_CONTROL_DISPLAY_ENUM ?
                                         static_cast<int32>(spec->enum_count - 1u) :
@@ -484,7 +484,7 @@ public:
                                      0);
             const UnitID unitId = findUnitIdForModule(spec->module, modules, moduleCount);
             if (spec->display == NILAMP_CONTROL_DISPLAY_ENUM && spec->enum_names) {
-                auto *param = new StringListParameter(title, spec->id, units, flags, unitId);
+                auto *param = new StringListParameter(title, spec->id, unitLabel, flags, unitId);
                 for (uint32_t item = 0; item < spec->enum_count; item++) {
                     String128 itemName = {};
                     copyAsciiToTChar(itemName, spec->enum_names[item]);
@@ -493,7 +493,7 @@ public:
                 param->setNormalized(normalizedDefault);
                 parameters.addParameter(param);
             } else {
-                auto *param = new RangeParameter(title, spec->id, units, spec->min_value,
+                auto *param = new RangeParameter(title, spec->id, unitLabel, spec->min_value,
                                                  spec->max_value, spec->default_value,
                                                  stepCount, flags, unitId);
                 param->setNormalized(normalizedDefault);
