@@ -33,7 +33,7 @@
 #define NILAMP_VST3_NAME "nilamp TWD MKII"
 #endif
 
-#define NILAMP_VST3_VERSION "1.0.0"
+#define NILAMP_VST3_VERSION "1.0.1"
 
 namespace NilampVst3 {
 

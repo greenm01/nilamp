@@ -170,7 +170,7 @@ static const clap_plugin_descriptor_t nilamp_descriptor = {
     .url = "",
     .manual_url = "",
     .support_url = "",
-    .version = "1.0.0",
+    .version = "1.0.1",
     .description = "Native C guitar amp model",
     .features = nilamp_features,
 };
