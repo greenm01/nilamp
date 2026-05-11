@@ -7,6 +7,7 @@
 #include <clap/clap.h>
 #include <clap/ext/audio-ports-config.h>
 #include <clap/ext/gui.h>
+#include <clap/ext/remote-controls.h>
 #include <clap/ext/timer-support.h>
 
 #include <errno.h>
@@ -54,6 +55,7 @@
 #define NILAMP_CLAP_OUTPUT_LIMIT 1.0f
 #define NILAMP_CLAP_PORT_CONFIG_MONO 1u
 #define NILAMP_CLAP_PORT_CONFIG_STEREO 2u
+#define NILAMP_CLAP_REMOTE_PAGE_AMP_FACE 1u
 #define NILAMP_GUI_FRAME_INTERVAL_SECONDS (1.0 / 30.0)
 #define NILAMP_GUI_HOST_TIMER_MS 33u
 
@@ -1439,6 +1441,65 @@ static const clap_plugin_state_t nilamp_state_ext = {
     .load = nilamp_state_load,
 };
 
+static uint32_t nilamp_remote_controls_count(const clap_plugin_t *plugin)
+{
+    (void)plugin;
+    return 1u;
+}
+
+static bool nilamp_remote_controls_get(const clap_plugin_t *plugin, uint32_t page_index,
+                                       clap_remote_controls_page_t *page)
+{
+    (void)plugin;
+    if (!page || page_index != 0u) {
+        return false;
+    }
+
+    memset(page, 0, sizeof(*page));
+    nilamp_copy_text(page->section_name, sizeof(page->section_name), "Main");
+    page->page_id = NILAMP_CLAP_REMOTE_PAGE_AMP_FACE;
+    nilamp_copy_text(page->page_name, sizeof(page->page_name), "Amp Face");
+    page->is_for_preset = false;
+    for (uint32_t i = 0; i < CLAP_REMOTE_CONTROLS_COUNT; i++) {
+        page->param_ids[i] = CLAP_INVALID_ID;
+    }
+
+    page->param_ids[0] = NILAMP_PARAM_BYPASS;
+    uint32_t slot = 1u;
+    const NilampGuiLayoutSpec *layout = nilamp_model_gui_layout(NILAMP_MODEL_DEFAULT);
+    if (!layout) {
+        return true;
+    }
+
+    const NilampGuiScreenSpec *default_screen = NULL;
+    for (uint32_t i = 0; i < layout->screen_count; i++) {
+        if (layout->screens[i].id == layout->default_screen) {
+            default_screen = &layout->screens[i];
+            break;
+        }
+    }
+    if (!default_screen) {
+        return true;
+    }
+
+    for (uint32_t i = 0; i < default_screen->widget_count; i++) {
+        const NilampGuiWidgetSpec *widget = &default_screen->widgets[i];
+        if (widget->type != NILAMP_GUI_WIDGET_KNOB || widget->param_id >= NILAMP_PARAM_COUNT) {
+            continue;
+        }
+        if (slot >= CLAP_REMOTE_CONTROLS_COUNT) {
+            break;
+        }
+        page->param_ids[slot++] = widget->param_id;
+    }
+    return true;
+}
+
+static const clap_plugin_remote_controls_t nilamp_remote_controls_ext = {
+    .count = nilamp_remote_controls_count,
+    .get = nilamp_remote_controls_get,
+};
+
 #if NILAMP_ENABLE_CLAP_GUI
 static bool nilamp_gui_is_api_supported(const clap_plugin_t *plugin, const char *api,
                                         bool is_floating)
@@ -1737,6 +1798,10 @@ static const void *nilamp_get_extension(const clap_plugin_t *plugin, const char 
     }
     if (strcmp(id, CLAP_EXT_STATE) == 0) {
         return &nilamp_state_ext;
+    }
+    if (strcmp(id, CLAP_EXT_REMOTE_CONTROLS) == 0 ||
+        strcmp(id, CLAP_EXT_REMOTE_CONTROLS_COMPAT) == 0) {
+        return &nilamp_remote_controls_ext;
     }
 #if NILAMP_ENABLE_CLAP_GUI
     if (strcmp(id, CLAP_EXT_GUI) == 0) {

@@ -4,6 +4,8 @@
 #include <clap/clap.h>
 #include <clap/ext/audio-ports-config.h>
 #include <clap/ext/gui.h>
+#include <clap/ext/note-ports.h>
+#include <clap/ext/remote-controls.h>
 #include <clap/ext/timer-support.h>
 
 #if defined(_WIN32)
@@ -984,6 +986,40 @@ int main(int argc, char **argv)
     const clap_plugin_state_t *state =
         (const clap_plugin_state_t *)plugin->get_extension(plugin, CLAP_EXT_STATE);
     check(state != NULL, "missing state extension");
+
+    const clap_plugin_remote_controls_t *remote_controls =
+        (const clap_plugin_remote_controls_t *)plugin->get_extension(
+            plugin, CLAP_EXT_REMOTE_CONTROLS);
+    check(remote_controls != NULL, "missing remote controls extension");
+    check(plugin->get_extension(plugin, CLAP_EXT_REMOTE_CONTROLS_COMPAT) == remote_controls,
+          "missing remote controls compat extension");
+    check(remote_controls->count(plugin) == 1, "unexpected remote controls page count");
+    clap_remote_controls_page_t remote_page = {0};
+    check(remote_controls->get(plugin, 0, &remote_page), "remote controls page read failed");
+    check(remote_page.page_id == 1, "unexpected remote controls page id");
+    check(strcmp(remote_page.section_name, "Main") == 0,
+          "unexpected remote controls section");
+    check(strcmp(remote_page.page_name, "Amp Face") == 0,
+          "unexpected remote controls page name");
+    check(!remote_page.is_for_preset, "remote controls page is preset-specific");
+    const clap_id expected_remote_params[CLAP_REMOTE_CONTROLS_COUNT] = {
+        NILAMP_PARAM_BYPASS,
+        NILAMP_PARAM_GAIN_DB,
+        NILAMP_PARAM_OUTPUT_GAIN_DB,
+        NILAMP_PARAM_VOLUME_PCT,
+        NILAMP_PARAM_BASS_PCT,
+        NILAMP_PARAM_MID_PCT,
+        NILAMP_PARAM_TREBLE_PCT,
+        CLAP_INVALID_ID,
+    };
+    for (uint32_t i = 0; i < CLAP_REMOTE_CONTROLS_COUNT; i++) {
+        check(remote_page.param_ids[i] == expected_remote_params[i],
+              "remote controls param mismatch");
+    }
+    check(!remote_controls->get(plugin, 1, &remote_page),
+          "remote controls invalid page succeeded");
+    check(plugin->get_extension(plugin, CLAP_EXT_NOTE_PORTS) == NULL,
+          "unexpected note ports extension");
 
     const clap_plugin_gui_t *gui =
         (const clap_plugin_gui_t *)plugin->get_extension(plugin, CLAP_EXT_GUI);
