@@ -2,6 +2,36 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: Linux v1.0.1 release package redeploy
+
+**Context.** The GitHub `v1.0.1` release had macOS assets and checksum files
+uploaded, but the Linux download package was missing.
+
+**Edit summary.**
+
+- Confirmed `HEAD` matches tag `v1.0.1` at `2fd380f`.
+- Downloaded the current release `SHA256SUMS` into
+  `dist/release-v1.0.1-linux` so the existing macOS hash was preserved.
+- Ran `make package-linux-release DIST_DIR=dist/release-v1.0.1-linux`,
+  generating the Linux x86_64 tarball, tarball signature, refreshed
+  `SHA256SUMS`, and `SHA256SUMS.asc`.
+- Uploaded the Linux tarball, tarball signature, `SHA256SUMS`, and
+  `SHA256SUMS.asc` to GitHub release `v1.0.1` with `gh release upload
+  --clobber`.
+
+**Verification.**
+
+- Package contents include `nilamp-twd-mkii.clap`,
+  `nilamp-twd-mkii.vst3/Contents/x86_64-linux/nilamp-twd-mkii.so`,
+  `install.sh`, `README-Linux.txt`, and `LICENSE`.
+- `sha256sum -c SHA256SUMS` passes after downloading the existing macOS ZIP
+  locally for a complete check.
+- GPG verification passes for the Linux tarball and `SHA256SUMS`.
+- `make native-test` passes.
+- `gh release view v1.0.1` confirms the uploaded Linux tarball is 1,602,653
+  bytes and has digest
+  `sha256:7b3682d23667e14ea6acbba64b453519690b2387bc17013408d64f822e8b63c4`.
+
 ### Session: Unique host parameter names and VST3 smooth automation
 
 **Context.** REAPER showed two host parameters named `Gain`, and envelope-lane
