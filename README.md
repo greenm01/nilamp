@@ -215,6 +215,10 @@ Keller/ysfx JIT and native plugin activation are complete. Separate lifecycle
 and reload sections track ysfx load/compile/JIT cost against native CLAP/VST3
 load, instantiate, activate, and destroy cost.
 
+For host-visible REAPER CPU measurements with editor/UI cost included, use the
+scripted workflow in `tools/reaper_perf/` rather than reading REAPER's
+Performance Meter by eye.
+
 Build Linux and macOS release packages with:
 
 ```bash

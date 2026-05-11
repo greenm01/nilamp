@@ -35,8 +35,9 @@ the same project.
    control by one parameter step per wheel tick.
 7. Move a Reaper parameter control or automation envelope while the nilamp
    editor is open but unfocused. The editor should update without needing focus.
-8. Compare Reaper's CPU trend with editor closed and editor open, and record
-   buffer size, sample rate, bus layout, and plugin format.
+8. Compare Reaper's CPU trend with editor closed and editor open using the
+   scripted sampler in `tools/reaper_perf/`. Record buffer size, sample rate,
+   bus layout, plugin format, and the generated summary JSON path.
 
 ## Carla
 
@@ -64,3 +65,9 @@ timer ticks from callback fallback ticks.
 Use `make native-perf-bench` for isolated steady-state processing and YSFX
 JIT/reload timing. Use Reaper/Carla only for host-observed behavior, especially
 editor cost and bus-layout effects.
+
+For REAPER CPU comparisons that include the editor/UI, avoid visual Performance
+Meter reads. Start `tools/reaper_perf/measure_reaper_cpu.ps1`, then run
+`tools/reaper_perf/run_reaper_perf_scenarios.lua` from REAPER. The sampler
+records REAPER process CPU and writes per-scenario CSV/JSON summaries under
+`dist/reaper-perf/`.

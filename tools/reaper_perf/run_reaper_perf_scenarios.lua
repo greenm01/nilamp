@@ -1,0 +1,295 @@
+-- SPDX-License-Identifier: MIT
+--
+-- REAPER host-visible performance scenario driver for nilamp.
+--
+-- Usage:
+--   1. Open a REAPER project with one nilamp track and one Keller/ysfx track.
+--   2. Start tools/reaper_perf/measure_reaper_cpu.ps1 in PowerShell.
+--   3. Run this script from REAPER's Action List.
+--
+-- The PowerShell sampler timestamps marker arrival and produces the final
+-- report. This script only controls repeatable host state.
+
+local marker_path = os.getenv("NILAMP_REAPER_PERF_MARKERS")
+if marker_path == nil or marker_path == "" then
+  local temp = os.getenv("TEMP") or os.getenv("TMP") or "."
+  marker_path = temp .. "\\nilamp_reaper_perf_markers.jsonl"
+end
+
+local scenario_seconds = tonumber(os.getenv("NILAMP_REAPER_PERF_SECONDS") or "") or 30.0
+local settle_seconds = tonumber(os.getenv("NILAMP_REAPER_PERF_SETTLE_SECONDS") or "") or 3.0
+local repeats = tonumber(os.getenv("NILAMP_REAPER_PERF_REPEATS") or "") or 3
+
+local surfaces = {
+  {
+    key = "nilamp_vst3",
+    track_hints = {"nilamp"},
+    fx_hints = {"nilamp"},
+    fx_excludes = {},
+  },
+  {
+    key = "keller_ysfx",
+    track_hints = {"keller", "ysfx"},
+    fx_hints = {"keller", "ysfx", "twd dlx", "twd"},
+    fx_excludes = {"nilamp"},
+  },
+}
+
+local function lower(s)
+  return string.lower(s or "")
+end
+
+local function contains_any(text, hints)
+  local haystack = lower(text)
+  for _, hint in ipairs(hints) do
+    if string.find(haystack, lower(hint), 1, true) then
+      return true
+    end
+  end
+  return false
+end
+
+local function contains_none(text, hints)
+  return not contains_any(text, hints)
+end
+
+local function json_escape(value)
+  value = tostring(value or "")
+  value = string.gsub(value, "\\", "\\\\")
+  value = string.gsub(value, "\"", "\\\"")
+  value = string.gsub(value, "\n", "\\n")
+  value = string.gsub(value, "\r", "\\r")
+  value = string.gsub(value, "\t", "\\t")
+  return value
+end
+
+local function write_marker(fields)
+  local file = io.open(marker_path, "a")
+  if not file then
+    reaper.ShowMessageBox("Could not open marker file:\n" .. marker_path, "nilamp REAPER perf", 0)
+    return false
+  end
+
+  local parts = {}
+  for key, value in pairs(fields) do
+    if type(value) == "number" then
+      parts[#parts + 1] = string.format("\"%s\":%.9f", json_escape(key), value)
+    else
+      parts[#parts + 1] = string.format("\"%s\":\"%s\"", json_escape(key), json_escape(value))
+    end
+  end
+  file:write("{" .. table.concat(parts, ",") .. "}\n")
+  file:close()
+  return true
+end
+
+local function track_name(track)
+  local ok, name = reaper.GetTrackName(track)
+  if ok then
+    return name
+  end
+  return ""
+end
+
+local function fx_name(track, fx_index)
+  local ok, name = reaper.TrackFX_GetFXName(track, fx_index)
+  if ok then
+    return name
+  end
+  return ""
+end
+
+local function find_surface(spec)
+  local track_count = reaper.CountTracks(0)
+
+  for i = 0, track_count - 1 do
+    local track = reaper.GetTrack(0, i)
+    if contains_any(track_name(track), spec.track_hints) then
+      local fx_count = reaper.TrackFX_GetCount(track)
+      for fx = 0, fx_count - 1 do
+        local name = fx_name(track, fx)
+        if contains_any(name, spec.fx_hints) and contains_none(name, spec.fx_excludes) then
+          return track, fx, name
+        end
+      end
+    end
+  end
+
+  for i = 0, track_count - 1 do
+    local track = reaper.GetTrack(0, i)
+    local fx_count = reaper.TrackFX_GetCount(track)
+    for fx = 0, fx_count - 1 do
+      local name = fx_name(track, fx)
+      if contains_any(name, spec.fx_hints) and contains_none(name, spec.fx_excludes) then
+        return track, fx, name
+      end
+    end
+  end
+
+  return nil, -1, ""
+end
+
+local found = {}
+for _, spec in ipairs(surfaces) do
+  local track, fx, name = find_surface(spec)
+  if track == nil then
+    reaper.ShowMessageBox(
+      "Could not find track/FX for " .. spec.key ..
+      ". Rename the comparison tracks or adjust hints at the top of the script.",
+      "nilamp REAPER perf",
+      0
+    )
+    return
+  end
+  found[spec.key] = {
+    track = track,
+    fx = fx,
+    fx_name = name,
+  }
+end
+
+local scenarios = {}
+for run = 1, repeats do
+  for _, spec in ipairs(surfaces) do
+    scenarios[#scenarios + 1] = {
+      scenario = spec.key .. "_editor_closed",
+      surface = spec.key,
+      editor = "closed",
+      run = run,
+    }
+    scenarios[#scenarios + 1] = {
+      scenario = spec.key .. "_editor_open",
+      surface = spec.key,
+      editor = "open",
+      run = run,
+    }
+  end
+end
+
+local original_mute = {}
+for _, spec in ipairs(surfaces) do
+  local track = found[spec.key].track
+  original_mute[spec.key] = reaper.GetMediaTrackInfo_Value(track, "B_MUTE")
+end
+
+local original_cursor = reaper.GetCursorPosition()
+local original_play_state = reaper.GetPlayState()
+local current = 0
+local phase = "prepare"
+local phase_started = reaper.time_precise()
+
+local function close_all_candidate_fx()
+  for _, spec in ipairs(surfaces) do
+    local item = found[spec.key]
+    reaper.TrackFX_Show(item.track, item.fx, 2)
+  end
+end
+
+local function set_active_surface(surface)
+  for _, spec in ipairs(surfaces) do
+    local item = found[spec.key]
+    local muted = spec.key == surface and 0 or 1
+    reaper.SetMediaTrackInfo_Value(item.track, "B_MUTE", muted)
+  end
+end
+
+local function start_transport()
+  reaper.OnStopButton()
+  reaper.SetEditCurPos(0.0, false, false)
+  reaper.OnPlayButton()
+end
+
+local function finish()
+  write_marker({
+    event = "done",
+    scenario = "all",
+    run = 0,
+    time_precise = reaper.time_precise(),
+  })
+
+  reaper.OnStopButton()
+  reaper.SetEditCurPos(original_cursor, false, false)
+  close_all_candidate_fx()
+  for _, spec in ipairs(surfaces) do
+    local item = found[spec.key]
+    reaper.SetMediaTrackInfo_Value(item.track, "B_MUTE", original_mute[spec.key])
+  end
+  if (original_play_state % 2) == 1 then
+    reaper.OnPlayButton()
+  end
+  reaper.ShowConsoleMsg("nilamp REAPER perf scenarios complete. Markers: " .. marker_path .. "\n")
+end
+
+local function step()
+  local now = reaper.time_precise()
+
+  if current >= #scenarios and phase == "prepare" then
+    finish()
+    return
+  end
+
+  local scenario = scenarios[current + 1]
+
+  if phase == "prepare" then
+    close_all_candidate_fx()
+    set_active_surface(scenario.surface)
+    if scenario.editor == "open" then
+      local item = found[scenario.surface]
+      reaper.TrackFX_Show(item.track, item.fx, 3)
+    end
+    start_transport()
+    phase = "settle"
+    phase_started = now
+    reaper.defer(step)
+    return
+  end
+
+  if phase == "settle" and now - phase_started >= settle_seconds then
+    write_marker({
+      event = "start",
+      scenario = scenario.scenario,
+      surface = scenario.surface,
+      editor = scenario.editor,
+      run = scenario.run,
+      fx_name = found[scenario.surface].fx_name,
+      time_precise = now,
+    })
+    phase = "measure"
+    phase_started = now
+    reaper.defer(step)
+    return
+  end
+
+  if phase == "measure" and now - phase_started >= scenario_seconds then
+    write_marker({
+      event = "end",
+      scenario = scenario.scenario,
+      surface = scenario.surface,
+      editor = scenario.editor,
+      run = scenario.run,
+      fx_name = found[scenario.surface].fx_name,
+      time_precise = now,
+    })
+    reaper.OnStopButton()
+    close_all_candidate_fx()
+    current = current + 1
+    phase = "prepare"
+    phase_started = now
+    reaper.defer(step)
+    return
+  end
+
+  reaper.defer(step)
+end
+
+write_marker({
+  event = "session_start",
+  scenario = "all",
+  run = 0,
+  scenario_seconds = scenario_seconds,
+  settle_seconds = settle_seconds,
+  repeats = repeats,
+  time_precise = reaper.time_precise(),
+})
+reaper.ShowConsoleMsg("nilamp REAPER perf scenario markers: " .. marker_path .. "\n")
+step()

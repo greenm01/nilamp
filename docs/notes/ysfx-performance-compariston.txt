@@ -27,8 +27,8 @@ A parity run measured native/JSFX output peaks of 0.3422 / 0.3422 and best
 gain of +0.00 dB, addressing Keller's reported approximately 6 dB lower nilamp
 input level.
 
-The Reaper realtime performance meter shows a smaller but still favorable
-host-visible difference:
+The earlier Reaper realtime performance meter check showed a smaller but still
+favorable host-visible difference:
 
     nilamp VST3 peak CPU:       about 0.58%
     Keller JSFX via ysfx peak:  about 0.78%
@@ -38,12 +38,24 @@ These measurements are not contradictory. The harness isolates plugin audio
 processing. Reaper's realtime meter includes host scheduling, wrapper overhead,
 editor/UI behavior when the editor is open, and other DAW-side costs.
 
+Important measurement note:
+
+    The Reaper numbers above were read visually from the Performance Meter and
+    should be treated as a rough observation, not a quantitative benchmark.
+    Future REAPER host-visible measurements should use the scripted workflow in
+    tools/reaper_perf/: PowerShell samples REAPER process CPU while a ReaScript
+    drives nilamp/Keller scenarios with editors closed and open. REAPER's public
+    ReaScript API is used to control FX windows, but the benchmark does not
+    scrape REAPER's FX CPU meter. Use make native-perf-bench for FX/audio-only
+    cost.
+
 Overall conclusion:
 
     For raw audio processing, nilamp native CLAP/VST3 is consistently about 2x
-    faster than Keller's JSFX under ysfx on this machine. In a real DAW meter,
-    the observed advantage is smaller but still favorable: nilamp VST3 was
-    about 25.6% lower peak CPU in REAPER. Keller's Gig Performer observation
+    faster than Keller's JSFX under ysfx on this machine. The visual REAPER
+    check suggested nilamp VST3 was lower in host-visible CPU, but that number
+    needs replacement with the scripted REAPER process CPU workflow before it
+    should be used as a quantitative claim. Keller's Gig Performer observation
     is therefore more consistent with host/editor accounting and the previous
     6 dB calibration mismatch than with the native DSP being slower than YSFX.
 
@@ -72,9 +84,9 @@ Interpretation:
     system is loaded.
 
     The Reaper peak CPU readings are small in absolute terms because this is a
-    high-end desktop CPU. The relative difference is the useful signal:
-    nilamp VST3 was about 25.6% lower than Keller JSFX via ysfx in this Reaper
-    test.
+    high-end desktop CPU. The visual relative difference is only a rough signal;
+    replace it with scripted REAPER process CPU measurements before publishing
+    or relying on the host-visible comparison.
 
     Memory is not a bottleneck for these measurements. Plugin and harness
     footprints are tiny relative to the installed RAM.
@@ -90,7 +102,7 @@ REAPER REALTIME OBSERVATION
 Environment:
 
     Host:        REAPER
-    Measurement: REAPER Performance Meter, realtime playback
+    Measurement: REAPER Performance Meter, realtime playback, read visually
     Compared:    nilamp VST3 vs Keller JSFX loaded through ysfx
 
 Observed peak CPU:
@@ -107,9 +119,14 @@ Derived comparison:
 
 Interpretation:
 
-    nilamp VST3 is lower in REAPER's host-visible realtime meter, but not by
-    the same factor as the isolated audio benchmark. This is expected because a
-    DAW meter includes work outside the raw DSP loop.
+    nilamp VST3 appeared lower in REAPER's host-visible realtime meter, but not
+    by the same factor as the isolated audio benchmark. This is expected because
+    a DAW meter includes work outside the raw DSP loop.
+
+    This section is a historical observation. It should be superseded by the
+    scripted workflow in `tools/reaper_perf/`, which records REAPER process CPU
+    over fixed scenarios and summarizes median/p95/max values without relying
+    on visual meter reads.
 
     Keller's Gig Performer report of native VST3 being similar or slightly
     higher than ysfx may have been influenced by editor/GUI cost, host meter

@@ -9,9 +9,8 @@ the effect first, then times only in-memory audio processing blocks. This is the
 runtime number that matters for plugin use.
 
 This benchmark intentionally excludes DAW editor cost, host CPU-meter behavior,
-and host-specific bus scheduling. Use
-`docs/notes/reaper-carla-host-validation.md` for local Reaper/Carla checks that
-cover those host-visible effects.
+and host-specific bus scheduling. Use `tools/reaper_perf/` for scripted REAPER
+process CPU measurements that include those host-visible effects.
 
 The harness also reports:
 
