@@ -184,7 +184,7 @@ EOF
 
 cp -f "$repo_root/LICENSE" "$package_dir/LICENSE"
 
-(cd "$stage_root" && ditto -c -k --keepParent "$package_name" "$zip_path")
+(cd "$stage_root" && ditto -c -k --norsrc --noextattr --noqtn --noacl --keepParent "$package_name" "$zip_path")
 
 (
     cd "$dist_abs"
