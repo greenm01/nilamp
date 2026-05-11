@@ -1665,7 +1665,7 @@ static void nilamp_gui_build(NilampGui *gui, struct nk_context *ctx,
             "TWD DLX II", gold, true, about_font);
         nilamp_gui_draw_text_with_font(
             ctx, canvas, nilamp_gui_scale_rect(sx, sy, 0.0f, 104.0f, 500.0f, 25.0f),
-            "Version 1.0.4", gold, true, about_font);
+            "Keller JSFX Version 1.0.4", gold, true, about_font);
         nilamp_gui_draw_text_with_font(
             ctx, canvas, nilamp_gui_scale_rect(sx, sy, 0.0f, 136.0f, 500.0f, 25.0f),
             "by Helmut Keller", gold, true, about_font);

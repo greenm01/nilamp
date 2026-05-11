@@ -10,6 +10,7 @@
 #include "pluginterfaces/base/ibstream.h"
 #include "pluginterfaces/base/ustring.h"
 #include "pluginterfaces/gui/iplugview.h"
+#include "pluginterfaces/gui/iplugviewcontentscalesupport.h"
 #include "pluginterfaces/vst/ivstaudioprocessor.h"
 #include "pluginterfaces/vst/ivsteditcontroller.h"
 #include "pluginterfaces/vst/ivstparameterchanges.h"
@@ -33,7 +34,9 @@
 #define NILAMP_VST3_NAME "nilamp TWD MKII"
 #endif
 
-#define NILAMP_VST3_VERSION "1.0.1"
+#ifndef NILAMP_RELEASE_VERSION
+#define NILAMP_RELEASE_VERSION "1.0.2"
+#endif
 
 namespace NilampVst3 {
 
@@ -47,12 +50,10 @@ static constexpr uint32 kEditorTimerMs = 33;
 #endif
 static constexpr double kEditorFrameIntervalSeconds = 1.0 / 30.0;
 
-#if defined(__linux__)
 static bool iidEqual(const TUID a, const TUID b)
 {
     return std::memcmp(a, b, sizeof(TUID)) == 0;
 }
-#endif
 
 static double normalizedToPlain(const NilampControlSpec *spec, double normalized)
 {
@@ -338,6 +339,7 @@ private:
 #endif
 
 class Editor final : public CPluginView
+    , public IPlugViewContentScaleSupport
 #if !defined(__APPLE__)
     , public ITimerCallback
 #endif
@@ -346,10 +348,15 @@ public:
     explicit Editor(Controller *controller);
     ~Editor() override;
 
+    uint32 PLUGIN_API addRef() SMTG_OVERRIDE { return CPluginView::addRef(); }
+    uint32 PLUGIN_API release() SMTG_OVERRIDE { return CPluginView::release(); }
     tresult PLUGIN_API isPlatformTypeSupported(FIDString type) SMTG_OVERRIDE;
+    tresult PLUGIN_API queryInterface(const TUID queryIid, void **obj) SMTG_OVERRIDE;
     tresult PLUGIN_API attached(void *parent, FIDString type) SMTG_OVERRIDE;
     tresult PLUGIN_API removed() SMTG_OVERRIDE;
+    tresult PLUGIN_API getSize(ViewRect *size) SMTG_OVERRIDE;
     tresult PLUGIN_API onSize(ViewRect *newSize) SMTG_OVERRIDE;
+    tresult PLUGIN_API setContentScaleFactor(ScaleFactor factor) SMTG_OVERRIDE;
 #if defined(__linux__)
     tresult PLUGIN_API setFrame(IPlugFrame *frame) SMTG_OVERRIDE;
 #endif
@@ -364,6 +371,7 @@ private:
     static void setParam(void *user, uint32_t id, float value);
     static void endParamGesture(void *user, uint32_t id);
     static const char *modelName(void *user);
+    void updateScaledRect();
     void startTimer();
     void stopTimer();
     void tick();
@@ -383,6 +391,7 @@ private:
     LinuxEditorTimer *runLoopTimer = nullptr;
     bool runLoopTimerRegistered = false;
 #endif
+    double contentScale = 1.0;
 };
 
 class Controller final : public EditController {
@@ -414,6 +423,9 @@ public:
             const int32 flags = ParameterInfo::kCanAutomate |
                                 (spec->display == NILAMP_CONTROL_DISPLAY_ENUM ?
                                      ParameterInfo::kIsList :
+                                     0) |
+                                (spec->id == NILAMP_PARAM_BYPASS ?
+                                     ParameterInfo::kIsBypass :
                                      0);
             if (spec->display == NILAMP_CONTROL_DISPLAY_ENUM && spec->enum_names) {
                 auto *param = new StringListParameter(title, spec->id, units, flags);
@@ -602,7 +614,7 @@ Editor::Editor(Controller *controllerIn) : CPluginView(nullptr), controller(cont
     if (controller) {
         controller->addRef();
     }
-    rect = ViewRect(0, 0, 500, 340);
+    updateScaledRect();
 }
 
 Editor::~Editor()
@@ -628,6 +640,19 @@ tresult PLUGIN_API Editor::isPlatformTypeSupported(FIDString type)
     return type && std::strcmp(type, kPlatformTypeX11EmbedWindowID) == 0 ? kResultTrue :
                                                                           kResultFalse;
 #endif
+}
+
+tresult PLUGIN_API Editor::queryInterface(const TUID queryIid, void **obj)
+{
+    if (!obj) {
+        return kInvalidArgument;
+    }
+    if (iidEqual(queryIid, IPlugViewContentScaleSupport::iid)) {
+        *obj = static_cast<IPlugViewContentScaleSupport *>(this);
+        addRef();
+        return kResultOk;
+    }
+    return CPluginView::queryInterface(queryIid, obj);
 }
 
 tresult PLUGIN_API Editor::attached(void *parent, FIDString type)
@@ -656,6 +681,7 @@ tresult PLUGIN_API Editor::attached(void *parent, FIDString type)
     const NilampGuiParent guiParent = {NILAMP_GUI_API_X11, (uintptr_t)parent};
 #endif
     if (!gui ||
+        !nilamp_gui_set_scale(gui, contentScale) ||
         !nilamp_gui_set_parent(gui, guiParent) ||
         !nilamp_gui_show(gui)) {
         nilamp_gui_destroy(gui);
@@ -763,6 +789,15 @@ tresult PLUGIN_API Editor::removed()
     return kResultOk;
 }
 
+tresult PLUGIN_API Editor::getSize(ViewRect *size)
+{
+    if (!size) {
+        return kInvalidArgument;
+    }
+    *size = rect;
+    return kResultTrue;
+}
+
 tresult PLUGIN_API Editor::onSize(ViewRect *newSize)
 {
     if (!newSize) {
@@ -774,6 +809,38 @@ tresult PLUGIN_API Editor::onSize(ViewRect *newSize)
                                   static_cast<uint32_t>(rect.getHeight()));
     }
     return kResultTrue;
+}
+
+tresult PLUGIN_API Editor::setContentScaleFactor(ScaleFactor factor)
+{
+    if (!std::isfinite(factor) || factor <= 0.0f) {
+        return kInvalidArgument;
+    }
+    contentScale = static_cast<double>(factor);
+    updateScaledRect();
+    if (gui && !nilamp_gui_set_scale(gui, contentScale)) {
+        return kResultFalse;
+    }
+    if (plugFrame) {
+        (void)plugFrame->resizeView(this, &rect);
+    }
+    return kResultTrue;
+}
+
+void Editor::updateScaledRect()
+{
+    const NilampGuiLayoutSpec *layout = nilamp_model_gui_layout(NILAMP_MODEL_DEFAULT);
+    const uint32_t designWidth = layout && layout->design_width > 0u ?
+                                     layout->design_width :
+                                     500u;
+    const uint32_t designHeight = layout && layout->design_height > 0u ?
+                                      layout->design_height :
+                                      340u;
+    const int32 width =
+        std::max<int32>(1, static_cast<int32>(std::lround(designWidth * contentScale)));
+    const int32 height =
+        std::max<int32>(1, static_cast<int32>(std::lround(designHeight * contentScale)));
+    rect = ViewRect(0, 0, width, height);
 }
 
 float Editor::getParam(void *user, uint32_t id)
@@ -869,7 +936,7 @@ DEF_CLASS2(INLINE_UID(0xb0494b81, 0xb2385c29, 0x8c4d5734, 0x6d0b1222),
            NILAMP_VST3_NAME,
            Vst::kDistributable,
            "Fx|Distortion",
-           NILAMP_VST3_VERSION,
+           NILAMP_RELEASE_VERSION,
            kVstVersionString,
            createProcessorInstance)
 DEF_CLASS2(INLINE_UID(0x66e72a3a, 0x9187500d, 0xafa4d86a, 0x88935c65),
@@ -878,7 +945,7 @@ DEF_CLASS2(INLINE_UID(0x66e72a3a, 0x9187500d, 0xafa4d86a, 0x88935c65),
            NILAMP_VST3_NAME " Controller",
            0,
            "",
-           NILAMP_VST3_VERSION,
+           NILAMP_RELEASE_VERSION,
            kVstVersionString,
            createControllerInstance)
 END_FACTORY

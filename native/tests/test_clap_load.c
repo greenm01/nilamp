@@ -43,6 +43,9 @@
 #ifndef NILAMP_EXPECT_CLAP_NAME
 #define NILAMP_EXPECT_CLAP_NAME "nilamp"
 #endif
+#ifndef NILAMP_RELEASE_VERSION
+#define NILAMP_RELEASE_VERSION "1.0.2"
+#endif
 
 static const char *clap_library_path(const char *plugin_path, char *buffer, size_t buffer_size)
 {
@@ -556,6 +559,10 @@ static void check_param_metadata(const clap_plugin_t *plugin,
               "param metadata default mismatch");
 
         if (spec->display == NILAMP_CONTROL_DISPLAY_ENUM) {
+            check((info.flags & CLAP_PARAM_IS_STEPPED) != 0,
+                  "enum param is not marked stepped");
+            check((info.flags & CLAP_PARAM_IS_ENUM) != 0,
+                  "enum param is not marked enum");
             check(spec->enum_names != NULL && spec->enum_count > 0u,
                   "enum spec is missing labels");
             for (uint32_t value = 0; value < spec->enum_count; value++) {
@@ -572,6 +579,16 @@ static void check_param_metadata(const clap_plugin_t *plugin,
                 check(fabs(parsed - (double)value) < 0.000001,
                       "enum text_to_value mismatch");
             }
+        }
+        if (spec->id == NILAMP_PARAM_BYPASS) {
+            check((info.flags & CLAP_PARAM_IS_BYPASS) != 0,
+                  "bypass param is not marked bypass");
+            check((info.flags & CLAP_PARAM_IS_STEPPED) != 0,
+                  "bypass param is not marked stepped");
+            check(fabs(info.min_value) < 0.000001 &&
+                      fabs(info.max_value - 1.0) < 0.000001 &&
+                      fabs(info.default_value) < 0.000001,
+                  "unexpected bypass range/default");
         }
     }
 }
@@ -715,6 +732,70 @@ static void run_clap_output_safety_test(const clap_plugin_t *plugin,
           "stress output exceeds host safety limit");
 }
 
+static void run_clap_bypass_test(const clap_plugin_t *plugin,
+                                 const clap_plugin_params_t *params,
+                                 clap_process_t *process,
+                                 clap_output_events_t *out_events)
+{
+    enum { Frames = 64 };
+    float in_l[Frames];
+    float in_r[Frames];
+    float out_l[Frames];
+    float out_r[Frames];
+    fill_input(in_l, in_r, Frames);
+    memset(out_l, 0, sizeof(out_l));
+    memset(out_r, 0, sizeof(out_r));
+
+    clap_event_param_value_t bypass_event;
+    init_param_event(&bypass_event, NILAMP_PARAM_BYPASS, 1.0);
+    const clap_event_header_t *event_ptrs[1] = {&bypass_event.header};
+    TestEvents bypass_events = {.events = event_ptrs, .count = 1u};
+    clap_input_events_t bypass_input = {
+        .ctx = &bypass_events,
+        .size = events_size,
+        .get = events_get,
+    };
+    params->flush(plugin, &bypass_input, out_events);
+
+    float *input_channels[2] = {in_l, in_r};
+    float *output_channels[2] = {out_l, out_r};
+    clap_audio_buffer_t input = {
+        .data32 = input_channels,
+        .data64 = NULL,
+        .channel_count = 2,
+        .latency = 0,
+        .constant_mask = 0,
+    };
+    clap_audio_buffer_t output = {
+        .data32 = output_channels,
+        .data64 = NULL,
+        .channel_count = 2,
+        .latency = 0,
+        .constant_mask = 0,
+    };
+    TestEvents empty_events = {.events = NULL, .count = 0};
+    clap_input_events_t empty_input = {
+        .ctx = &empty_events,
+        .size = events_size,
+        .get = events_get,
+    };
+
+    process->audio_inputs = &input;
+    process->audio_outputs = &output;
+    process->audio_inputs_count = 1;
+    process->audio_outputs_count = 1;
+    process->in_events = &empty_input;
+    process->out_events = out_events;
+    process->frames_count = Frames;
+    check(plugin->process(plugin, process) == CLAP_PROCESS_CONTINUE,
+          "bypass process returned failure");
+    compare_output(out_l, in_l, Frames, "bypass left");
+    compare_output(out_r, in_r, Frames, "bypass right");
+
+    bypass_event.value = 0.0;
+    params->flush(plugin, &bypass_input, out_events);
+}
+
 int main(int argc, char **argv)
 {
     const char *plugin_path = argc > 1 ? argv[1] : "native/bin/nilamp-twd-mkii.clap";
@@ -743,6 +824,9 @@ int main(int argc, char **argv)
     check(descriptor->name != NULL &&
               strcmp(descriptor->name, NILAMP_EXPECT_CLAP_NAME) == 0,
           "unexpected plugin name");
+    check(descriptor->version != NULL &&
+              strcmp(descriptor->version, NILAMP_RELEASE_VERSION) == 0,
+          "unexpected plugin version");
 
     TestHostData host_data = {
         .next_timer_id = 1u,
@@ -880,6 +964,12 @@ int main(int argc, char **argv)
           "splitter read failed");
     check(fabs(tube1 - 1.0) < 0.000001, "unexpected default tube1");
     check(fabs(splitter - 2.0) < 0.000001, "unexpected default splitter");
+    check(params->get_info(plugin, NILAMP_PARAM_BYPASS, &param_info),
+          "bypass info read failed");
+    check(strcmp(param_info.name, "Bypass") == 0, "unexpected bypass host name");
+    double bypass = -1.0;
+    check(params->get_value(plugin, NILAMP_PARAM_BYPASS, &bypass), "bypass read failed");
+    check(fabs(bypass) < 0.000001, "unexpected default bypass");
     char text[32];
     check(params->value_to_text(plugin, NILAMP_PARAM_TUBE1, 0.0, text, sizeof(text)) &&
               strcmp(text, "12AY7") == 0,
@@ -1109,6 +1199,8 @@ int main(int argc, char **argv)
           "splitter state reread failed");
     check(fabs(tube1) < 0.000001, "state did not restore tube1");
     check(fabs(splitter - 4.0) < 0.000001, "state did not restore splitter");
+    check(params->get_value(plugin, NILAMP_PARAM_BYPASS, &bypass), "bypass state reread failed");
+    check(fabs(bypass - 1.0) < 0.000001, "state did not restore bypass");
 
     struct {
         uint32_t magic;
@@ -1137,6 +1229,8 @@ int main(int argc, char **argv)
           "old state splitter reread failed");
     check(fabs(tube1 - 1.0) < 0.000001, "old state tube1 did not backfill");
     check(fabs(splitter) < 0.000001, "old state splitter did not backfill");
+    check(params->get_value(plugin, NILAMP_PARAM_BYPASS, &bypass), "old state bypass reread failed");
+    check(fabs(bypass) < 0.000001, "old state bypass did not default");
 
     struct {
         uint32_t magic;
@@ -1163,6 +1257,7 @@ int main(int argc, char **argv)
     check(fabs(tube1 - 1.0) < 0.000001, "v2 state tube1 did not backfill");
     check(fabs(splitter) < 0.000001, "v2 state splitter did not backfill");
 
+    run_clap_bypass_test(plugin, params, &process, &out_events);
     run_clap_output_safety_test(plugin, params, &process, &out_events);
 
     plugin->stop_processing(plugin);

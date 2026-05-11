@@ -4,6 +4,8 @@
 
 #include "pluginterfaces/base/ibstream.h"
 #include "pluginterfaces/base/ipluginbase.h"
+#include "pluginterfaces/gui/iplugview.h"
+#include "pluginterfaces/gui/iplugviewcontentscalesupport.h"
 #include "pluginterfaces/vst/ivstaudioprocessor.h"
 #include "pluginterfaces/vst/ivstcomponent.h"
 #include "pluginterfaces/vst/ivsteditcontroller.h"
@@ -29,6 +31,9 @@
 #endif
 #ifndef NILAMP_TEST_VST3_WINDOWS_BINARY
 #define NILAMP_TEST_VST3_WINDOWS_BINARY "x86_64-win\\nilamp-twd-mkii.vst3"
+#endif
+#ifndef NILAMP_RELEASE_VERSION
+#define NILAMP_RELEASE_VERSION "1.0.2"
 #endif
 
 using namespace Steinberg;
@@ -445,6 +450,20 @@ int main(int argc, char **argv)
     IPluginFactory *factory = getFactory();
     check(factory != nullptr, "missing plugin factory");
     check(factory->countClasses() == 2, "unexpected factory class count");
+    IPluginFactory2 *factory2 = nullptr;
+    check(factory->queryInterface(IPluginFactory2::iid, (void **)&factory2) == kResultOk,
+          "factory2 query failed");
+    PClassInfo2 classInfo = {};
+    check(factory2->getClassInfo2(0, &classInfo) == kResultOk,
+          "processor class info2 failed");
+    check(std::strcmp(classInfo.version, NILAMP_RELEASE_VERSION) == 0,
+          "unexpected VST3 processor version");
+    classInfo = {};
+    check(factory2->getClassInfo2(1, &classInfo) == kResultOk,
+          "controller class info2 failed");
+    check(std::strcmp(classInfo.version, NILAMP_RELEASE_VERSION) == 0,
+          "unexpected VST3 controller version");
+    factory2->release();
 
     TUID processorUid = NILAMP_VST3_PROCESSOR_UID;
     TUID controllerUid = NILAMP_VST3_CONTROLLER_UID;
@@ -475,6 +494,34 @@ int main(int argc, char **argv)
           "output gain parameter info failed");
     copyTitleAscii(info.title, title, sizeof(title));
     check(std::strcmp(title, "Output Gain") == 0, "unexpected VST3 output gain title");
+    check(controller->getParameterInfo(NILAMP_PARAM_BYPASS, info) == kResultOk,
+          "bypass parameter info failed");
+    copyTitleAscii(info.title, title, sizeof(title));
+    check(std::strcmp(title, "Bypass") == 0, "unexpected VST3 bypass title");
+    check(info.stepCount == 1, "VST3 bypass is not a toggle");
+    check((info.flags & ParameterInfo::kIsBypass) != 0,
+          "VST3 bypass flag is missing");
+    check(std::fabs(info.defaultNormalizedValue) < 0.000001,
+          "unexpected VST3 bypass default");
+
+    IPlugView *view = controller->createView(ViewType::kEditor);
+    check(view != nullptr, "editor view create failed");
+    IPlugViewContentScaleSupport *scaleSupport = nullptr;
+    check(view->queryInterface(IPlugViewContentScaleSupport::iid,
+                               (void **)&scaleSupport) == kResultOk,
+          "editor scale support query failed");
+    ViewRect viewSize = {};
+    check(view->getSize(&viewSize) == kResultTrue, "editor getSize failed");
+    check(viewSize.getWidth() == 500 && viewSize.getHeight() == 340,
+          "unexpected default editor size");
+    check(scaleSupport->setContentScaleFactor(1.5f) == kResultTrue,
+          "editor scale set failed");
+    viewSize = {};
+    check(view->getSize(&viewSize) == kResultTrue, "scaled editor getSize failed");
+    check(viewSize.getWidth() == 750 && viewSize.getHeight() == 510,
+          "unexpected scaled editor size");
+    scaleSupport->release();
+    view->release();
 
     const ParamValue smoothVolume =
         controller->normalizedParamToPlain(NILAMP_PARAM_VOLUME_PCT, 0.513);
@@ -585,6 +632,15 @@ int main(int argc, char **argv)
     renderReference(0.0f, inL, inR, refL, refR, Frames);
     compareOutput(outL, refL, Frames, "restored L");
     compareOutput(outR, refR, Frames, "restored R");
+
+    std::memset(outL, 0, sizeof(outL));
+    std::memset(outR, 0, sizeof(outR));
+    ParamQueue bypassOnQueue(NILAMP_PARAM_BYPASS, 0, normalized(NILAMP_PARAM_BYPASS, 1.0));
+    ParameterChanges bypassOnChanges(&bypassOnQueue);
+    data.inputParameterChanges = &bypassOnChanges;
+    check(processor->process(data) == kResultOk, "bypass process failed");
+    compareOutput(outL, inL, Frames, "bypass L");
+    compareOutput(outR, inR, Frames, "bypass R");
 
     processor->setProcessing(false);
     component->setActive(false);

@@ -1,5 +1,5 @@
 amp "keller_twd_dlx_ii" {
-  metadata id="NILAMP_MODEL_KELLER_TWD_DLX_II" name="Keller TWD DLX II" family="5E3 tweed deluxe" brand="nilamp" clap_name="nilamp TWD MKII" clap_filename="nilamp-twd-mkii.clap" vst3_name="nilamp TWD MKII" vst3_filename="nilamp-twd-mkii.vst3" vst3_executable="nilamp-twd-mkii" vst3_bundle_id="dev.niltempus.nilamp.twd-mkii.vst3" about_title="TWD DLX II" version="Version 1.0.4" author="by Helmut Keller" port="Ported to C by niltempus"
+  metadata id="NILAMP_MODEL_KELLER_TWD_DLX_II" name="Keller TWD DLX II" family="5E3 tweed deluxe" brand="nilamp" clap_name="nilamp TWD MKII" clap_filename="nilamp-twd-mkii.clap" vst3_name="nilamp TWD MKII" vst3_filename="nilamp-twd-mkii.vst3" vst3_executable="nilamp-twd-mkii" vst3_bundle_id="dev.niltempus.nilamp.twd-mkii.vst3" about_title="TWD DLX II" version="Keller JSFX Version 1.0.4" author="by Helmut Keller" port="Ported to C by niltempus"
 
   dsp topology="tweed_5e3_cathodyne_pp" {
     speaker source_ohms=0.0 nominal_ohms=8.0
@@ -75,6 +75,10 @@ amp "keller_twd_dlx_ii" {
       option "LTP 1"
       option "LTP 2"
       option "LTP 3"
+    }
+    control "bypass" id="NILAMP_PARAM_BYPASS" name="Bypass" module="Global" unit="" min=0.0 max=1.0 default=0.0 step=1.0 display="enum" {
+      option "Off"
+      option "On"
     }
     }
   }

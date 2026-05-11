@@ -44,16 +44,22 @@
 
 #define NILAMP_PLUGIN_ID "dev.niltempus.nilamp"
 #define NILAMP_STATE_MAGIC 0x4e4c4150u
-#define NILAMP_STATE_VERSION 3u
+#define NILAMP_STATE_VERSION 4u
 #define NILAMP_STATE_VERSION_1 1u
 #define NILAMP_STATE_VERSION_1_PARAM_COUNT 6u
 #define NILAMP_STATE_VERSION_2 2u
 #define NILAMP_STATE_VERSION_2_PARAM_COUNT 17u
+#define NILAMP_STATE_VERSION_3 3u
+#define NILAMP_STATE_VERSION_3_PARAM_COUNT 19u
 #define NILAMP_CLAP_OUTPUT_LIMIT 1.0f
 #define NILAMP_CLAP_PORT_CONFIG_MONO 1u
 #define NILAMP_CLAP_PORT_CONFIG_STEREO 2u
 #define NILAMP_GUI_FRAME_INTERVAL_SECONDS (1.0 / 30.0)
 #define NILAMP_GUI_HOST_TIMER_MS 33u
+
+#ifndef NILAMP_RELEASE_VERSION
+#define NILAMP_RELEASE_VERSION "1.0.2"
+#endif
 
 typedef NilampControlSpec NilampParamSpec;
 #define nilamp_param_specs (nilamp_control_specs(NULL))
@@ -170,7 +176,7 @@ static const clap_plugin_descriptor_t nilamp_descriptor = {
     .url = "",
     .manual_url = "",
     .support_url = "",
-    .version = "1.0.1",
+    .version = NILAMP_RELEASE_VERSION,
     .description = "Native C guitar amp model",
     .features = nilamp_features,
 };
@@ -269,6 +275,8 @@ static double nilamp_get_param_value(const NilampParams *params, clap_id id)
         return params->tube1;
     case NILAMP_PARAM_PHASE_SPLITTER:
         return params->phase_splitter;
+    case NILAMP_PARAM_BYPASS:
+        return params->bypass;
     case NILAMP_PARAM_COUNT:
     default:
         return 0.0;
@@ -401,6 +409,9 @@ static bool nilamp_set_param_value(NilampParams *params, clap_id id, double valu
         return true;
     case NILAMP_PARAM_PHASE_SPLITTER:
         params->phase_splitter = clamped;
+        return true;
+    case NILAMP_PARAM_BYPASS:
+        params->bypass = clamped;
         return true;
     case NILAMP_PARAM_COUNT:
     default:
@@ -760,6 +771,55 @@ static void nilamp_duplicate_channel(float *dst, const float *src, uint32_t offs
     memcpy(dst + offset, src + offset, sizeof(float) * nframes);
 }
 
+static void nilamp_passthrough_channel(const clap_audio_buffer_t *input,
+                                       clap_audio_buffer_t *output,
+                                       uint32_t input_channel, uint32_t output_channel,
+                                       uint32_t offset, uint32_t nframes)
+{
+    if (!output || !output->data32 || output_channel >= output->channel_count ||
+        !output->data32[output_channel]) {
+        return;
+    }
+
+    float *out = output->data32[output_channel];
+    const bool has_input = input && input->data32 && input_channel < input->channel_count &&
+                           input->data32[input_channel];
+    if (!has_input) {
+        nilamp_zero_channel(out, offset, nframes);
+        return;
+    }
+
+    const float *in = input->data32[input_channel];
+    const bool input_is_constant =
+        (input->constant_mask & (UINT64_C(1) << input_channel)) != 0u;
+    if (input_is_constant) {
+        for (uint32_t i = 0; i < nframes; i++) {
+            out[offset + i] = nilamp_sanitize_host_sample(in[0]);
+        }
+    } else if (out != in) {
+        memcpy(out + offset, in + offset, sizeof(float) * nframes);
+        nilamp_sanitize_host_channel(out, offset, nframes);
+    }
+}
+
+static bool nilamp_process_bypass_segment(const clap_audio_buffer_t *input,
+                                          clap_audio_buffer_t *output,
+                                          uint32_t start, uint32_t end)
+{
+    if (!output || !output->data32 || output->channel_count == 0u ||
+        !output->data32[0]) {
+        return false;
+    }
+    const uint32_t frames = end - start;
+    const uint32_t process_channels = output->channel_count < 2u ? output->channel_count : 2u;
+    const uint32_t input_channels = input ? input->channel_count : 0u;
+    for (uint32_t ch = 0; ch < process_channels; ch++) {
+        const uint32_t input_channel = input_channels > 1u ? ch : 0u;
+        nilamp_passthrough_channel(input, output, input_channel, ch, start, frames);
+    }
+    return true;
+}
+
 static bool nilamp_process_segment(NilampClap *plug, const clap_process_t *process,
                                    uint32_t start, uint32_t end)
 {
@@ -781,6 +841,10 @@ static bool nilamp_process_segment(NilampClap *plug, const clap_process_t *proce
     const uint32_t output_channels = output->channel_count;
     const uint32_t process_channels = output_channels < 2u ? output_channels : 2u;
     const uint32_t input_channels = input ? input->channel_count : 0u;
+
+    if (nilamp_load_param_value(plug, NILAMP_PARAM_BYPASS) >= 0.5) {
+        return nilamp_process_bypass_segment(input, output, start, end);
+    }
 
     if (process_channels >= 2u && input && input->data32 && input_channels == 1u &&
         input->data32[0] && output->data32[0] == input->data32[0]) {
@@ -1033,6 +1097,12 @@ static bool nilamp_params_get_info(const clap_plugin_t *plugin, uint32_t param_i
     memset(param_info, 0, sizeof(*param_info));
     param_info->id = spec->id;
     param_info->flags = CLAP_PARAM_IS_AUTOMATABLE | CLAP_PARAM_REQUIRES_PROCESS;
+    if (spec->display == NILAMP_CONTROL_DISPLAY_ENUM) {
+        param_info->flags |= CLAP_PARAM_IS_STEPPED | CLAP_PARAM_IS_ENUM;
+    }
+    if (spec->id == NILAMP_PARAM_BYPASS) {
+        param_info->flags |= CLAP_PARAM_IS_BYPASS | CLAP_PARAM_IS_STEPPED;
+    }
     param_info->cookie = (void *)spec;
     nilamp_copy_text(param_info->name, sizeof(param_info->name),
                      spec->host_name ? spec->host_name : spec->name);
@@ -1330,6 +1400,8 @@ static bool nilamp_state_load(const clap_plugin_t *plugin, const clap_istream_t 
         value_count = NILAMP_STATE_VERSION_1_PARAM_COUNT;
     } else if (header.version == NILAMP_STATE_VERSION_2) {
         value_count = NILAMP_STATE_VERSION_2_PARAM_COUNT;
+    } else if (header.version == NILAMP_STATE_VERSION_3) {
+        value_count = NILAMP_STATE_VERSION_3_PARAM_COUNT;
     } else if (header.version == NILAMP_STATE_VERSION) {
         value_count = NILAMP_PARAM_COUNT;
     } else {

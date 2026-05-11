@@ -14,7 +14,7 @@ extern "C" {
 
 #define NILAMP_PLUGIN_ID "dev.niltempus.nilamp"
 #define NILAMP_HOST_STATE_MAGIC 0x4e4c4150u
-#define NILAMP_HOST_STATE_VERSION 3u
+#define NILAMP_HOST_STATE_VERSION 4u
 #define NILAMP_HOST_OUTPUT_LIMIT 1.0f
 
 typedef struct NilampHostCore {

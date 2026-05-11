@@ -2,6 +2,71 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: nilamp v1.0.2 metadata bump
+
+**Context.** `v1.0.1` has already been released, so the new bypass/version/scale
+work needs host-visible nilamp release metadata for `v1.0.2`.
+
+**Edit summary.**
+
+- Bumped Unix and Windows build defaults to `RELEASE_VERSION=1.0.2`.
+- Bumped fallback `NILAMP_RELEASE_VERSION` strings in CLAP/VST3 sources and
+  loader tests to `1.0.2`.
+- Left Keller JSFX `1.0.4` provenance metadata unchanged.
+
+**Verification.**
+
+- `make native-test`
+
+### Session: VST3 bypass, version metadata, and editor scale support
+
+**Context.** Implemented the first three VST3 status backlog items: bypass,
+host-visible version cleanup, and editor content-scale support.
+
+**Edit summary.**
+
+- Added shared `Bypass` as appended parameter ID `19`, with CLAP/VST3 bypass
+  flags and shared state version `4`.
+- Added bypass pass-through processing for CLAP and VST3/native host glue,
+  preserving sample-accurate parameter segmentation.
+- Added `NILAMP_RELEASE_VERSION` build defines for Unix and Windows builds so
+  CLAP and VST3 descriptors use the packaging release version.
+- Clarified Keller `1.0.4` as Keller JSFX provenance in the about text instead
+  of treating it as nilamp's plugin version.
+- Added VST3 `IPlugViewContentScaleSupport` on the embedded editor and covered
+  scaled editor size in the VST3 loader test.
+- Updated `docs/vst3-status.md` to move bypass, version metadata, and editor
+  scale support into the implemented set.
+
+**Verification.**
+
+- `python3 tools/gen_amp_models.py native/generated/nilamp_models.inc models/amps/keller_twd_dlx_ii.kdl`
+- `python3 -m py_compile tools/gen_amp_models.py`
+- `make native-test`
+- `make native-host-test`; CLAP validation passes and Steinberg VST3 validator
+  reports `47 tests passed, 0 tests failed` with 20 VST3 parameters including
+  `Bypass`.
+
+### Session: VST3 API coverage audit note
+
+**Context.** Audited whether nilamp should chase the full optional VST3 API
+surface or a guitar-amp-appropriate subset.
+
+**Edit summary.**
+
+- Added `docs/vst3-status.md` documenting the current implemented VST3 surface.
+- Captured a prioritized guitar-amp-relevant VST3 backlog: bypass, version
+  metadata cleanup, editor scale support, parameter grouping, real presets,
+  MIDI CC mapping, and 64-bit processing as item 7.
+- Documented that 64-bit VST3 processing is a compatibility/polish item, not a
+  likely performance optimization.
+
+**Verification.**
+
+- Documentation-only change; no build needed.
+- Earlier audit run of `make native-host-test` passed with Steinberg VST3
+  validator reporting `47 tests passed, 0 tests failed`.
+
 ### Session: Windows v1.0.1 release package deploy
 
 **Context.** The GitHub `v1.0.1` release had macOS and Linux packages plus

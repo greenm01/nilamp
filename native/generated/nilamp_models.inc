@@ -70,6 +70,11 @@ static const char *const KELLER_TWD_DLX_II_PHASE_SPLITTER_OPTIONS[] = {
     "LTP 3",
 };
 
+static const char *const KELLER_TWD_DLX_II_BYPASS_OPTIONS[] = {
+    "Off",
+    "On",
+};
+
 static const NilampControlSpec KELLER_TWD_DLX_II_CONTROLS[] = {
     {
         .id = NILAMP_PARAM_GAIN_DB,
@@ -336,6 +341,20 @@ static const NilampControlSpec KELLER_TWD_DLX_II_CONTROLS[] = {
         .display = NILAMP_CONTROL_DISPLAY_ENUM,
         .enum_names = KELLER_TWD_DLX_II_PHASE_SPLITTER_OPTIONS,
         .enum_count = (uint32_t)(sizeof(KELLER_TWD_DLX_II_PHASE_SPLITTER_OPTIONS) / sizeof(KELLER_TWD_DLX_II_PHASE_SPLITTER_OPTIONS[0])),
+    },
+    {
+        .id = NILAMP_PARAM_BYPASS,
+        .name = "Bypass",
+        .host_name = "Bypass",
+        .module = "Global",
+        .unit = "",
+        .min_value = 0.0f,
+        .max_value = 1.0f,
+        .default_value = 0.0f,
+        .step = 1.0f,
+        .display = NILAMP_CONTROL_DISPLAY_ENUM,
+        .enum_names = KELLER_TWD_DLX_II_BYPASS_OPTIONS,
+        .enum_count = (uint32_t)(sizeof(KELLER_TWD_DLX_II_BYPASS_OPTIONS) / sizeof(KELLER_TWD_DLX_II_BYPASS_OPTIONS[0])),
     },
 };
 
@@ -767,7 +786,7 @@ static const NilampGuiWidgetSpec KELLER_TWD_DLX_II_ABOUT_GUI_WIDGETS[] = {
     {
         .type = NILAMP_GUI_WIDGET_TEXT,
         .screen = NILAMP_GUI_SCREEN_ID_ABOUT,
-        .label = "Version 1.0.4",
+        .label = "Keller JSFX Version 1.0.4",
         .param_id = NILAMP_PARAM_COUNT,
         .bounds = {0.0f, 104.0f, 500.0f, 25.0f},
         .text_style = NILAMP_GUI_TEXT_ABOUT,

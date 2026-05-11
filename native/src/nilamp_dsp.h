@@ -36,7 +36,8 @@ typedef enum NilampParamId {
     NILAMP_PARAM_GAIN_COMP = 16,
     NILAMP_PARAM_TUBE1 = 17,
     NILAMP_PARAM_PHASE_SPLITTER = 18,
-    NILAMP_PARAM_COUNT = 19,
+    NILAMP_PARAM_BYPASS = 19,
+    NILAMP_PARAM_COUNT = 20,
 } NilampParamId;
 
 typedef enum NilampControlDisplay {
@@ -152,6 +153,7 @@ typedef struct NilampParams {
     float gain_comp;
     float tube1;
     float phase_splitter;
+    float bypass;
 } NilampParams;
 
 enum {

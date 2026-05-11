@@ -739,6 +739,9 @@ static void nilamp_params_set_raw(NilampParams *params, uint32_t id, float value
     case NILAMP_PARAM_PHASE_SPLITTER:
         params->phase_splitter = value;
         break;
+    case NILAMP_PARAM_BYPASS:
+        params->bypass = value;
+        break;
     case NILAMP_PARAM_COUNT:
     default:
         break;

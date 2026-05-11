@@ -17,6 +17,8 @@
 #define NILAMP_HOST_STATE_VERSION_1_PARAM_COUNT 6u
 #define NILAMP_HOST_STATE_VERSION_2 2u
 #define NILAMP_HOST_STATE_VERSION_2_PARAM_COUNT 17u
+#define NILAMP_HOST_STATE_VERSION_3 3u
+#define NILAMP_HOST_STATE_VERSION_3_PARAM_COUNT 19u
 
 typedef struct NilampHostStateBlob {
     uint32_t magic;
@@ -195,6 +197,8 @@ double nilamp_host_get_param_value(const NilampParams *params, uint32_t id)
         return params->tube1;
     case NILAMP_PARAM_PHASE_SPLITTER:
         return params->phase_splitter;
+    case NILAMP_PARAM_BYPASS:
+        return params->bypass;
     case NILAMP_PARAM_COUNT:
     default:
         return 0.0;
@@ -266,6 +270,9 @@ bool nilamp_host_set_param_value(NilampParams *params, uint32_t id, double value
         return true;
     case NILAMP_PARAM_PHASE_SPLITTER:
         params->phase_splitter = clamped;
+        return true;
+    case NILAMP_PARAM_BYPASS:
+        params->bypass = clamped;
         return true;
     case NILAMP_PARAM_COUNT:
     default:
@@ -417,6 +424,8 @@ bool nilamp_host_load_state(NilampHostCore *core, NilampHostReadFn read, void *u
         value_count = NILAMP_HOST_STATE_VERSION_1_PARAM_COUNT;
     } else if (header.version == NILAMP_HOST_STATE_VERSION_2) {
         value_count = NILAMP_HOST_STATE_VERSION_2_PARAM_COUNT;
+    } else if (header.version == NILAMP_HOST_STATE_VERSION_3) {
+        value_count = NILAMP_HOST_STATE_VERSION_3_PARAM_COUNT;
     } else if (header.version == NILAMP_HOST_STATE_VERSION) {
         value_count = NILAMP_PARAM_COUNT;
     } else {
@@ -531,6 +540,52 @@ static void nilamp_duplicate_channel(float *dst, const float *src, uint32_t offs
     memcpy(dst + offset, src + offset, sizeof(float) * nframes);
 }
 
+static void nilamp_passthrough_channel(const NilampHostAudioBlock *block,
+                                       uint32_t input_channel, uint32_t output_channel,
+                                       uint32_t offset, uint32_t nframes)
+{
+    if (!block || output_channel >= block->output_channels ||
+        output_channel >= 2u || !block->outputs[output_channel]) {
+        return;
+    }
+
+    float *out = block->outputs[output_channel];
+    const bool has_input = input_channel < block->input_channels &&
+                           input_channel < 2u && block->inputs[input_channel];
+    if (!has_input) {
+        nilamp_zero_channel(out, offset, nframes);
+        return;
+    }
+
+    const float *in = block->inputs[input_channel];
+    const bool input_is_constant =
+        (block->input_constant_mask & (UINT64_C(1) << input_channel)) != 0u;
+    if (input_is_constant) {
+        for (uint32_t i = 0; i < nframes; i++) {
+            out[offset + i] = nilamp_host_sanitize_sample(in[0]);
+        }
+    } else if (out != in) {
+        memcpy(out + offset, in + offset, sizeof(float) * nframes);
+        nilamp_sanitize_channel(out, offset, nframes);
+    }
+}
+
+static bool nilamp_host_process_bypass_segment(const NilampHostAudioBlock *block,
+                                               uint32_t start, uint32_t end)
+{
+    if (!block || block->output_channels == 0u || !block->outputs[0]) {
+        return false;
+    }
+
+    const uint32_t frames = end - start;
+    const uint32_t process_channels = block->output_channels < 2u ? block->output_channels : 2u;
+    for (uint32_t ch = 0; ch < process_channels; ch++) {
+        const uint32_t input_channel = block->input_channels > 1u ? ch : 0u;
+        nilamp_passthrough_channel(block, input_channel, ch, start, frames);
+    }
+    return true;
+}
+
 bool nilamp_host_process_segment(NilampHostCore *core, const NilampHostAudioBlock *block,
                                  uint32_t start, uint32_t end)
 {
@@ -543,6 +598,10 @@ bool nilamp_host_process_segment(NilampHostCore *core, const NilampHostAudioBloc
 
     const uint32_t frames = end - start;
     const uint32_t process_channels = block->output_channels < 2u ? block->output_channels : 2u;
+
+    if (nilamp_host_core_get_param(core, NILAMP_PARAM_BYPASS) >= 0.5) {
+        return nilamp_host_process_bypass_segment(block, start, end);
+    }
 
     if (process_channels >= 2u && block->input_channels == 1u && block->inputs[0] &&
         block->outputs[0] == block->inputs[0]) {
