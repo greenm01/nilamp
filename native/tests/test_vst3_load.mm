@@ -9,6 +9,7 @@
 #include "pluginterfaces/vst/ivstaudioprocessor.h"
 #include "pluginterfaces/vst/ivstcomponent.h"
 #include "pluginterfaces/vst/ivsteditcontroller.h"
+#include "pluginterfaces/vst/ivstmidicontrollers.h"
 #include "pluginterfaces/vst/ivstparameterchanges.h"
 #include "pluginterfaces/vst/ivstunits.h"
 
@@ -62,6 +63,9 @@ static void checkDefaultMonoBusses(IComponent *component, IAudioProcessor *proce
 {
     check(component->getBusCount(kAudio, kInput) == 1, "unexpected VST3 input bus count");
     check(component->getBusCount(kAudio, kOutput) == 1, "unexpected VST3 output bus count");
+    check(component->getBusCount(kEvent, kInput) == 1, "unexpected VST3 event input bus count");
+    check(component->getBusCount(kEvent, kOutput) == 0,
+          "unexpected VST3 event output bus count");
 
     BusInfo bus = {};
     check(component->getBusInfo(kAudio, kInput, 0, bus) == kResultOk,
@@ -76,6 +80,13 @@ static void checkDefaultMonoBusses(IComponent *component, IAudioProcessor *proce
     check(bus.channelCount == 1, "default output bus is not mono");
     check(bus.busType == kMain, "default output bus is not main");
     check((bus.flags & BusInfo::kDefaultActive) != 0, "default output bus is not active");
+
+    bus = {};
+    check(component->getBusInfo(kEvent, kInput, 0, bus) == kResultOk,
+          "event input bus info failed");
+    check(bus.channelCount == 16, "event input bus is not 16-channel MIDI");
+    check(bus.busType == kMain, "event input bus is not main");
+    check((bus.flags & BusInfo::kDefaultActive) != 0, "event input bus is not active");
 
     SpeakerArrangement arrangement = 0;
     check(processor->getBusArrangement(kInput, 0, arrangement) == kResultTrue,
@@ -306,6 +317,21 @@ static void checkParamUnit(IEditController *controller, int32 parameterIndex,
     ParameterInfo info = {};
     check(controller->getParameterInfo(parameterIndex, info) == kResultOk, message);
     check(info.unitId == expectedUnitId, "unexpected VST3 parameter unit id");
+}
+
+static void checkMidiMapping(IMidiMapping *midiMapping, CtrlNumber controllerNumber,
+                             ParamID expectedId)
+{
+    ParamID id = kNoParamId;
+    check(midiMapping->getMidiControllerAssignment(0, 0, controllerNumber, id) ==
+              kResultTrue,
+          "VST3 MIDI mapping lookup failed");
+    check(id == expectedId, "unexpected VST3 MIDI mapped parameter id");
+    id = kNoParamId;
+    check(midiMapping->getMidiControllerAssignment(0, 15, controllerNumber, id) ==
+              kResultTrue,
+          "VST3 MIDI mapping channel lookup failed");
+    check(id == expectedId, "unexpected VST3 MIDI channel mapped parameter id");
 }
 
 static void fillInput(float *left, float *right, uint32_t frames)
@@ -557,6 +583,31 @@ int main(int argc, char **argv)
     checkParamUnit(controller, NILAMP_PARAM_PHASE_SPLITTER, 9,
                    "phase splitter parameter info failed");
     unitInfo->release();
+
+    IMidiMapping *midiMapping = nullptr;
+    check(controller->queryInterface(IMidiMapping::iid, (void **)&midiMapping) == kResultOk,
+          "VST3 MIDI mapping query failed");
+    checkMidiMapping(midiMapping, kCtrlSustainOnOff, NILAMP_PARAM_BYPASS);
+    checkMidiMapping(midiMapping, kCtrlGPC1, NILAMP_PARAM_GAIN_DB);
+    checkMidiMapping(midiMapping, kCtrlGPC2, NILAMP_PARAM_OUTPUT_GAIN_DB);
+    checkMidiMapping(midiMapping, kCtrlGPC3, NILAMP_PARAM_VOLUME_PCT);
+    checkMidiMapping(midiMapping, kCtrlGPC4, NILAMP_PARAM_BASS_PCT);
+    checkMidiMapping(midiMapping, kCtrlGPC5, NILAMP_PARAM_MID_PCT);
+    checkMidiMapping(midiMapping, kCtrlGPC6, NILAMP_PARAM_TREBLE_PCT);
+    ParamID midiParamId = kNoParamId;
+    check(midiMapping->getMidiControllerAssignment(1, 0, kCtrlGPC1, midiParamId) ==
+              kResultFalse,
+          "VST3 MIDI mapping accepted invalid bus");
+    check(midiMapping->getMidiControllerAssignment(0, -1, kCtrlGPC1, midiParamId) ==
+              kResultFalse,
+          "VST3 MIDI mapping accepted invalid channel");
+    check(midiMapping->getMidiControllerAssignment(0, 0, kCtrlGPC7, midiParamId) ==
+              kResultFalse,
+          "VST3 MIDI mapping unexpectedly includes circuit or extra control");
+    check(midiMapping->getMidiControllerAssignment(0, 0, kCtrlModWheel, midiParamId) ==
+              kResultFalse,
+          "VST3 MIDI mapping accepted unmapped CC");
+    midiMapping->release();
 
     IPlugView *view = controller->createView(ViewType::kEditor);
     check(view != nullptr, "editor view create failed");

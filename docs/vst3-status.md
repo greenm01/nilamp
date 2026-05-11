@@ -15,6 +15,8 @@ The Steinberg validator currently passes with `47 tests passed, 0 tests failed`.
 - Host-visible parameter registration, text conversion, and automation.
 - Parameter units/groups via `IUnitInfo`, derived from shared control module
   metadata.
+- VST3 MIDI CC mapping for bypass and default-screen amp-face knobs via
+  `IMidiMapping`.
 - Shared CLAP/VST3 bypass parameter and pass-through processing.
 - Sample-offset parameter changes inside `process()`.
 - Component and controller state save/load.
@@ -30,11 +32,7 @@ The Steinberg validator currently passes with `47 tests passed, 0 tests failed`.
    Program-list API support without an actual preset story adds complexity but
    little value.
 
-2. Add MIDI CC mapping for live foot-controller workflows.
-   This can make sense for bypass, gain, output, sag, and mode parameters. It
-   does not imply MIDI note input or note processing.
-
-3. Consider 64-bit audio processing as a compatibility/polish item, not a
+2. Consider 64-bit audio processing as a compatibility/polish item, not a
    performance optimization.
    Double-precision VST3 processing mainly reduces plugin I/O rounding and lets
    hosts exercise their 64-bit processing path. It is usually neutral to slower
@@ -43,7 +41,7 @@ The Steinberg validator currently passes with `47 tests passed, 0 tests failed`.
 
 ## Low-Value For This Plugin
 
-- MIDI note input, note expression, and keyswitches.
+- Direct MIDI note/CC processing, MIDI learn, note expression, and keyswitches.
 - Aux, sidechain, or surround buses unless a future feature needs external
   control audio or multichannel processing.
 - Data exchange, prefetch, channel context, physical UI, or other specialized

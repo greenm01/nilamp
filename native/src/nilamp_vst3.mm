@@ -13,6 +13,7 @@
 #include "pluginterfaces/gui/iplugviewcontentscalesupport.h"
 #include "pluginterfaces/vst/ivstaudioprocessor.h"
 #include "pluginterfaces/vst/ivsteditcontroller.h"
+#include "pluginterfaces/vst/ivstmidicontrollers.h"
 #include "pluginterfaces/vst/ivstparameterchanges.h"
 #include "pluginterfaces/vst/vstpresetkeys.h"
 #include "public.sdk/source/common/pluginview.h"
@@ -49,6 +50,9 @@ static const FUID ControllerUID(0x66e72a3a, 0x9187500d, 0xafa4d86a, 0x88935c65);
 static constexpr uint32 kEditorTimerMs = 33;
 #endif
 static constexpr double kEditorFrameIntervalSeconds = 1.0 / 30.0;
+static constexpr std::array<CtrlNumber, 6> kFrontFaceMidiCcs = {
+    kCtrlGPC1, kCtrlGPC2, kCtrlGPC3, kCtrlGPC4, kCtrlGPC5, kCtrlGPC6,
+};
 
 static bool iidEqual(const TUID a, const TUID b)
 {
@@ -149,6 +153,7 @@ public:
         }
         addAudioInput(STR("Audio In"), SpeakerArr::kMono);
         addAudioOutput(STR("Audio Out"), SpeakerArr::kMono);
+        addEventInput(STR("MIDI In"), 16);
         return kResultOk;
     }
 
@@ -406,10 +411,26 @@ static UnitID findUnitIdForModule(const char *module,
     return kRootUnitId;
 }
 
-class Controller final : public EditControllerEx1 {
+class Controller final : public EditControllerEx1, public IMidiMapping {
 public:
     Controller() { nilamp_host_core_init(&core); }
     ~Controller() override { nilamp_host_core_deinit(&core); }
+
+    uint32 PLUGIN_API addRef() SMTG_OVERRIDE { return EditControllerEx1::addRef(); }
+    uint32 PLUGIN_API release() SMTG_OVERRIDE { return EditControllerEx1::release(); }
+
+    tresult PLUGIN_API queryInterface(const TUID queryIid, void **obj) SMTG_OVERRIDE
+    {
+        if (!obj) {
+            return kInvalidArgument;
+        }
+        if (iidEqual(queryIid, IMidiMapping::iid)) {
+            *obj = static_cast<IMidiMapping *>(this);
+            addRef();
+            return kResultOk;
+        }
+        return EditControllerEx1::queryInterface(queryIid, obj);
+    }
 
     tresult PLUGIN_API initialize(FUnknown *context) SMTG_OVERRIDE
     {
@@ -479,7 +500,24 @@ public:
                 parameters.addParameter(param);
             }
         }
+        buildMidiMappings();
         return kResultOk;
+    }
+
+    tresult PLUGIN_API getMidiControllerAssignment(int32 busIndex, int16 channel,
+                                                   CtrlNumber midiControllerNumber,
+                                                   ParamID &id) SMTG_OVERRIDE
+    {
+        if (busIndex != 0 || channel < 0 || channel >= 16) {
+            return kResultFalse;
+        }
+        for (uint32_t i = 0; i < midiMappingCount; i++) {
+            if (midiMappings[i].controller == midiControllerNumber) {
+                id = midiMappings[i].id;
+                return kResultTrue;
+            }
+        }
+        return kResultFalse;
     }
 
     tresult PLUGIN_API setComponentState(IBStream *state) SMTG_OVERRIDE
@@ -617,6 +655,48 @@ public:
 #endif
 
 private:
+    struct MidiMapping {
+        CtrlNumber controller;
+        ParamID id;
+    };
+
+    void buildMidiMappings()
+    {
+        midiMappingCount = 0;
+        addMidiMapping(kCtrlSustainOnOff, NILAMP_PARAM_BYPASS);
+
+        const NilampGuiLayoutSpec *layout = nilamp_model_gui_layout(NILAMP_MODEL_DEFAULT);
+        if (!layout) {
+            return;
+        }
+        for (uint32_t screenIndex = 0; screenIndex < layout->screen_count; screenIndex++) {
+            const NilampGuiScreenSpec *screen = &layout->screens[screenIndex];
+            if (screen->id != layout->default_screen) {
+                continue;
+            }
+            for (uint32_t widgetIndex = 0; widgetIndex < screen->widget_count; widgetIndex++) {
+                const NilampGuiWidgetSpec *widget = &screen->widgets[widgetIndex];
+                if (widget->type != NILAMP_GUI_WIDGET_KNOB ||
+                    widget->param_id >= NILAMP_PARAM_COUNT) {
+                    continue;
+                }
+                const uint32_t ccIndex = midiMappingCount - 1u;
+                if (ccIndex >= kFrontFaceMidiCcs.size()) {
+                    return;
+                }
+                addMidiMapping(kFrontFaceMidiCcs[ccIndex], widget->param_id);
+            }
+            return;
+        }
+    }
+
+    void addMidiMapping(CtrlNumber controller, ParamID id)
+    {
+        if (midiMappingCount < midiMappings.size()) {
+            midiMappings[midiMappingCount++] = {controller, id};
+        }
+    }
+
     void syncParamsFromCore()
     {
         const NilampControlSpec *specs = nilamp_control_specs(NULL);
@@ -637,6 +717,8 @@ private:
     }
 
     NilampHostCore core = {};
+    std::array<MidiMapping, kFrontFaceMidiCcs.size() + 1u> midiMappings = {};
+    uint32_t midiMappingCount = 0;
     Editor *activeEditor = nullptr;
     bool editorEditActive = false;
 #if defined(__linux__)
