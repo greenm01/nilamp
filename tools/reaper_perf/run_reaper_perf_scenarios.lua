@@ -3,7 +3,7 @@
 -- REAPER host-visible performance scenario driver for nilamp.
 --
 -- Usage:
---   1. Open a REAPER project with one nilamp track and one Keller/ysfx track.
+--   1. Open a REAPER project with nilamp and Keller JSFX instances.
 --   2. Start tools/reaper_perf/measure_reaper_cpu.ps1 in PowerShell.
 --   3. Run this script from REAPER's Action List.
 --
@@ -24,16 +24,18 @@ local surfaces = {
   {
     key = "nilamp_vst3",
     track_hints = {"nilamp"},
-    fx_hints = {"nilamp"},
-    fx_excludes = {},
+    fx_hints = {"nilamp", "nilamp twd mkii"},
+    fx_excludes = {"clap:"},
   },
   {
     key = "keller_ysfx",
-    track_hints = {"keller", "ysfx"},
-    fx_hints = {"keller", "ysfx", "twd dlx", "twd"},
+    track_hints = {"keller", "ysfx", "hk", "twd"},
+    fx_hints = {"keller", "ysfx", "hk/twd", "hk twd", "twd dlx", "twd"},
     fx_excludes = {"nilamp"},
   },
 }
+
+local candidates = {}
 
 local function lower(s)
   return string.lower(s or "")
@@ -129,13 +131,29 @@ local function find_surface(spec)
   return nil, -1, ""
 end
 
+local function describe_project_fx()
+  local lines = {}
+  local track_count = reaper.CountTracks(0)
+  lines[#lines + 1] = "Scanned tracks/FX:"
+  for i = 0, track_count - 1 do
+    local track = reaper.GetTrack(0, i)
+    lines[#lines + 1] = string.format("Track %d name=\"%s\"", i + 1, track_name(track))
+    local fx_count = reaper.TrackFX_GetCount(track)
+    for fx = 0, fx_count - 1 do
+      lines[#lines + 1] = string.format("  FX %d name=\"%s\"", fx + 1, fx_name(track, fx))
+    end
+  end
+  return table.concat(lines, "\n")
+end
+
 local found = {}
 for _, spec in ipairs(surfaces) do
   local track, fx, name = find_surface(spec)
   if track == nil then
     reaper.ShowMessageBox(
       "Could not find track/FX for " .. spec.key ..
-      ". Rename the comparison tracks or adjust hints at the top of the script.",
+      ". Rename the comparison tracks or adjust hints at the top of the script.\n\n" ..
+      describe_project_fx(),
       "nilamp REAPER perf",
       0
     )
@@ -146,6 +164,7 @@ for _, spec in ipairs(surfaces) do
     fx = fx,
     fx_name = name,
   }
+  candidates[#candidates + 1] = found[spec.key]
 end
 
 local scenarios = {}
@@ -166,10 +185,13 @@ for run = 1, repeats do
   end
 end
 
-local original_mute = {}
-for _, spec in ipairs(surfaces) do
-  local track = found[spec.key].track
-  original_mute[spec.key] = reaper.GetMediaTrackInfo_Value(track, "B_MUTE")
+local original_state = {}
+for _, item in ipairs(candidates) do
+  original_state[#original_state + 1] = {
+    track = item.track,
+    fx = item.fx,
+    enabled = reaper.TrackFX_GetEnabled(item.track, item.fx),
+  }
 end
 
 local original_cursor = reaper.GetCursorPosition()
@@ -179,8 +201,7 @@ local phase = "prepare"
 local phase_started = reaper.time_precise()
 
 local function close_all_candidate_fx()
-  for _, spec in ipairs(surfaces) do
-    local item = found[spec.key]
+  for _, item in ipairs(candidates) do
     reaper.TrackFX_Show(item.track, item.fx, 2)
   end
 end
@@ -188,8 +209,7 @@ end
 local function set_active_surface(surface)
   for _, spec in ipairs(surfaces) do
     local item = found[spec.key]
-    local muted = spec.key == surface and 0 or 1
-    reaper.SetMediaTrackInfo_Value(item.track, "B_MUTE", muted)
+    reaper.TrackFX_SetEnabled(item.track, item.fx, spec.key == surface)
   end
 end
 
@@ -210,9 +230,8 @@ local function finish()
   reaper.OnStopButton()
   reaper.SetEditCurPos(original_cursor, false, false)
   close_all_candidate_fx()
-  for _, spec in ipairs(surfaces) do
-    local item = found[spec.key]
-    reaper.SetMediaTrackInfo_Value(item.track, "B_MUTE", original_mute[spec.key])
+  for _, item in ipairs(original_state) do
+    reaper.TrackFX_SetEnabled(item.track, item.fx, item.enabled)
   end
   if (original_play_state % 2) == 1 then
     reaper.OnPlayButton()
