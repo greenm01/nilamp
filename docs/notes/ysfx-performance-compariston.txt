@@ -1,7 +1,7 @@
 YSFX VS NILAMP PERFORMANCE COMPARISON
 =====================================
 
-Updated: 2026-05-10
+Updated: 2026-05-11
 
 
 SUMMARY
@@ -28,27 +28,29 @@ under ysfx:
         nilamp CLAP vs Keller/ysfx:  2.08x
         nilamp VST3 vs Keller/ysfx:  2.06x
 
-The REAPER benchmark, run on Windows, measures host-visible process CPU. It
-plays a recorded mono DI part in REAPER 7.71. A ReaScript switches between
-nilamp VST3 and Keller's JSFX on the same track. A PowerShell sampler records
-REAPER process CPU while the editor is closed and open.
+The REAPER benchmark, run on macOS, measures host-visible process CPU. It
+plays a recorded guitar track in REAPER with nilamp CLAP, nilamp VST3, and
+Keller's JSFX under ysfx in the track FX chain. A ReaScript enables one amp
+format at a time and switches between editor-closed and editor-open states. A
+Python sampler records REAPER process CPU.
 
-The REAPER run shows median host CPU essentially tied. The p95 values favor
-nilamp, especially with the editor open:
+The macOS REAPER run shows nilamp CLAP and VST3 both below Keller/ysfx:
 
-    Scenario                   Median CPU  p95 CPU  Max CPU
-    -------------------------  ----------  -------  -------
-    Keller/ysfx, editor closed     0.192%   1.392%   4.208%
-    Keller/ysfx, editor open       0.193%   1.467%   4.240%
-    nilamp VST3, editor closed     0.192%   1.282%   3.282%
-    nilamp VST3, editor open       0.192%   0.958%   3.858%
+    Scenario                   Median CPU  p95 CPU
+    -------------------------  ----------  -------
+    Keller/ysfx, editor closed     1.958%   2.539%
+    Keller/ysfx, editor open       2.867%   3.358%
+    nilamp CLAP, editor closed     1.208%   1.665%
+    nilamp CLAP, editor open       1.317%   1.807%
+    nilamp VST3, editor closed     1.600%   2.149%
+    nilamp VST3, editor open       1.742%   2.250%
 
-In this REAPER run, nilamp VST3 was not more expensive than Keller JSFX. The
-median values are too close to call. At p95, nilamp was about 7.9% lower with
-the editor closed and about 34.7% lower with the editor open.
+CLAP used about 1.62x less median process CPU than Keller/ysfx with the editor
+closed and 2.18x less with the editor open. VST3 used about 1.22x less median
+process CPU with the editor closed and 1.65x less with the editor open.
 
-These results are not contradictory. The Linux benchmark isolates raw audio
-processing. The REAPER benchmark includes the host, the plugin wrapper, editor
+These results are not contradictory. The Linux command-line benchmark isolates
+raw audio processing. The REAPER benchmark includes the host, plugin wrappers,
 windows, transport, scheduling, and whatever REAPER itself does while playing.
 The command-line result is the better DSP-throughput measurement. The REAPER
 result is the better "what does the DAW see?" measurement.
@@ -57,22 +59,22 @@ result is the better "what does the DAW see?" measurement.
 REAPER CPU MEASUREMENT FILES
 ----------------------------
 
-The REAPER numbers come from a scripted run:
+The REAPER numbers come from a scripted macOS run:
 
     Summary JSON:
-        dist/reaper-perf/reaper-cpu-summary-20260510-211724.json
+        dist/reaper-perf/reaper-cpu-summary-20260511-131909.json
 
     Raw samples:
-        dist/reaper-perf/reaper-cpu-samples-20260510-211724.json
+        dist/reaper-perf/reaper-cpu-samples-20260511-131909.json
 
     Scenario markers:
-        dist/reaper-perf/reaper-markers-20260510-211724.json
+        dist/reaper-perf/reaper-markers-20260511-131909.json
 
-The sampler records REAPER process CPU from Windows process time deltas. It
-does not scrape REAPER's "CPU" or "FX CPU" meters. REAPER exposes good scripting
-control for FX windows and playback, but not a stable public API for reading
-those Performance Meter values. For FX-only cost, I use the command-line
-benchmark instead.
+The sampler records host-visible REAPER process CPU using `ps` samples. It
+does not scrape REAPER's "CPU" or "FX CPU" Performance Meter values. REAPER
+exposes good scripting control for FX windows and playback, but not a stable
+public API for reading those meter values. For FX-only cost, use the
+command-line benchmark instead.
 
 
 COMMAND-LINE AUDIO-ONLY BENCHMARK
@@ -159,73 +161,65 @@ for that condition. The residual range varies because the matrix includes both
 linear and nonlinear settings.
 
 
-REAPER HOST-VISIBLE CPU BENCHMARK
----------------------------------
+MACOS REAPER HOST-VISIBLE CPU BENCHMARK
+---------------------------------------
 
 Source:
 
-    dist/reaper-perf/reaper-cpu-summary-20260510-211724.json
+    dist/reaper-perf/reaper-cpu-summary-20260511-131909.json
 
 Host:
 
-    REAPER 7.71 on Windows
+    REAPER on macOS
 
 Project:
 
-    C:\Users\mag\Documents\REAPER Media\nilamp.rpp
+    One recorded guitar track with all three FX in the track FX chain.
 
-    Sample rate:       44100 Hz
-    Input item:        Media\01-260510_2114.wav
-    Input format:      mono 24-bit PCM WAV
-    Compared FX:       nilamp VST3 vs HK/TWD DLX II.jsfx
-    Disabled FX:       nilamp CLAP bypassed
+    Compared FX:       nilamp CLAP, nilamp VST3, HK TWD DLX II JSFX under ysfx
 
 Method:
 
-    1. Start REAPER with the saved comparison project.
-    2. Start tools/reaper_perf/measure_reaper_cpu.ps1.
+    1. Start REAPER with the guitar project open.
+    2. Start tools/reaper_perf/measure_reaper_cpu.py.
     3. Run tools/reaper_perf/run_reaper_perf_scenarios.lua from REAPER.
-    4. The ReaScript runs three passes of four scenarios:
+    4. The ReaScript runs three passes of six scenarios:
+           nilamp CLAP, editor closed
+           nilamp CLAP, editor open
            nilamp VST3, editor closed
            nilamp VST3, editor open
            Keller JSFX under ysfx, editor closed
            Keller JSFX under ysfx, editor open
-    5. The script enables one amp at a time on the same track and restores the
-       original state when done.
-    6. The PowerShell sampler records REAPER process CPU every 250 ms.
-
-Each scenario uses about 30 seconds of measurement. The sampler trims the first
-2 seconds and the last 1 second from each scenario before summarizing. The
-aggregate rows below combine the three passes.
+    5. The script enables one amp format at a time on the same track and
+       restores the original state when done.
+    6. The Python sampler records REAPER process CPU every 250 ms.
 
 Aggregate results, normalized to total logical CPU capacity:
 
     Scenario                   Samples  Mean CPU  Median CPU  p95 CPU  Max CPU
     -------------------------  -------  --------  ----------  -------  -------
-    Keller/ysfx, editor closed     317    0.335%      0.192%   1.392%   4.208%
-    Keller/ysfx, editor open       313    0.430%      0.193%   1.467%   4.240%
-    nilamp VST3, editor closed     315    0.337%      0.192%   1.282%   3.282%
-    nilamp VST3, editor open       315    0.327%      0.192%   0.958%   3.858%
+    Keller/ysfx, editor closed     304    2.037%      1.958%   2.539%   2.683%
+    Keller/ysfx, editor open       304    2.926%      2.867%   3.358%   3.492%
+    nilamp CLAP, editor closed     304    1.251%      1.208%   1.665%   1.800%
+    nilamp CLAP, editor open       304    1.366%      1.317%   1.807%   1.958%
+    nilamp VST3, editor closed     303    1.690%      1.600%   2.149%   2.742%
+    nilamp VST3, editor open       305    1.788%      1.742%   2.250%   2.375%
 
-The medians are effectively the same. They sit around 0.192% of total machine
-CPU in all four scenarios. That is too small a difference to use as a ranking.
-
-The p95 values are more useful because they show the upper part of the normal
-run, without giving all the weight to a single maximum sample:
+Median process-CPU comparison against Keller/ysfx:
 
     Editor closed:
-        Keller/ysfx p95:   1.392%
-        nilamp VST3 p95:   1.282%
-        nilamp reduction:  7.9%
+        Keller/ysfx median:  1.958%
+        nilamp CLAP median:  1.208%  (1.62x lower)
+        nilamp VST3 median:  1.600%  (1.22x lower)
 
     Editor open:
-        Keller/ysfx p95:   1.467%
-        nilamp VST3 p95:   0.958%
-        nilamp reduction:  34.7%
+        Keller/ysfx median:  2.867%
+        nilamp CLAP median:  1.317%  (2.18x lower)
+        nilamp VST3 median:  1.742%  (1.65x lower)
 
-This Windows REAPER run does not support the idea that nilamp VST3 is heavier
-than Keller's JSFX under ysfx. With the editor closed, the two are very close.
-With the editor open, nilamp's p95 process CPU is lower in this run.
+This macOS REAPER run supports the command-line result directionally: native
+CLAP/VST3 both use less host-visible process CPU than Keller/ysfx, with CLAP
+showing the largest margin in this project.
 
 
 LIFECYCLE AND RELOAD
@@ -255,8 +249,8 @@ as Keller's JSFX under ysfx on this machine.
 
 Inside REAPER, the difference is much smaller because REAPER measures a larger
 system: the DAW, transport, wrappers, editor windows, and scheduling. In the
-scripted Windows REAPER run, median process CPU was tied, and nilamp VST3 had
-lower p95 CPU than Keller's JSFX under ysfx.
+scripted macOS REAPER run, nilamp CLAP and VST3 both used less median process
+CPU than Keller's JSFX under ysfx.
 
 The cleanest summary is:
 
@@ -264,7 +258,8 @@ The cleanest summary is:
         nilamp is about 2x faster.
 
     REAPER host-visible benchmark:
-        median CPU is tied; p95 favors nilamp in this run.
+        nilamp is lower than Keller/ysfx, with CLAP showing the largest margin.
 
 That is the expected shape. Raw DSP improvements show up strongly in an
-isolated harness. In a real DAW, the host and UI costs dilute the difference.
+isolated harness. In a real DAW, host and UI costs dilute the difference, but
+the current macOS REAPER run still favors native CLAP/VST3 over Keller/ysfx.

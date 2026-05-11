@@ -14,20 +14,24 @@ The result is intentionally different from `make native-perf-bench`:
 
 Open a REAPER project with two comparable tracks:
 
+- one track containing the nilamp CLAP instance
 - one track containing the nilamp VST3 instance
-- one track containing Keller's JSFX loaded through ysfx
 
-Name the tracks with recognizable words such as `nilamp` and `keller` or
-`ysfx`. The Lua script first searches track names and then FX names. If your
-project uses different names, edit the `surfaces` table at the top of
-`run_reaper_perf_scenarios.lua`.
+Name the tracks with recognizable words such as `nilamp clap` and
+`nilamp vst3`. The Lua script first searches track names and then FX names.
 
 The script mutes only the two comparison tracks it finds. Other project tracks
 are left in their current mute state.
 
 ## Run
 
-From PowerShell:
+On macOS:
+
+```bash
+python3 tools/reaper_perf/measure_reaper_cpu.py
+```
+
+On Windows, from PowerShell:
 
 ```powershell
 pwsh -NoProfile -ExecutionPolicy Bypass -File tools\reaper_perf\measure_reaper_cpu.ps1
@@ -46,6 +50,9 @@ The default run measures three passes of:
 - `keller_ysfx_editor_closed`
 - `keller_ysfx_editor_open`
 
+Set `NILAMP_REAPER_PERF_SURFACES=nilamp_clap,nilamp_vst3` to compare only the
+native plugin formats.
+
 Outputs are written under `dist/reaper-perf/`, which is ignored by Git.
 
 ## Tuning
@@ -55,6 +62,8 @@ The Lua script reads these optional environment variables:
 - `NILAMP_REAPER_PERF_SECONDS`: measured seconds per scenario, default `30`
 - `NILAMP_REAPER_PERF_SETTLE_SECONDS`: pre-measurement settle time, default `3`
 - `NILAMP_REAPER_PERF_REPEATS`: repeat count, default `3`
+- `NILAMP_REAPER_PERF_SURFACES`: comma-separated surfaces, default
+  `nilamp_clap,nilamp_vst3,keller_ysfx`
 - `NILAMP_REAPER_PERF_MARKERS`: marker JSONL path
 
 The PowerShell script accepts:

@@ -1017,7 +1017,6 @@ void Editor::onTimer(Timer *timerIn)
 void Editor::tick()
 {
     if (gui) {
-        nilamp_gui_refresh(gui);
         nilamp_gui_on_main_thread(gui);
     }
 }
@@ -1025,7 +1024,6 @@ void Editor::tick()
 void Editor::hostParamsChanged()
 {
     if (gui) {
-        nilamp_gui_refresh(gui);
         nilamp_gui_on_main_thread(gui);
     }
 }

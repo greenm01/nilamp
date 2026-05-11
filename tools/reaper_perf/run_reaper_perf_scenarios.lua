@@ -3,28 +3,40 @@
 -- REAPER host-visible performance scenario driver for nilamp.
 --
 -- Usage:
---   1. Open a REAPER project with nilamp and Keller JSFX instances.
---   2. Start tools/reaper_perf/measure_reaper_cpu.ps1 in PowerShell.
+--   1. Open a REAPER project with nilamp CLAP and VST3 instances.
+--   2. Start tools/reaper_perf/measure_reaper_cpu.py.
 --   3. Run this script from REAPER's Action List.
 --
--- The PowerShell sampler timestamps marker arrival and produces the final
+-- The sampler timestamps marker arrival and produces the final
 -- report. This script only controls repeatable host state.
 
 local marker_path = os.getenv("NILAMP_REAPER_PERF_MARKERS")
 if marker_path == nil or marker_path == "" then
-  local temp = os.getenv("TEMP") or os.getenv("TMP") or "."
-  marker_path = temp .. "\\nilamp_reaper_perf_markers.jsonl"
+  local temp = os.getenv("TMPDIR") or os.getenv("TEMP") or os.getenv("TMP") or "."
+  local last = string.sub(temp, -1)
+  local sep = (last == "/" or last == "\\") and "" or "/"
+  marker_path = temp .. sep .. "nilamp_reaper_perf_markers.jsonl"
 end
 
 local scenario_seconds = tonumber(os.getenv("NILAMP_REAPER_PERF_SECONDS") or "") or 30.0
 local settle_seconds = tonumber(os.getenv("NILAMP_REAPER_PERF_SETTLE_SECONDS") or "") or 3.0
 local repeats = tonumber(os.getenv("NILAMP_REAPER_PERF_REPEATS") or "") or 3
+local selected_surfaces = os.getenv("NILAMP_REAPER_PERF_SURFACES") or
+                          "nilamp_clap,nilamp_vst3,keller_ysfx"
 
-local surfaces = {
+local all_surfaces = {
+  {
+    key = "nilamp_clap",
+    track_hints = {"nilamp clap", "clap", "nilamp"},
+    fx_hints = {"clap: nilamp", "nilamp twd mkii"},
+    fx_requires = {"clap"},
+    fx_excludes = {"vst3"},
+  },
   {
     key = "nilamp_vst3",
-    track_hints = {"nilamp"},
-    fx_hints = {"nilamp", "nilamp twd mkii"},
+    track_hints = {"nilamp vst3", "vst3", "nilamp"},
+    fx_hints = {"vst3: nilamp", "nilamp twd mkii"},
+    fx_requires = {"vst3"},
     fx_excludes = {"clap:"},
   },
   {
@@ -34,6 +46,25 @@ local surfaces = {
     fx_excludes = {"nilamp"},
   },
 }
+
+local surfaces = {}
+for key in string.gmatch(selected_surfaces, "([^,]+)") do
+  key = string.gsub(key, "^%s+", "")
+  key = string.gsub(key, "%s+$", "")
+  for _, spec in ipairs(all_surfaces) do
+    if spec.key == key then
+      surfaces[#surfaces + 1] = spec
+    end
+  end
+end
+if #surfaces == 0 then
+  reaper.ShowMessageBox(
+    "No valid NILAMP_REAPER_PERF_SURFACES selected: " .. selected_surfaces,
+    "nilamp REAPER perf",
+    0
+  )
+  return
+end
 
 local candidates = {}
 
@@ -53,6 +84,19 @@ end
 
 local function contains_none(text, hints)
   return not contains_any(text, hints)
+end
+
+local function contains_all(text, hints)
+  if hints == nil then
+    return true
+  end
+  local haystack = lower(text)
+  for _, hint in ipairs(hints) do
+    if not string.find(haystack, lower(hint), 1, true) then
+      return false
+    end
+  end
+  return true
 end
 
 local function json_escape(value)
@@ -110,7 +154,9 @@ local function find_surface(spec)
       local fx_count = reaper.TrackFX_GetCount(track)
       for fx = 0, fx_count - 1 do
         local name = fx_name(track, fx)
-        if contains_any(name, spec.fx_hints) and contains_none(name, spec.fx_excludes) then
+        if contains_any(name, spec.fx_hints) and
+            contains_all(name, spec.fx_requires) and
+            contains_none(name, spec.fx_excludes) then
           return track, fx, name
         end
       end
@@ -122,7 +168,9 @@ local function find_surface(spec)
     local fx_count = reaper.TrackFX_GetCount(track)
     for fx = 0, fx_count - 1 do
       local name = fx_name(track, fx)
-      if contains_any(name, spec.fx_hints) and contains_none(name, spec.fx_excludes) then
+      if contains_any(name, spec.fx_hints) and
+          contains_all(name, spec.fx_requires) and
+          contains_none(name, spec.fx_excludes) then
         return track, fx, name
       end
     end

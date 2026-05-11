@@ -2,6 +2,31 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: VST3 editor-open CPU investigation tooling
+
+**Context.** REAPER showed VST3 using more CPU than CLAP with the custom editor
+open, while isolated no-editor plugin benchmarks did not reproduce a VST3 DSP
+penalty.
+
+**Edit summary.**
+
+- Added a macOS Python sampler for `tools/reaper_perf/` that consumes the same
+  REAPER marker protocol and writes CSV/JSON summaries.
+- Updated the REAPER scenario driver to compare nilamp CLAP and VST3 by default
+  with cross-platform marker paths and selectable surfaces.
+- Fixed the macOS perf benchmark build by enabling Darwin resource fields before
+  including system headers.
+- Removed redundant VST3 editor timer refresh calls; the VST3 editor now uses
+  the shared refresh-and-Pugl-pump path once per tick.
+
+**Verification.**
+
+- `PYTHONPYCACHEPREFIX=/private/tmp/nilamp-pycache python3 -m py_compile tools/reaper_perf/measure_reaper_cpu.py`
+- `make native`
+- `make native-test`
+- `make native-host-test`
+- `make native-perf-bench PERF_BENCH_ARGS="--quick --runs 2 --warmups 1 --duration 0.25 --surfaces nilamp_clap,nilamp_vst3 --json-out /private/tmp/nilamp-vst3-clap-quick.json"`; quick no-editor medians were `336.3 ns/frame` for CLAP and `329.6 ns/frame` for VST3.
+
 ### Session: nilamp v1.0.2 metadata bump
 
 **Context.** `v1.0.1` has already been released, so the new bypass/version/scale
