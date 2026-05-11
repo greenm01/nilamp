@@ -2,6 +2,41 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: Windows v1.0.1 release package deploy
+
+**Context.** The GitHub `v1.0.1` release had macOS and Linux packages plus
+checksums uploaded, but no Windows download package.
+
+**Edit summary.**
+
+- Confirmed current `main` is one docs-only commit after tag `v1.0.1`; package
+  code matches the tagged source.
+- Downloaded the current release `SHA256SUMS` into
+  `dist/release-v1.0.1-current` so the macOS and Linux hashes were preserved.
+- Ran `nmake /nologo /f Makefile.msvc RELEASE_VERSION=1.0.1
+  package-windows-release` after `clean-native`, generating the Windows x64
+  ZIP, ZIP signature, refreshed `SHA256SUMS`, and `SHA256SUMS.asc`.
+- Uploaded the Windows ZIP, ZIP signature, `SHA256SUMS`, and `SHA256SUMS.asc`
+  to GitHub release `v1.0.1` with `gh release upload --clobber`.
+- Updated the `v1.0.1` GitHub release notes so the downloads and install
+  instructions list Windows, macOS, and Linux packages.
+
+**Verification.**
+
+- ZIP contents include `nilamp-twd-mkii.clap`,
+  `nilamp-twd-mkii.vst3/Contents/x86_64-win/nilamp-twd-mkii.vst3`,
+  `install.cmd`, `README-Windows.txt`, and `LICENSE`.
+- Windows ZIP SHA-256 is
+  `9047dce67bcc76a29e85b22dc9234a7ebd393ebd4dd11082f5c12ac5c1d5c4da`.
+- GPG verification reports good signatures for the Windows ZIP and
+  `SHA256SUMS`; GPG also notes the sandbox trustdb is not writable.
+- `nmake /nologo /f Makefile.msvc native-host-test` passes. CLAP validator
+  reports 21 tests run, 15 passed, 0 failed, 6 skipped. Steinberg VST3
+  validator reports 47 tests passed, 0 failed.
+- `gh release view v1.0.1` confirms the uploaded Windows ZIP is 1,281,613
+  bytes and has digest
+  `sha256:9047dce67bcc76a29e85b22dc9234a7ebd393ebd4dd11082f5c12ac5c1d5c4da`.
+
 ### Session: Linux v1.0.1 release package redeploy
 
 **Context.** The GitHub `v1.0.1` release had macOS assets and checksum files
