@@ -3,6 +3,7 @@
 #include "nilamp_dsp.h"
 #include "nilamp_gui.h"
 #include "nilamp_host.h"
+#include "nilamp_process_log.h"
 
 #if !defined(__APPLE__)
 #include "base/source/timer.h"
@@ -165,9 +166,20 @@ public:
     {
         nilamp_host_core_init(&core);
         setControllerClass(ControllerUID);
+        // We never read data.processContext. AudioEffect already inherits
+        // IProcessContextRequirements with flags == 0 by default; assign
+        // explicitly so the intent is visible at the call site and we are
+        // robust against any future base-class default change.
+        processContextRequirements = ProcessContextRequirements(0u);
+        process_log = nilamp_process_log_create("vst3");
     }
 
-    ~Processor() override { nilamp_host_core_deinit(&core); }
+    ~Processor() override
+    {
+        nilamp_process_log_destroy(process_log);
+        process_log = nullptr;
+        nilamp_host_core_deinit(&core);
+    }
 
     tresult PLUGIN_API initialize(FUnknown *context) SMTG_OVERRIDE
     {
@@ -234,6 +246,7 @@ public:
         if (data.numSamples <= 0) {
             return kResultOk;
         }
+        const uint64_t log_start_ns = nilamp_process_log_now(process_log);
         nilamp_cpu_enable_realtime_float_mode();
         handleParameterChanges(data.inputParameterChanges, data.numSamples);
 
@@ -268,6 +281,8 @@ public:
                     params_dirty = false;
                 }
                 if (!nilamp_host_process_segment(&core, &block, cursor, offset)) {
+                    nilamp_process_log_record(process_log, log_start_ns,
+                                              static_cast<uint32_t>(data.numSamples));
                     return kResultFalse;
                 }
                 cursor = offset;
@@ -281,8 +296,12 @@ public:
         }
         if (!nilamp_host_process_segment(&core, &block, cursor,
                                          static_cast<uint32_t>(data.numSamples))) {
+            nilamp_process_log_record(process_log, log_start_ns,
+                                      static_cast<uint32_t>(data.numSamples));
             return kResultFalse;
         }
+        nilamp_process_log_record(process_log, log_start_ns,
+                                  static_cast<uint32_t>(data.numSamples));
         return kResultOk;
     }
 
@@ -339,6 +358,7 @@ private:
     NilampHostCore core = {};
     std::array<ParamEvent, 256> events = {};
     uint32_t eventCount = 0;
+    NilampProcessLog *process_log = nullptr;
 };
 
 class Controller;

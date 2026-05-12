@@ -124,7 +124,8 @@ NATIVE_DSP_OBJS := \
 
 NATIVE_OBJS := \
 	$(NATIVE_DSP_OBJS) \
-	$(NATIVE_BUILD)/nilamp_host.o
+	$(NATIVE_BUILD)/nilamp_host.o \
+	$(NATIVE_BUILD)/nilamp_process_log.o
 
 NATIVE_DSP_PIC_OBJS := \
 	$(NATIVE_BUILD)/nilamp_dsp.pic.o \
@@ -134,7 +135,8 @@ NATIVE_DSP_PIC_OBJS := \
 
 NATIVE_PIC_OBJS := \
 	$(NATIVE_DSP_PIC_OBJS) \
-	$(NATIVE_BUILD)/nilamp_host.pic.o
+	$(NATIVE_BUILD)/nilamp_host.pic.o \
+	$(NATIVE_BUILD)/nilamp_process_log.pic.o
 
 NATIVE_DSP_TEST_OBJS := \
 	$(NATIVE_BUILD)/nilamp_dsp_test.o \
@@ -321,6 +323,9 @@ $(NATIVE_BUILD)/nilamp_topology_tweed_5e3_pp.o: $(NATIVE_DIR)/src/nilamp_topolog
 $(NATIVE_BUILD)/nilamp_host.o: $(NATIVE_DIR)/src/nilamp_host.c $(NATIVE_DIR)/src/nilamp_host.h $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_DIR)/src/nilamp_cpu.h | $(NATIVE_BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
+$(NATIVE_BUILD)/nilamp_process_log.o: $(NATIVE_DIR)/src/nilamp_process_log.c $(NATIVE_DIR)/src/nilamp_process_log.h | $(NATIVE_BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
 $(NATIVE_BUILD)/nilamp_tables.pic.o: $(NATIVE_TABLES_C) $(NATIVE_TABLES_H) | $(NATIVE_BUILD)
 	$(CC) $(CFLAGS) -fPIC -c $(NATIVE_TABLES_C) -o $@
 
@@ -334,6 +339,9 @@ $(NATIVE_BUILD)/nilamp_topology_tweed_5e3_pp.pic.o: $(NATIVE_DIR)/src/nilamp_top
 	$(CC) $(CFLAGS) -fPIC -c $< -o $@
 
 $(NATIVE_BUILD)/nilamp_host.pic.o: $(NATIVE_DIR)/src/nilamp_host.c $(NATIVE_DIR)/src/nilamp_host.h $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_DIR)/src/nilamp_cpu.h | $(NATIVE_BUILD)
+	$(CC) $(CFLAGS) -fPIC -c $< -o $@
+
+$(NATIVE_BUILD)/nilamp_process_log.pic.o: $(NATIVE_DIR)/src/nilamp_process_log.c $(NATIVE_DIR)/src/nilamp_process_log.h | $(NATIVE_BUILD)
 	$(CC) $(CFLAGS) -fPIC -c $< -o $@
 
 $(NATIVE_BUILD)/nilamp_dsp_test.o: $(NATIVE_DIR)/src/nilamp_dsp.c $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_DIR)/src/nilamp_dsp_internal.h $(NATIVE_DIR)/src/nilamp_topologies.h $(NATIVE_TABLES_H) $(NATIVE_MODELS_INC) | $(NATIVE_BUILD)

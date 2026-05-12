@@ -3,6 +3,7 @@
 #include "nilamp_compat.h"
 #include "nilamp_cpu.h"
 #include "nilamp_gui.h"
+#include "nilamp_process_log.h"
 
 #include <clap/clap.h>
 #include <clap/ext/audio-ports-config.h>
@@ -111,6 +112,7 @@ typedef struct NilampClap {
     bool gui_is_floating;
     bool gui_timer_registered;
     bool active;
+    NilampProcessLog *process_log;
 } NilampClap;
 
 typedef struct NilampStateBlob {
@@ -643,6 +645,8 @@ static void nilamp_destroy(const clap_plugin_t *plugin)
     plug->gui = NULL;
 #endif
     nilamp_destroy_engines(plug);
+    nilamp_process_log_destroy(plug->process_log);
+    plug->process_log = NULL;
     free(plug);
 }
 
@@ -1060,6 +1064,7 @@ static clap_process_status nilamp_process(const clap_plugin_t *plugin,
     if (!plug || !process || process->frames_count == 0) {
         return CLAP_PROCESS_CONTINUE;
     }
+    const uint64_t log_start_ns = nilamp_process_log_now(plug->process_log);
     nilamp_apply_params_if_dirty(plug);
     nilamp_push_gui_param_events(plug, process->out_events);
 
@@ -1072,6 +1077,7 @@ static clap_process_status nilamp_process(const clap_plugin_t *plugin,
         const uint32_t event_time =
             event && event->time < process->frames_count ? event->time : process->frames_count;
         if (!nilamp_process_segment(plug, process, cursor, event_time)) {
+            nilamp_process_log_record(plug->process_log, log_start_ns, process->frames_count);
             return CLAP_PROCESS_ERROR;
         }
         nilamp_handle_process_event(plug, event, process->out_events);
@@ -1079,8 +1085,10 @@ static clap_process_status nilamp_process(const clap_plugin_t *plugin,
     }
 
     if (!nilamp_process_segment(plug, process, cursor, process->frames_count)) {
+        nilamp_process_log_record(plug->process_log, log_start_ns, process->frames_count);
         return CLAP_PROCESS_ERROR;
     }
+    nilamp_process_log_record(plug->process_log, log_start_ns, process->frames_count);
     return CLAP_PROCESS_CONTINUE;
 }
 
@@ -2177,6 +2185,7 @@ static const clap_plugin_t *nilamp_create_plugin(const clap_plugin_factory_t *fa
     }
 
     plug->host = host;
+    plug->process_log = nilamp_process_log_create("clap");
     plug->params = nilamp_default_params();
     plug->audio_port_config_id = NILAMP_CLAP_PORT_CONFIG_MONO;
     nilamp_store_params(plug, &plug->params);
