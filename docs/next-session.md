@@ -2,6 +2,27 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: VST3 editor timer de-duplication
+
+**Context.** REAPER showed nilamp VST3 using more CPU than CLAP in host-visible
+testing. Isolated no-editor benchmarks did not show a stable VST3 DSP penalty,
+so the remaining likely source was editor-open host/UI overhead.
+
+**Edit summary.**
+
+- Removed the extra Pugl frame timer start from the VST3 editor attach path.
+- Kept the existing VST3 editor timer as the single main-thread pump for GUI
+  refresh and Pugl event processing.
+- Left CLAP GUI timers, DSP behavior, routing, parameter IDs, state, and the
+  default mono VST3 bus metadata unchanged.
+
+**Verification.**
+
+- `PATH="$PWD/.dev-tools/bin:$PATH" make native-host-test`; CLAP validator:
+  21 run, 18 passed, 0 failed, 3 skipped. VST3 validator: 47 passed, 0 failed.
+- `PATH="$PWD/.dev-tools/bin:$PATH" make native-perf-bench PERF_BENCH_ARGS="--quick --runs 5 --warmups 2 --duration 1.0 --surfaces nilamp_clap,nilamp_vst3 --phases steady_plugin_process"`;
+  no-editor medians: CLAP `154.2 ns/frame`, VST3 `153.3 ns/frame`.
+
 ### Session: Topology-neutral DSP engine boundary
 
 **Context.** The previous amp-agnostic pass removed direct generated Keller/TWD

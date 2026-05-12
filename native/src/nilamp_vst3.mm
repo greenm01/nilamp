@@ -807,7 +807,6 @@ tresult PLUGIN_API Editor::attached(void *parent, FIDString type)
     }
     controller->registerEditor(this);
     systemWindow = parent;
-    (void)nilamp_gui_start_frame_timer(gui, kEditorFrameIntervalSeconds);
     nilamp_gui_on_main_thread(gui);
     startTimer();
     return kResultOk;
