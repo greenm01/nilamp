@@ -33,15 +33,13 @@ static const NilampControlSpec *nilamp_host_specs(void)
     return nilamp_param_specs ? nilamp_param_specs : nilamp_control_specs(NULL);
 }
 
-static void nilamp_host_destroy_engines(NilampHostCore *core)
+static void nilamp_host_destroy_engine(NilampHostCore *core)
 {
     if (!core) {
         return;
     }
-    for (uint32_t i = 0; i < 2; i++) {
-        nilamp_engine_destroy(core->engines[i]);
-        core->engines[i] = NULL;
-    }
+    nilamp_engine_destroy(core->engine);
+    core->engine = NULL;
 }
 
 void nilamp_host_core_init(NilampHostCore *core)
@@ -66,11 +64,9 @@ bool nilamp_host_core_activate(NilampHostCore *core, double sample_rate)
     }
 
     nilamp_cpu_enable_realtime_float_mode();
-    nilamp_host_destroy_engines(core);
-    core->engines[0] = nilamp_engine_create(sample_rate);
-    core->engines[1] = nilamp_engine_create(sample_rate);
-    if (!core->engines[0] || !core->engines[1]) {
-        nilamp_host_destroy_engines(core);
+    nilamp_host_destroy_engine(core);
+    core->engine = nilamp_engine_create(sample_rate);
+    if (!core->engine) {
         return false;
     }
 
@@ -86,7 +82,7 @@ void nilamp_host_core_deactivate(NilampHostCore *core)
         return;
     }
     core->active = false;
-    nilamp_host_destroy_engines(core);
+    nilamp_host_destroy_engine(core);
 }
 
 void nilamp_host_core_reset(NilampHostCore *core)
@@ -94,24 +90,18 @@ void nilamp_host_core_reset(NilampHostCore *core)
     if (!core) {
         return;
     }
-    for (uint32_t i = 0; i < 2; i++) {
-        if (core->engines[i]) {
-            nilamp_engine_reset(core->engines[i]);
-        }
+    if (core->engine) {
+        nilamp_engine_reset(core->engine);
     }
     nilamp_host_core_apply_params(core);
 }
 
 void nilamp_host_core_apply_params(NilampHostCore *core)
 {
-    if (!core) {
+    if (!core || !core->engine) {
         return;
     }
-    for (uint32_t i = 0; i < 2; i++) {
-        if (core->engines[i]) {
-            nilamp_engine_set_params(core->engines[i], &core->params);
-        }
-    }
+    nilamp_engine_set_params(core->engine, &core->params);
 }
 
 const NilampControlSpec *nilamp_host_find_param(uint32_t id)
@@ -503,11 +493,11 @@ static void nilamp_sanitize_channel(float *output, uint32_t offset, uint32_t nfr
     }
 }
 
-static void nilamp_process_channel(NilampEngine *engine, const NilampHostAudioBlock *block,
-                                   uint32_t input_channel, uint32_t output_channel,
-                                   uint32_t offset, uint32_t nframes)
+static void nilamp_process_mono(NilampEngine *engine,
+                                const NilampHostAudioBlock *block,
+                                uint32_t offset, uint32_t nframes)
 {
-    float *out = output_channel < 2u ? block->outputs[output_channel] : NULL;
+    float *out = block->output;
     if (!out) {
         return;
     }
@@ -516,91 +506,41 @@ static void nilamp_process_channel(NilampEngine *engine, const NilampHostAudioBl
         return;
     }
 
-    const bool has_input = input_channel < block->input_channels && input_channel < 2u &&
-                           block->inputs[input_channel];
-    const bool input_is_constant =
-        has_input && ((block->input_constant_mask & (UINT64_C(1) << input_channel)) != 0u);
-
-    if (has_input && !input_is_constant) {
-        nilamp_engine_process(engine, block->inputs[input_channel] + offset, out + offset, nframes);
+    if (block->has_input && !block->input_is_constant) {
+        nilamp_engine_process(engine, block->input + offset, out + offset, nframes);
         nilamp_sanitize_channel(out, offset, nframes);
         return;
     }
 
     const float zero = 0.0f;
-    const float *sample = has_input ? block->inputs[input_channel] : &zero;
+    const float *sample = block->has_input ? block->input : &zero;
     for (uint32_t i = 0; i < nframes; i++) {
         nilamp_engine_process(engine, sample, out + offset + i, 1);
         out[offset + i] = nilamp_host_sanitize_sample(out[offset + i]);
     }
 }
 
-static bool nilamp_stereo_input_is_mono_equivalent(const NilampHostAudioBlock *block)
+static void nilamp_passthrough_mono(const NilampHostAudioBlock *block,
+                                    uint32_t offset, uint32_t nframes)
 {
-    if (!block || block->input_channels < 2u || !block->inputs[0] || !block->inputs[1]) {
-        return false;
-    }
-    if (block->inputs[0] == block->inputs[1]) {
-        return true;
-    }
-    const bool left_constant = (block->input_constant_mask & UINT64_C(1)) != 0u;
-    const bool right_constant = (block->input_constant_mask & (UINT64_C(1) << 1)) != 0u;
-    return left_constant && right_constant && block->inputs[0][0] == block->inputs[1][0];
-}
-
-static void nilamp_duplicate_channel(float *dst, const float *src, uint32_t offset,
-                                     uint32_t nframes)
-{
-    if (!dst || !src || nframes == 0 || dst == src) {
+    float *out = block->output;
+    if (!out) {
         return;
     }
-    memcpy(dst + offset, src + offset, sizeof(float) * nframes);
-}
-
-static void nilamp_passthrough_channel(const NilampHostAudioBlock *block,
-                                       uint32_t input_channel, uint32_t output_channel,
-                                       uint32_t offset, uint32_t nframes)
-{
-    if (!block || output_channel >= block->output_channels ||
-        output_channel >= 2u || !block->outputs[output_channel]) {
-        return;
-    }
-
-    float *out = block->outputs[output_channel];
-    const bool has_input = input_channel < block->input_channels &&
-                           input_channel < 2u && block->inputs[input_channel];
-    if (!has_input) {
+    if (!block->has_input) {
         nilamp_zero_channel(out, offset, nframes);
         return;
     }
-
-    const float *in = block->inputs[input_channel];
-    const bool input_is_constant =
-        (block->input_constant_mask & (UINT64_C(1) << input_channel)) != 0u;
-    if (input_is_constant) {
+    const float *in = block->input;
+    if (block->input_is_constant) {
+        const float clamped = nilamp_host_sanitize_sample(in[0]);
         for (uint32_t i = 0; i < nframes; i++) {
-            out[offset + i] = nilamp_host_sanitize_sample(in[0]);
+            out[offset + i] = clamped;
         }
     } else if (out != in) {
         memcpy(out + offset, in + offset, sizeof(float) * nframes);
         nilamp_sanitize_channel(out, offset, nframes);
     }
-}
-
-static bool nilamp_host_process_bypass_segment(const NilampHostAudioBlock *block,
-                                               uint32_t start, uint32_t end)
-{
-    if (!block || block->output_channels == 0u || !block->outputs[0]) {
-        return false;
-    }
-
-    const uint32_t frames = end - start;
-    const uint32_t process_channels = block->output_channels < 2u ? block->output_channels : 2u;
-    for (uint32_t ch = 0; ch < process_channels; ch++) {
-        const uint32_t input_channel = block->input_channels > 1u ? ch : 0u;
-        nilamp_passthrough_channel(block, input_channel, ch, start, frames);
-    }
-    return true;
 }
 
 bool nilamp_host_process_segment(NilampHostCore *core, const NilampHostAudioBlock *block,
@@ -609,36 +549,16 @@ bool nilamp_host_process_segment(NilampHostCore *core, const NilampHostAudioBloc
     if (end <= start) {
         return true;
     }
-    if (!core || !block || block->output_channels == 0 || !block->outputs[0]) {
+    if (!core || !block || !block->output) {
         return false;
     }
 
     const uint32_t frames = end - start;
-    const uint32_t process_channels = block->output_channels < 2u ? block->output_channels : 2u;
-
     if (nilamp_host_core_get_param(core, NILAMP_PARAM_BYPASS) >= 0.5) {
-        return nilamp_host_process_bypass_segment(block, start, end);
+        nilamp_passthrough_mono(block, start, frames);
+        return true;
     }
 
-    if (process_channels >= 2u && block->input_channels == 1u && block->inputs[0] &&
-        block->outputs[0] == block->inputs[0]) {
-        nilamp_process_channel(core->engines[1], block, 0u, 1u, start, frames);
-        nilamp_process_channel(core->engines[0], block, 0u, 0u, start, frames);
-    } else if (process_channels >= 2u && nilamp_stereo_input_is_mono_equivalent(block) &&
-               block->outputs[0] && block->outputs[1] && block->outputs[0] != block->outputs[1]) {
-        nilamp_process_channel(core->engines[0], block, 0u, 0u, start, frames);
-        nilamp_duplicate_channel(block->outputs[1], block->outputs[0], start, frames);
-    } else {
-        for (uint32_t ch = 0; ch < process_channels; ch++) {
-            const uint32_t input_channel = block->input_channels > 1u ? ch : 0u;
-            nilamp_process_channel(core->engines[ch], block, input_channel, ch, start, frames);
-        }
-    }
-
-    for (uint32_t ch = 2; ch < block->output_channels && ch < 2u; ch++) {
-        if (block->outputs[ch]) {
-            nilamp_zero_channel(block->outputs[ch], start, frames);
-        }
-    }
+    nilamp_process_mono(core->engine, block, start, frames);
     return true;
 }

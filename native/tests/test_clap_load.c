@@ -303,12 +303,11 @@ static int64_t stream_read(const clap_istream_t *stream, void *buffer, uint64_t 
     return (int64_t)count;
 }
 
-static void fill_input(float *left, float *right, uint32_t frames)
+static void fill_input(float *signal, uint32_t frames)
 {
     for (uint32_t i = 0; i < frames; i++) {
         const float t = (float)i / (float)frames;
-        left[i] = 0.06f * sinf(17.0f * t) + 0.015f * cosf(43.0f * t);
-        right[i] = 0.04f * cosf(11.0f * t) - 0.02f * sinf(29.0f * t);
+        signal[i] = 0.06f * sinf(17.0f * t) + 0.015f * cosf(43.0f * t);
     }
 }
 
@@ -326,16 +325,12 @@ static void compare_output(const float *actual, const float *expected, uint32_t 
     }
 }
 
-static void render_engine_pair(const float *in_l, const float *in_r, float *ref_l,
-                               float *ref_r, uint32_t frames, bool mono_to_stereo)
+static void render_engine_mono(const float *in, float *ref, uint32_t frames)
 {
-    NilampEngine *engine_l = nilamp_engine_create(48000.0);
-    NilampEngine *engine_r = nilamp_engine_create(48000.0);
-    check(engine_l && engine_r, "direct engine create failed");
-    nilamp_engine_process(engine_l, in_l, ref_l, frames);
-    nilamp_engine_process(engine_r, mono_to_stereo ? in_l : in_r, ref_r, frames);
-    nilamp_engine_destroy(engine_l);
-    nilamp_engine_destroy(engine_r);
+    NilampEngine *engine = nilamp_engine_create(48000.0);
+    check(engine != NULL, "direct engine create failed");
+    nilamp_engine_process(engine, in, ref, frames);
+    nilamp_engine_destroy(engine);
 }
 
 static void run_process_chunks(const clap_plugin_t *plugin, clap_process_t *process,
@@ -396,31 +391,31 @@ static void run_clap_engine_compare(const clap_plugin_t *plugin,
                                     clap_output_events_t *out_events)
 {
     enum { Frames = 257 };
-    float in_l[Frames];
-    float in_r[Frames];
-    float ref_l[Frames];
-    float ref_r[Frames];
-    float out_l[Frames];
-    float out_r[Frames];
-    fill_input(in_l, in_r, Frames);
+    float in_buf[Frames];
+    float ref[Frames];
+    float out_buf[Frames];
+    fill_input(in_buf, Frames);
 
+    // Mono in / mono out is the only shape we accept (matches Keller's JSFX
+    // `in_pin: mono input`, `out_pin: mono output`). Streaming, in-place,
+    // and constant-input scenarios all flow through the single engine.
     plugin->reset(plugin);
-    memset(out_l, 0, sizeof(out_l));
-    memset(out_r, 0, sizeof(out_r));
-    render_engine_pair(in_l, in_r, ref_l, ref_r, Frames, false);
-    float *stereo_inputs[2] = {in_l, in_r};
-    float *stereo_outputs[2] = {out_l, out_r};
+    memset(out_buf, 0, sizeof(out_buf));
+    render_engine_mono(in_buf, ref, Frames);
+
+    float *mono_input_only[1] = {in_buf};
+    float *mono_output_only[1] = {out_buf};
     clap_audio_buffer_t input = {
-        .data32 = stereo_inputs,
+        .data32 = mono_input_only,
         .data64 = NULL,
-        .channel_count = 2,
+        .channel_count = 1,
         .latency = 0,
         .constant_mask = 0,
     };
     clap_audio_buffer_t output = {
-        .data32 = stereo_outputs,
+        .data32 = mono_output_only,
         .data64 = NULL,
-        .channel_count = 2,
+        .channel_count = 1,
         .latency = 0,
         .constant_mask = 0,
     };
@@ -431,94 +426,16 @@ static void run_clap_engine_compare(const clap_plugin_t *plugin,
     process->in_events = in_events;
     process->out_events = out_events;
     run_process_chunks(plugin, process, Frames);
-    compare_output(out_l, ref_l, Frames, "stereo left");
-    compare_output(out_r, ref_r, Frames, "stereo right");
-
-    plugin->reset(plugin);
-    float inplace_l[Frames];
-    float inplace_r[Frames];
-    memcpy(inplace_l, in_l, sizeof(inplace_l));
-    memcpy(inplace_r, in_r, sizeof(inplace_r));
-    float *stereo_inplace[2] = {inplace_l, inplace_r};
-    input.data32 = stereo_inplace;
-    output.data32 = stereo_inplace;
-    run_process_chunks(plugin, process, Frames);
-    compare_output(inplace_l, ref_l, Frames, "stereo in-place left");
-    compare_output(inplace_r, ref_r, Frames, "stereo in-place right");
-
-    plugin->reset(plugin);
-    float mono_in[Frames];
-    float mono_out[Frames];
-    float mono_ref[Frames];
-    memcpy(mono_in, in_l, sizeof(mono_in));
-    memset(mono_out, 0, sizeof(mono_out));
-    {
-        NilampEngine *engine = nilamp_engine_create(48000.0);
-        check(engine != NULL, "mono engine create failed");
-        nilamp_engine_process(engine, mono_in, mono_ref, Frames);
-        nilamp_engine_destroy(engine);
-    }
-    float *mono_input_only[1] = {mono_in};
-    float *mono_output_only[1] = {mono_out};
-    input.data32 = mono_input_only;
-    input.channel_count = 1;
-    output.data32 = mono_output_only;
-    output.channel_count = 1;
-    run_process_chunks(plugin, process, Frames);
-    compare_output(mono_out, mono_ref, Frames, "mono in/out");
+    compare_output(out_buf, ref, Frames, "mono in/out");
 
     plugin->reset(plugin);
     float mono_inplace[Frames];
-    float mono_r[Frames];
-    memcpy(mono_inplace, in_l, sizeof(mono_inplace));
-    memset(mono_r, 0, sizeof(mono_r));
-    render_engine_pair(in_l, in_l, ref_l, ref_r, Frames, true);
-    float *mono_inputs[1] = {mono_inplace};
-    float *mono_outputs[2] = {mono_inplace, mono_r};
-    input.data32 = mono_inputs;
-    input.channel_count = 1;
-    output.data32 = mono_outputs;
-    output.channel_count = 2;
+    memcpy(mono_inplace, in_buf, sizeof(mono_inplace));
+    float *mono_inplace_channels[1] = {mono_inplace};
+    input.data32 = mono_inplace_channels;
+    output.data32 = mono_inplace_channels;
     run_process_chunks(plugin, process, Frames);
-    compare_output(mono_inplace, ref_l, Frames, "mono in-place left");
-    compare_output(mono_r, ref_r, Frames, "mono in-place right");
-
-    // Mono content presented on a stereo port (REAPER mono-track default):
-    // both input channels point at the same buffer. The plugin must run a
-    // single engine and duplicate the output so L and R are bit-identical
-    // instead of decorrelating through two independent nonlinear engines.
-    plugin->reset(plugin);
-    float mono_shared[Frames];
-    float mono_stereo_out_l[Frames];
-    float mono_stereo_out_r[Frames];
-    float mono_stereo_ref[Frames];
-    memcpy(mono_shared, in_l, sizeof(mono_shared));
-    memset(mono_stereo_out_l, 0, sizeof(mono_stereo_out_l));
-    memset(mono_stereo_out_r, 0, sizeof(mono_stereo_out_r));
-    {
-        NilampEngine *engine = nilamp_engine_create(48000.0);
-        check(engine != NULL, "mono-on-stereo engine create failed");
-        nilamp_engine_process(engine, mono_shared, mono_stereo_ref, Frames);
-        nilamp_engine_destroy(engine);
-    }
-    float *mono_shared_inputs[2] = {mono_shared, mono_shared};
-    float *mono_stereo_outputs[2] = {mono_stereo_out_l, mono_stereo_out_r};
-    input.data32 = mono_shared_inputs;
-    input.channel_count = 2;
-    input.constant_mask = 0u;
-    output.data32 = mono_stereo_outputs;
-    output.channel_count = 2;
-    run_process_chunks(plugin, process, Frames);
-    compare_output(mono_stereo_out_l, mono_stereo_ref, Frames, "mono-on-stereo left");
-    compare_output(mono_stereo_out_r, mono_stereo_ref, Frames, "mono-on-stereo right");
-    for (uint32_t i = 0; i < Frames; i++) {
-        if (mono_stereo_out_l[i] != mono_stereo_out_r[i]) {
-            fprintf(stderr,
-                    "test_clap_load: mono-on-stereo L/R diverge at %u: L=%g R=%g\n",
-                    i, mono_stereo_out_l[i], mono_stereo_out_r[i]);
-            exit(1);
-        }
-    }
+    compare_output(mono_inplace, ref, Frames, "mono in-place");
 
     plugin->reset(plugin);
     float constant = 0.025f;
@@ -526,21 +443,19 @@ static void run_clap_engine_compare(const clap_plugin_t *plugin,
     float constant_ref_input[Frames];
     for (uint32_t i = 0; i < Frames; i++) {
         constant_ref_input[i] = constant;
-        out_l[i] = 0.0f;
-        out_r[i] = 0.0f;
+        out_buf[i] = 0.0f;
     }
-    render_engine_pair(constant_ref_input, constant_ref_input, ref_l, ref_r, Frames, true);
+    render_engine_mono(constant_ref_input, ref, Frames);
     float *constant_inputs[1] = {constant_in};
-    output.data32 = stereo_outputs;
-    output.channel_count = 2;
     input.data32 = constant_inputs;
     input.channel_count = 1;
     input.constant_mask = 1u;
+    output.data32 = mono_output_only;
+    output.channel_count = 1;
     process->frames_count = Frames;
     check(plugin->process(plugin, process) == CLAP_PROCESS_CONTINUE,
           "constant process returned failure");
-    compare_output(out_l, ref_l, Frames, "constant left");
-    compare_output(out_r, ref_r, Frames, "constant right");
+    compare_output(out_buf, ref, Frames, "constant");
     input.constant_mask = 0u;
 }
 
@@ -752,10 +667,8 @@ static void run_clap_output_safety_test(const clap_plugin_t *plugin,
                                         clap_output_events_t *out_events)
 {
     enum { Frames = 48000 };
-    static float in_l[Frames];
-    static float in_r[Frames];
-    static float out_l[Frames];
-    static float out_r[Frames];
+    static float in_buf[Frames];
+    static float out_buf[Frames];
 
     clap_event_param_value_t param_events[6];
     const double values[6] = {6.0, 80.0, 30.0, 60.0, 70.0, 100.0};
@@ -775,25 +688,23 @@ static void run_clap_output_safety_test(const clap_plugin_t *plugin,
 
     for (uint32_t i = 0; i < Frames; i++) {
         const float t = (float)i / NILAMP_STRESS_SAMPLE_RATE;
-        in_l[i] = 0.15f * sinf(2.0f * 3.14159265358979323846f * 220.0f * t);
-        in_r[i] = 0.10f * sinf(2.0f * 3.14159265358979323846f * 330.0f * t);
-        out_l[i] = 0.0f;
-        out_r[i] = 0.0f;
+        in_buf[i] = 0.15f * sinf(2.0f * 3.14159265358979323846f * 220.0f * t);
+        out_buf[i] = 0.0f;
     }
 
-    float *input_channels[2] = {in_l, in_r};
-    float *output_channels[2] = {out_l, out_r};
+    float *input_channels[1] = {in_buf};
+    float *output_channels[1] = {out_buf};
     clap_audio_buffer_t input = {
         .data32 = input_channels,
         .data64 = NULL,
-        .channel_count = 2,
+        .channel_count = 1,
         .latency = 0,
         .constant_mask = 0,
     };
     clap_audio_buffer_t output = {
         .data32 = output_channels,
         .data64 = NULL,
-        .channel_count = 2,
+        .channel_count = 1,
         .latency = 0,
         .constant_mask = 0,
     };
@@ -814,9 +725,8 @@ static void run_clap_output_safety_test(const clap_plugin_t *plugin,
 
     float peak = 0.0f;
     for (uint32_t i = 0; i < Frames; i++) {
-        check(isfinite(out_l[i]) && isfinite(out_r[i]), "stress output is non-finite");
-        peak = fmaxf(peak, fabsf(out_l[i]));
-        peak = fmaxf(peak, fabsf(out_r[i]));
+        check(isfinite(out_buf[i]), "stress output is non-finite");
+        peak = fmaxf(peak, fabsf(out_buf[i]));
     }
     check(peak > 1.0e-8f, "stress output is silent");
     check(peak <= NILAMP_HOST_OUTPUT_LIMIT + 0.000001f,
@@ -829,13 +739,10 @@ static void run_clap_bypass_test(const clap_plugin_t *plugin,
                                  clap_output_events_t *out_events)
 {
     enum { Frames = 64 };
-    float in_l[Frames];
-    float in_r[Frames];
-    float out_l[Frames];
-    float out_r[Frames];
-    fill_input(in_l, in_r, Frames);
-    memset(out_l, 0, sizeof(out_l));
-    memset(out_r, 0, sizeof(out_r));
+    float in_buf[Frames];
+    float out_buf[Frames];
+    fill_input(in_buf, Frames);
+    memset(out_buf, 0, sizeof(out_buf));
 
     clap_event_param_value_t bypass_event;
     init_param_event(&bypass_event, NILAMP_PARAM_BYPASS, 1.0);
@@ -848,19 +755,19 @@ static void run_clap_bypass_test(const clap_plugin_t *plugin,
     };
     params->flush(plugin, &bypass_input, out_events);
 
-    float *input_channels[2] = {in_l, in_r};
-    float *output_channels[2] = {out_l, out_r};
+    float *input_channels[1] = {in_buf};
+    float *output_channels[1] = {out_buf};
     clap_audio_buffer_t input = {
         .data32 = input_channels,
         .data64 = NULL,
-        .channel_count = 2,
+        .channel_count = 1,
         .latency = 0,
         .constant_mask = 0,
     };
     clap_audio_buffer_t output = {
         .data32 = output_channels,
         .data64 = NULL,
-        .channel_count = 2,
+        .channel_count = 1,
         .latency = 0,
         .constant_mask = 0,
     };
@@ -880,8 +787,7 @@ static void run_clap_bypass_test(const clap_plugin_t *plugin,
     process->frames_count = Frames;
     check(plugin->process(plugin, process) == CLAP_PROCESS_CONTINUE,
           "bypass process returned failure");
-    compare_output(out_l, in_l, Frames, "bypass left");
-    compare_output(out_r, in_r, Frames, "bypass right");
+    compare_output(out_buf, in_buf, Frames, "bypass");
 
     bypass_event.value = 0.0;
     params->flush(plugin, &bypass_input, out_events);
@@ -894,29 +800,26 @@ static void run_clap_midi_test(const clap_plugin_t *plugin,
 {
     enum { Frames = 64 };
     const clap_process_t original_process = *process;
-    static float in_l[Frames];
-    static float in_r[Frames];
-    static float out_l[Frames];
-    static float out_r[Frames];
+    static float in_buf[Frames];
+    static float out_buf[Frames];
 
     reset_clap_params_to_defaults(plugin, params, scratch_out_events);
-    fill_input(in_l, in_r, Frames);
-    memset(out_l, 0, sizeof(out_l));
-    memset(out_r, 0, sizeof(out_r));
+    fill_input(in_buf, Frames);
+    memset(out_buf, 0, sizeof(out_buf));
 
-    float *input_channels[2] = {in_l, in_r};
-    float *output_channels[2] = {out_l, out_r};
+    float *input_channels[1] = {in_buf};
+    float *output_channels[1] = {out_buf};
     clap_audio_buffer_t input = {
         .data32 = input_channels,
         .data64 = NULL,
-        .channel_count = 2,
+        .channel_count = 1,
         .latency = 0,
         .constant_mask = 0,
     };
     clap_audio_buffer_t output = {
         .data32 = output_channels,
         .data64 = NULL,
-        .channel_count = 2,
+        .channel_count = 1,
         .latency = 0,
         .constant_mask = 0,
     };
@@ -1005,12 +908,10 @@ static void run_clap_midi_test(const clap_plugin_t *plugin,
           "ignored MIDI changed mapped gain");
 
     reset_clap_params_to_defaults(plugin, params, scratch_out_events);
-    fill_input(in_l, in_r, Frames);
-    float ref_l[Frames];
-    float ref_r[Frames];
-    render_engine_pair(in_l, in_r, ref_l, ref_r, Frames, false);
-    memset(out_l, 0, sizeof(out_l));
-    memset(out_r, 0, sizeof(out_r));
+    fill_input(in_buf, Frames);
+    float ref[Frames];
+    render_engine_mono(in_buf, ref, Frames);
+    memset(out_buf, 0, sizeof(out_buf));
     clap_event_midi_t bypass_event;
     init_midi_cc_event(&bypass_event, 32u, 0u, 0u, 64u, 127u);
     const clap_event_header_t *bypass_ptrs[1] = {&bypass_event.header};
@@ -1019,10 +920,8 @@ static void run_clap_midi_test(const clap_plugin_t *plugin,
     captured.count = 0u;
     check(plugin->process(plugin, process) == CLAP_PROCESS_CONTINUE,
           "MIDI bypass split process returned failure");
-    compare_output(out_l, ref_l, 32u, "MIDI pre-bypass left");
-    compare_output(out_r, ref_r, 32u, "MIDI pre-bypass right");
-    compare_output(out_l + 32u, in_l + 32u, Frames - 32u, "MIDI post-bypass left");
-    compare_output(out_r + 32u, in_r + 32u, Frames - 32u, "MIDI post-bypass right");
+    compare_output(out_buf, ref, 32u, "MIDI pre-bypass");
+    compare_output(out_buf + 32u, in_buf + 32u, Frames - 32u, "MIDI post-bypass");
 
     reset_clap_params_to_defaults(plugin, params, scratch_out_events);
     *process = original_process;
@@ -1097,37 +996,13 @@ int main(int argc, char **argv)
     check(port_info.port_type && strcmp(port_info.port_type, CLAP_PORT_MONO) == 0,
           "output port type is not mono");
 
-    const clap_plugin_audio_ports_config_t *audio_configs =
-        (const clap_plugin_audio_ports_config_t *)plugin->get_extension(
-            plugin, CLAP_EXT_AUDIO_PORTS_CONFIG);
-    check(audio_configs != NULL, "missing audio ports config extension");
-    check(audio_configs->count(plugin) == 2, "unexpected audio config count");
-    clap_audio_ports_config_t audio_config = {0};
-    check(audio_configs->get(plugin, 0, &audio_config), "mono audio config failed");
-    check(audio_config.id == 1 && audio_config.main_input_channel_count == 1 &&
-              audio_config.main_output_channel_count == 1,
-          "unexpected mono audio config");
-    check(audio_configs->get(plugin, 1, &audio_config), "stereo audio config failed");
-    check(audio_config.id == 2 && audio_config.main_input_channel_count == 2 &&
-              audio_config.main_output_channel_count == 2,
-          "unexpected stereo audio config");
-
-    const clap_plugin_audio_ports_config_info_t *audio_config_info =
-        (const clap_plugin_audio_ports_config_info_t *)plugin->get_extension(
-            plugin, CLAP_EXT_AUDIO_PORTS_CONFIG_INFO);
-    check(audio_config_info != NULL, "missing audio ports config info extension");
-    check(audio_config_info->current_config(plugin) == 1, "default audio config is not mono");
-    check(audio_config_info->get(plugin, 2, 0, true, &port_info),
-          "stereo config input info failed");
-    check(port_info.channel_count == 2, "output port is not stereo");
-    check(port_info.port_type && strcmp(port_info.port_type, CLAP_PORT_STEREO) == 0,
-          "stereo config input port type is not stereo");
-    check(audio_configs->select(plugin, 2), "select stereo audio config failed");
-    check(audio_config_info->current_config(plugin) == 2, "stereo audio config not selected");
-    check(audio_ports->get(plugin, 0, true, &port_info), "selected stereo input info failed");
-    check(port_info.channel_count == 2, "selected input port is not stereo");
-    check(audio_ports->get(plugin, 0, false, &port_info), "selected stereo output info failed");
-    check(port_info.channel_count == 2, "selected output port is not stereo");
+    // Guitar amp: mono in / mono out only. The audio-ports-config and
+    // audio-ports-config-info extensions are intentionally not advertised
+    // because there is no alternative configuration to switch to.
+    check(plugin->get_extension(plugin, CLAP_EXT_AUDIO_PORTS_CONFIG) == NULL,
+          "audio ports config extension should not be advertised");
+    check(plugin->get_extension(plugin, CLAP_EXT_AUDIO_PORTS_CONFIG_INFO) == NULL,
+          "audio ports config info extension should not be advertised");
 
     const clap_plugin_params_t *params =
         (const clap_plugin_params_t *)plugin->get_extension(plugin, CLAP_EXT_PARAMS);
@@ -1387,30 +1262,26 @@ int main(int argc, char **argv)
     check(plugin->start_processing(plugin), "start processing failed");
 
     enum { Frames = 64 };
-    float in_l[Frames];
-    float in_r[Frames];
-    float out_l[Frames];
-    float out_r[Frames];
+    float in_buf[Frames];
+    float out_buf[Frames];
     for (uint32_t i = 0; i < Frames; i++) {
-        in_l[i] = (float)i / (float)Frames * 0.05f;
-        in_r[i] = -in_l[i];
-        out_l[i] = 0.0f;
-        out_r[i] = 0.0f;
+        in_buf[i] = (float)i / (float)Frames * 0.05f;
+        out_buf[i] = 0.0f;
     }
 
-    float *input_channels[2] = {in_l, in_r};
-    float *output_channels[2] = {out_l, out_r};
+    float *input_channels[1] = {in_buf};
+    float *output_channels[1] = {out_buf};
     clap_audio_buffer_t input = {
         .data32 = input_channels,
         .data64 = NULL,
-        .channel_count = 2,
+        .channel_count = 1,
         .latency = 0,
         .constant_mask = 0,
     };
     clap_audio_buffer_t output = {
         .data32 = output_channels,
         .data64 = NULL,
-        .channel_count = 2,
+        .channel_count = 1,
         .latency = 0,
         .constant_mask = 0,
     };
@@ -1440,39 +1311,29 @@ int main(int argc, char **argv)
     check(plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE,
           "process returned failure");
     for (uint32_t i = 0; i < Frames; i++) {
-        check(isfinite(out_l[i]) && isfinite(out_r[i]), "non-finite output");
+        check(isfinite(out_buf[i]), "non-finite output");
     }
 
     plugin->reset(plugin);
     float mono_inplace[Frames];
-    float mono_out_r[Frames];
     for (uint32_t i = 0; i < Frames; i++) {
         mono_inplace[i] = (float)i / (float)Frames * 0.05f;
-        mono_out_r[i] = 0.0f;
     }
-    float *mono_input_channels[1] = {mono_inplace};
-    float *mono_output_channels[2] = {mono_inplace, mono_out_r};
-    input.data32 = mono_input_channels;
-    input.channel_count = 1;
-    output.data32 = mono_output_channels;
-    output.channel_count = 2;
+    float *mono_inplace_channels[1] = {mono_inplace};
+    input.data32 = mono_inplace_channels;
+    output.data32 = mono_inplace_channels;
     check(plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE,
           "mono in-place process returned failure");
     for (uint32_t i = 0; i < Frames; i++) {
-        check(isfinite(mono_inplace[i]) && isfinite(mono_out_r[i]),
-              "non-finite mono in-place output");
+        check(isfinite(mono_inplace[i]), "non-finite mono in-place output");
     }
 
-    input.data32 = input_channels;
-    input.channel_count = 2;
-    output.data32 = output_channels;
-    output.channel_count = 2;
     run_clap_engine_compare(plugin, &process, &in_events, &out_events);
     input.data32 = input_channels;
-    input.channel_count = 2;
+    input.channel_count = 1;
     input.constant_mask = 0;
     output.data32 = output_channels;
-    output.channel_count = 2;
+    output.channel_count = 1;
     process.audio_inputs = &input;
     process.audio_outputs = &output;
     process.audio_inputs_count = 1;

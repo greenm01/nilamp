@@ -334,12 +334,11 @@ static void checkMidiMapping(IMidiMapping *midiMapping, CtrlNumber controllerNum
     check(id == expectedId, "unexpected VST3 MIDI channel mapped parameter id");
 }
 
-static void fillInput(float *left, float *right, uint32_t frames)
+static void fillInput(float *signal, uint32_t frames)
 {
     for (uint32_t i = 0; i < frames; i++) {
         const float t = static_cast<float>(i) / static_cast<float>(frames);
-        left[i] = 0.06f * std::sin(17.0f * t) + 0.015f * std::cos(43.0f * t);
-        right[i] = 0.04f * std::cos(11.0f * t) - 0.02f * std::sin(29.0f * t);
+        signal[i] = 0.06f * std::sin(17.0f * t) + 0.015f * std::cos(43.0f * t);
     }
 }
 
@@ -364,24 +363,6 @@ static void compareOutput(const float *actual, const float *expected, uint32_t f
     }
 }
 
-static void renderReference(float gainDb, const float *inL, const float *inR,
-                            float *outL, float *outR, uint32_t frames)
-{
-    NilampEngine *engineL = nilamp_engine_create(48000.0);
-    NilampEngine *engineR = nilamp_engine_create(48000.0);
-    check(engineL != nullptr && engineR != nullptr, "failed to create reference engines");
-    NilampParams params = nilamp_default_params();
-    params.gain_db = gainDb;
-    nilamp_engine_set_params(engineL, &params);
-    nilamp_engine_set_params(engineR, &params);
-    nilamp_engine_process(engineL, inL, outL, frames);
-    nilamp_engine_process(engineR, inR, outR, frames);
-    sanitize(outL, frames);
-    sanitize(outR, frames);
-    nilamp_engine_destroy(engineL);
-    nilamp_engine_destroy(engineR);
-}
-
 static void renderReferenceMono(float gainDb, const float *input, float *output,
                                 uint32_t frames)
 {
@@ -395,26 +376,19 @@ static void renderReferenceMono(float gainDb, const float *input, float *output,
     nilamp_engine_destroy(engine);
 }
 
-static void renderReferenceAfterWarmup(float gainDb, const float *inL, const float *inR,
-                                       float *outL, float *outR, uint32_t frames)
+static void renderReferenceMonoAfterWarmup(float gainDb, const float *input,
+                                           float *output, uint32_t frames)
 {
-    NilampEngine *engineL = nilamp_engine_create(48000.0);
-    NilampEngine *engineR = nilamp_engine_create(48000.0);
-    check(engineL != nullptr && engineR != nullptr, "failed to create warm reference engines");
+    NilampEngine *engine = nilamp_engine_create(48000.0);
+    check(engine != nullptr, "failed to create warm reference engine");
     NilampParams params = nilamp_default_params();
-    float warmL[128] = {};
-    float warmR[128] = {};
-    nilamp_engine_process(engineL, inL, warmL, frames);
-    nilamp_engine_process(engineR, inR, warmR, frames);
+    float warm[128] = {};
+    nilamp_engine_process(engine, input, warm, frames);
     params.gain_db = gainDb;
-    nilamp_engine_set_params(engineL, &params);
-    nilamp_engine_set_params(engineR, &params);
-    nilamp_engine_process(engineL, inL, outL, frames);
-    nilamp_engine_process(engineR, inR, outR, frames);
-    sanitize(outL, frames);
-    sanitize(outR, frames);
-    nilamp_engine_destroy(engineL);
-    nilamp_engine_destroy(engineR);
+    nilamp_engine_set_params(engine, &params);
+    nilamp_engine_process(engine, input, output, frames);
+    sanitize(output, frames);
+    nilamp_engine_destroy(engine);
 }
 
 int main(int argc, char **argv)
@@ -651,53 +625,18 @@ int main(int argc, char **argv)
     check(processor->setProcessing(true) == kResultOk, "setProcessing failed");
 
     constexpr uint32_t Frames = 128;
-    float inL[Frames] = {};
-    float inR[Frames] = {};
-    float outL[Frames] = {};
-    float outR[Frames] = {};
-    float refL[Frames] = {};
-    float refR[Frames] = {};
-    fillInput(inL, inR, Frames);
+    float inBuf[Frames] = {};
+    float outBuf[Frames] = {};
+    float ref[Frames] = {};
+    fillInput(inBuf, Frames);
 
-    float monoOut[Frames] = {};
-    float monoRef[Frames] = {};
-    float *monoInputChannels[1] = {inL};
-    float *monoOutputChannels[1] = {monoOut};
-    AudioBusBuffers monoInput = {};
-    AudioBusBuffers monoOutput = {};
-    monoInput.numChannels = 1;
-    monoInput.channelBuffers32 = monoInputChannels;
-    monoOutput.numChannels = 1;
-    monoOutput.channelBuffers32 = monoOutputChannels;
-    ProcessData monoData = {};
-    monoData.processMode = kRealtime;
-    monoData.symbolicSampleSize = kSample32;
-    monoData.numSamples = Frames;
-    monoData.numInputs = 1;
-    monoData.numOutputs = 1;
-    monoData.inputs = &monoInput;
-    monoData.outputs = &monoOutput;
-    check(processor->process(monoData) == kResultOk, "mono process failed");
-    renderReferenceMono(0.0f, inL, monoRef, Frames);
-    compareOutput(monoOut, monoRef, Frames, "mono default");
-    processor->setProcessing(false);
-    component->setActive(false);
-
-    inputArrangement = SpeakerArr::kStereo;
-    outputArrangement = SpeakerArr::kStereo;
-    check(processor->setBusArrangements(&inputArrangement, 1, &outputArrangement, 1) ==
-              kResultTrue,
-          "stereo bus arrangement failed");
-    check(component->setActive(true) == kResultOk, "stereo setActive failed");
-    check(processor->setProcessing(true) == kResultOk, "stereo setProcessing failed");
-
-    float *inputChannels[2] = {inL, inR};
-    float *outputChannels[2] = {outL, outR};
+    float *inputChannels[1] = {inBuf};
+    float *outputChannels[1] = {outBuf};
     AudioBusBuffers input = {};
     AudioBusBuffers output = {};
-    input.numChannels = 2;
+    input.numChannels = 1;
     input.channelBuffers32 = inputChannels;
-    output.numChannels = 2;
+    output.numChannels = 1;
     output.channelBuffers32 = outputChannels;
     ProcessData data = {};
     data.processMode = kRealtime;
@@ -707,45 +646,57 @@ int main(int argc, char **argv)
     data.numOutputs = 1;
     data.inputs = &input;
     data.outputs = &output;
-
     check(processor->process(data) == kResultOk, "default process failed");
-    renderReference(0.0f, inL, inR, refL, refR, Frames);
-    compareOutput(outL, refL, Frames, "default L");
-    compareOutput(outR, refR, Frames, "default R");
+    renderReferenceMono(0.0f, inBuf, ref, Frames);
+    compareOutput(outBuf, ref, Frames, "default");
 
     MemoryStream state;
     check(component->getState(&state) == kResultOk, "state save failed");
 
-    std::memset(outL, 0, sizeof(outL));
-    std::memset(outR, 0, sizeof(outR));
+    std::memset(outBuf, 0, sizeof(outBuf));
     ParamQueue gainQueue(NILAMP_PARAM_GAIN_DB, 0, normalized(NILAMP_PARAM_GAIN_DB, 6.0));
     ParameterChanges changes(&gainQueue);
     data.inputParameterChanges = &changes;
     check(processor->process(data) == kResultOk, "automation process failed");
-    renderReferenceAfterWarmup(6.0f, inL, inR, refL, refR, Frames);
-    compareOutput(outL, refL, Frames, "automation L");
-    compareOutput(outR, refR, Frames, "automation R");
+    renderReferenceMonoAfterWarmup(6.0f, inBuf, ref, Frames);
+    compareOutput(outBuf, ref, Frames, "automation");
 
     state.rewind();
     check(component->setState(&state) == kResultOk, "state restore failed");
     check(component->setActive(false) == kResultOk, "state restore deactivate failed");
     check(component->setActive(true) == kResultOk, "state restore reactivate failed");
     data.inputParameterChanges = nullptr;
-    std::memset(outL, 0, sizeof(outL));
-    std::memset(outR, 0, sizeof(outR));
+    std::memset(outBuf, 0, sizeof(outBuf));
     check(processor->process(data) == kResultOk, "restored process failed");
-    renderReference(0.0f, inL, inR, refL, refR, Frames);
-    compareOutput(outL, refL, Frames, "restored L");
-    compareOutput(outR, refR, Frames, "restored R");
+    renderReferenceMono(0.0f, inBuf, ref, Frames);
+    compareOutput(outBuf, ref, Frames, "restored");
 
-    std::memset(outL, 0, sizeof(outL));
-    std::memset(outR, 0, sizeof(outR));
+    std::memset(outBuf, 0, sizeof(outBuf));
     ParamQueue bypassOnQueue(NILAMP_PARAM_BYPASS, 0, normalized(NILAMP_PARAM_BYPASS, 1.0));
     ParameterChanges bypassOnChanges(&bypassOnQueue);
     data.inputParameterChanges = &bypassOnChanges;
     check(processor->process(data) == kResultOk, "bypass process failed");
-    compareOutput(outL, inL, Frames, "bypass L");
-    compareOutput(outR, inR, Frames, "bypass R");
+    compareOutput(outBuf, inBuf, Frames, "bypass");
+
+    processor->setProcessing(false);
+    component->setActive(false);
+
+    // Guitar amp: mono in / mono out only. Stereo bus arrangements must be
+    // rejected so REAPER and other hosts route mono through us and duplicate
+    // to L/R themselves instead of feeding us two distinct buffers (which we
+    // saw double our DSP cost in REAPER).
+    SpeakerArrangement stereoIn = SpeakerArr::kStereo;
+    SpeakerArrangement stereoOut = SpeakerArr::kStereo;
+    check(processor->setBusArrangements(&stereoIn, 1, &stereoOut, 1) == kResultFalse,
+          "stereo bus arrangement should be rejected");
+
+    inputArrangement = SpeakerArr::kMono;
+    outputArrangement = SpeakerArr::kMono;
+    check(processor->setBusArrangements(&inputArrangement, 1, &outputArrangement, 1) ==
+              kResultTrue,
+          "mono bus arrangement re-apply failed");
+    check(component->setActive(true) == kResultOk, "post-reject setActive failed");
+    check(processor->setProcessing(true) == kResultOk, "post-reject setProcessing failed");
 
     processor->setProcessing(false);
     component->setActive(false);

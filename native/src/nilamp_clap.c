@@ -6,7 +6,6 @@
 #include "nilamp_process_log.h"
 
 #include <clap/clap.h>
-#include <clap/ext/audio-ports-config.h>
 #include <clap/ext/gui.h>
 #include <clap/ext/latency.h>
 #include <clap/ext/note-ports.h>
@@ -60,7 +59,6 @@
 #define NILAMP_STATE_VERSION_3_PARAM_COUNT 19u
 #define NILAMP_CLAP_OUTPUT_LIMIT 1.0f
 #define NILAMP_CLAP_PORT_CONFIG_MONO 1u
-#define NILAMP_CLAP_PORT_CONFIG_STEREO 2u
 #define NILAMP_CLAP_MIDI_PORT_MAIN 0u
 #define NILAMP_CLAP_REMOTE_PAGE_AMP_FACE 1u
 #define NILAMP_MIDI_CC_GPC1 16u
@@ -98,7 +96,7 @@ typedef struct NilampClap {
     const clap_host_gui_t *host_gui;
     const clap_host_timer_support_t *host_timer;
     NilampGui *gui;
-    NilampEngine *engines[2];
+    NilampEngine *engine;
     NilampParams params;
     _Atomic uint32_t param_bits[NILAMP_PARAM_COUNT];
     NilampClapParamIndication indications[NILAMP_PARAM_COUNT];
@@ -107,7 +105,6 @@ typedef struct NilampClap {
     atomic_uint gui_gesture_end_mask;
     atomic_uint params_dirty;
     clap_id gui_timer_id;
-    clap_id audio_port_config_id;
     double sample_rate;
     bool gui_is_floating;
     bool gui_timer_registered;
@@ -459,16 +456,12 @@ static bool nilamp_set_param_value(NilampParams *params, clap_id id, double valu
 
 static void nilamp_apply_params(NilampClap *plug)
 {
-    if (!plug) {
+    if (!plug || !plug->engine) {
         return;
     }
     NilampParams params = nilamp_default_params();
     nilamp_load_params(plug, &params);
-    for (uint32_t i = 0; i < 2; i++) {
-        if (plug->engines[i]) {
-            nilamp_engine_set_params(plug->engines[i], &params);
-        }
-    }
+    nilamp_engine_set_params(plug->engine, &params);
 }
 
 static void nilamp_apply_params_if_dirty(NilampClap *plug)
@@ -561,22 +554,18 @@ static const char *nilamp_gui_model_name_cb(void *user)
 }
 #endif
 
-static void nilamp_destroy_engines(NilampClap *plug)
+static void nilamp_destroy_engine(NilampClap *plug)
 {
-    for (uint32_t i = 0; i < 2; i++) {
-        nilamp_engine_destroy(plug->engines[i]);
-        plug->engines[i] = NULL;
-    }
+    nilamp_engine_destroy(plug->engine);
+    plug->engine = NULL;
 }
 
-static bool nilamp_create_engines(NilampClap *plug, double sample_rate)
+static bool nilamp_create_engine(NilampClap *plug, double sample_rate)
 {
-    nilamp_destroy_engines(plug);
+    nilamp_destroy_engine(plug);
 
-    plug->engines[0] = nilamp_engine_create(sample_rate);
-    plug->engines[1] = nilamp_engine_create(sample_rate);
-    if (!plug->engines[0] || !plug->engines[1]) {
-        nilamp_destroy_engines(plug);
+    plug->engine = nilamp_engine_create(sample_rate);
+    if (!plug->engine) {
         return false;
     }
 
@@ -644,7 +633,7 @@ static void nilamp_destroy(const clap_plugin_t *plugin)
     nilamp_gui_destroy(plug->gui);
     plug->gui = NULL;
 #endif
-    nilamp_destroy_engines(plug);
+    nilamp_destroy_engine(plug);
     nilamp_process_log_destroy(plug->process_log);
     plug->process_log = NULL;
     free(plug);
@@ -662,7 +651,7 @@ static bool nilamp_activate(const clap_plugin_t *plugin, double sample_rate,
         return false;
     }
 
-    if (!nilamp_create_engines(plug, sample_rate)) {
+    if (!nilamp_create_engine(plug, sample_rate)) {
         return false;
     }
     plug->active = true;
@@ -676,7 +665,7 @@ static void nilamp_deactivate(const clap_plugin_t *plugin)
         return;
     }
     plug->active = false;
-    nilamp_destroy_engines(plug);
+    nilamp_destroy_engine(plug);
 }
 
 static bool nilamp_start_processing(const clap_plugin_t *plugin)
@@ -697,10 +686,8 @@ static void nilamp_reset(const clap_plugin_t *plugin)
         return;
     }
 
-    for (uint32_t i = 0; i < 2; i++) {
-        if (plug->engines[i]) {
-            nilamp_engine_reset(plug->engines[i]);
-        }
+    if (plug->engine) {
+        nilamp_engine_reset(plug->engine);
     }
     nilamp_apply_params(plug);
     atomic_store_explicit(&plug->params_dirty, 0u, memory_order_release);
@@ -740,12 +727,11 @@ static void nilamp_sanitize_host_channel(float *output, uint32_t offset, uint32_
     }
 }
 
-static void nilamp_process_channel(NilampEngine *engine, const clap_audio_buffer_t *input,
-                                   uint32_t input_channel, clap_audio_buffer_t *output,
-                                   uint32_t output_channel, uint32_t offset,
-                                   uint32_t nframes)
+static void nilamp_process_mono(NilampEngine *engine, const clap_audio_buffer_t *input,
+                                clap_audio_buffer_t *output, uint32_t offset,
+                                uint32_t nframes)
 {
-    float *out = output->data32[output_channel];
+    float *out = output->data32[0];
     if (!out) {
         return;
     }
@@ -754,110 +740,52 @@ static void nilamp_process_channel(NilampEngine *engine, const clap_audio_buffer
         return;
     }
 
-    const bool has_input = input && input->data32 && input_channel < input->channel_count &&
-                           input->data32[input_channel];
+    const bool has_input = input && input->data32 && input->channel_count >= 1u &&
+                           input->data32[0];
     const bool input_is_constant =
-        has_input && ((input->constant_mask & (UINT64_C(1) << input_channel)) != 0u);
+        has_input && ((input->constant_mask & UINT64_C(1)) != 0u);
 
     if (has_input && !input_is_constant) {
-        nilamp_engine_process(engine, input->data32[input_channel] + offset, out + offset, nframes);
+        nilamp_engine_process(engine, input->data32[0] + offset, out + offset, nframes);
         nilamp_sanitize_host_channel(out, offset, nframes);
         return;
     }
 
     const float zero = 0.0f;
-    const float *sample = has_input ? input->data32[input_channel] : &zero;
+    const float *sample = has_input ? input->data32[0] : &zero;
     for (uint32_t i = 0; i < nframes; i++) {
         nilamp_engine_process(engine, sample, out + offset + i, 1);
         out[offset + i] = nilamp_sanitize_host_sample(out[offset + i]);
     }
 }
 
-static bool nilamp_stereo_input_is_mono_equivalent(const clap_audio_buffer_t *input)
+static void nilamp_passthrough_mono(const clap_audio_buffer_t *input,
+                                    clap_audio_buffer_t *output,
+                                    uint32_t offset, uint32_t nframes)
 {
-    // Detect when both stereo channels carry identical content. The common case
-    // is a host (e.g. REAPER) widening a mono source onto a stereo bus by
-    // sharing the same backing buffer for both channels. Pointer equality is
-    // realtime-safe and catches that case. Constant-channel flags carry the
-    // same meaning when both are constant with identical first samples.
-    if (!input || !input->data32 || input->channel_count < 2u) {
-        return false;
-    }
-    float *left = input->data32[0];
-    float *right = input->data32[1];
-    if (!left || !right) {
-        return false;
-    }
-    if (left == right) {
-        return true;
-    }
-    const bool left_constant = (input->constant_mask & UINT64_C(1)) != 0u;
-    const bool right_constant = (input->constant_mask & (UINT64_C(1) << 1)) != 0u;
-    if (left_constant && right_constant && left[0] == right[0]) {
-        return true;
-    }
-    return false;
-}
-
-static void nilamp_duplicate_channel(float *dst, const float *src, uint32_t offset,
-                                     uint32_t nframes)
-{
-    if (!dst || !src || nframes == 0) {
+    if (!output || !output->data32 || output->channel_count == 0u ||
+        !output->data32[0]) {
         return;
     }
-    if (dst == src) {
-        return;
-    }
-    memcpy(dst + offset, src + offset, sizeof(float) * nframes);
-}
-
-static void nilamp_passthrough_channel(const clap_audio_buffer_t *input,
-                                       clap_audio_buffer_t *output,
-                                       uint32_t input_channel, uint32_t output_channel,
-                                       uint32_t offset, uint32_t nframes)
-{
-    if (!output || !output->data32 || output_channel >= output->channel_count ||
-        !output->data32[output_channel]) {
-        return;
-    }
-
-    float *out = output->data32[output_channel];
-    const bool has_input = input && input->data32 && input_channel < input->channel_count &&
-                           input->data32[input_channel];
+    float *out = output->data32[0];
+    const bool has_input = input && input->data32 && input->channel_count >= 1u &&
+                           input->data32[0];
     if (!has_input) {
         nilamp_zero_channel(out, offset, nframes);
         return;
     }
 
-    const float *in = input->data32[input_channel];
-    const bool input_is_constant =
-        (input->constant_mask & (UINT64_C(1) << input_channel)) != 0u;
+    const float *in = input->data32[0];
+    const bool input_is_constant = (input->constant_mask & UINT64_C(1)) != 0u;
     if (input_is_constant) {
+        const float clamped = nilamp_sanitize_host_sample(in[0]);
         for (uint32_t i = 0; i < nframes; i++) {
-            out[offset + i] = nilamp_sanitize_host_sample(in[0]);
+            out[offset + i] = clamped;
         }
     } else if (out != in) {
         memcpy(out + offset, in + offset, sizeof(float) * nframes);
         nilamp_sanitize_host_channel(out, offset, nframes);
     }
-}
-
-static bool nilamp_process_bypass_segment(const clap_audio_buffer_t *input,
-                                          clap_audio_buffer_t *output,
-                                          uint32_t start, uint32_t end)
-{
-    if (!output || !output->data32 || output->channel_count == 0u ||
-        !output->data32[0]) {
-        return false;
-    }
-    const uint32_t frames = end - start;
-    const uint32_t process_channels = output->channel_count < 2u ? output->channel_count : 2u;
-    const uint32_t input_channels = input ? input->channel_count : 0u;
-    for (uint32_t ch = 0; ch < process_channels; ch++) {
-        const uint32_t input_channel = input_channels > 1u ? ch : 0u;
-        nilamp_passthrough_channel(input, output, input_channel, ch, start, frames);
-    }
-    return true;
 }
 
 static bool nilamp_process_segment(NilampClap *plug, const clap_process_t *process,
@@ -873,46 +801,18 @@ static bool nilamp_process_segment(NilampClap *plug, const clap_process_t *proce
     const clap_audio_buffer_t *input =
         (process->audio_inputs_count > 0 && process->audio_inputs) ? &process->audio_inputs[0] : NULL;
     clap_audio_buffer_t *output = &process->audio_outputs[0];
-    if (!output->data32) {
+    if (!output->data32 || output->channel_count == 0u) {
         return false;
     }
 
     const uint32_t frames = end - start;
-    const uint32_t output_channels = output->channel_count;
-    const uint32_t process_channels = output_channels < 2u ? output_channels : 2u;
-    const uint32_t input_channels = input ? input->channel_count : 0u;
 
     if (nilamp_load_param_value(plug, NILAMP_PARAM_BYPASS) >= 0.5) {
-        return nilamp_process_bypass_segment(input, output, start, end);
+        nilamp_passthrough_mono(input, output, start, frames);
+        return true;
     }
 
-    if (process_channels >= 2u && input && input->data32 && input_channels == 1u &&
-        input->data32[0] && output->data32[0] == input->data32[0]) {
-        // In-place mono->stereo: write R first (engine[1]) before L overwrites
-        // the shared input buffer.
-        nilamp_process_channel(plug->engines[1], input, 0u, output, 1u, start, frames);
-        nilamp_process_channel(plug->engines[0], input, 0u, output, 0u, start, frames);
-    } else if (process_channels >= 2u && nilamp_stereo_input_is_mono_equivalent(input) &&
-               output->data32[0] && output->data32[1] &&
-               output->data32[0] != output->data32[1]) {
-        // Mono content presented on a stereo port (e.g. REAPER mono track on a
-        // stereo bus). Run a single engine and duplicate the result so the two
-        // output channels stay bit-identical instead of decorrelating through
-        // two independent nonlinear engines, which produces audible static.
-        nilamp_process_channel(plug->engines[0], input, 0u, output, 0u, start, frames);
-        nilamp_duplicate_channel(output->data32[1], output->data32[0], start, frames);
-    } else {
-        for (uint32_t ch = 0; ch < process_channels; ch++) {
-            const uint32_t input_channel = input && input_channels > 1u ? ch : 0u;
-            nilamp_process_channel(plug->engines[ch], input, input_channel, output, ch, start, frames);
-        }
-    }
-
-    for (uint32_t ch = 2; ch < output_channels; ch++) {
-        if (output->data32[ch]) {
-            nilamp_zero_channel(output->data32[ch], start, frames);
-        }
-    }
+    nilamp_process_mono(plug->engine, input, output, start, frames);
     return true;
 }
 
@@ -1119,17 +1019,16 @@ static uint32_t nilamp_audio_ports_count(const clap_plugin_t *plugin, bool is_in
 static bool nilamp_audio_ports_get(const clap_plugin_t *plugin, uint32_t index,
                                    bool is_input, clap_audio_port_info_t *info)
 {
-    NilampClap *plug = nilamp_from_plugin(plugin);
+    (void)plugin;
     if (index != 0 || !info) {
         return false;
     }
-    const bool stereo = plug && plug->audio_port_config_id == NILAMP_CLAP_PORT_CONFIG_STEREO;
-
+    // Guitar amp: mono in / mono out only. No stereo config exposed.
     info->id = is_input ? 0u : 1u;
     nilamp_copy_text(info->name, sizeof(info->name), is_input ? "Audio In" : "Audio Out");
     info->flags = CLAP_AUDIO_PORT_IS_MAIN;
-    info->channel_count = stereo ? 2u : 1u;
-    info->port_type = stereo ? CLAP_PORT_STEREO : CLAP_PORT_MONO;
+    info->channel_count = 1u;
+    info->port_type = CLAP_PORT_MONO;
     info->in_place_pair = is_input ? 1u : 0u;
     return true;
 }
@@ -1164,114 +1063,6 @@ static bool nilamp_note_ports_get(const clap_plugin_t *plugin, uint32_t index,
 static const clap_plugin_note_ports_t nilamp_note_ports_ext = {
     .count = nilamp_note_ports_count,
     .get = nilamp_note_ports_get,
-};
-
-static bool nilamp_audio_port_config_info(clap_id config_id,
-                                          clap_audio_ports_config_t *config)
-{
-    if (!config) {
-        return false;
-    }
-    memset(config, 0, sizeof(*config));
-    switch (config_id) {
-    case NILAMP_CLAP_PORT_CONFIG_MONO:
-        config->id = NILAMP_CLAP_PORT_CONFIG_MONO;
-        nilamp_copy_text(config->name, sizeof(config->name), "Mono");
-        config->input_port_count = 1u;
-        config->output_port_count = 1u;
-        config->has_main_input = true;
-        config->main_input_channel_count = 1u;
-        config->main_input_port_type = CLAP_PORT_MONO;
-        config->has_main_output = true;
-        config->main_output_channel_count = 1u;
-        config->main_output_port_type = CLAP_PORT_MONO;
-        return true;
-    case NILAMP_CLAP_PORT_CONFIG_STEREO:
-        config->id = NILAMP_CLAP_PORT_CONFIG_STEREO;
-        nilamp_copy_text(config->name, sizeof(config->name), "Stereo");
-        config->input_port_count = 1u;
-        config->output_port_count = 1u;
-        config->has_main_input = true;
-        config->main_input_channel_count = 2u;
-        config->main_input_port_type = CLAP_PORT_STEREO;
-        config->has_main_output = true;
-        config->main_output_channel_count = 2u;
-        config->main_output_port_type = CLAP_PORT_STEREO;
-        return true;
-    default:
-        return false;
-    }
-}
-
-static uint32_t nilamp_audio_ports_config_count(const clap_plugin_t *plugin)
-{
-    (void)plugin;
-    return 2u;
-}
-
-static bool nilamp_audio_ports_config_get(const clap_plugin_t *plugin, uint32_t index,
-                                          clap_audio_ports_config_t *config)
-{
-    (void)plugin;
-    const clap_id config_id = index == 0u ? NILAMP_CLAP_PORT_CONFIG_MONO :
-                              index == 1u ? NILAMP_CLAP_PORT_CONFIG_STEREO :
-                                             CLAP_INVALID_ID;
-    return nilamp_audio_port_config_info(config_id, config);
-}
-
-static bool nilamp_audio_ports_config_select(const clap_plugin_t *plugin, clap_id config_id)
-{
-    NilampClap *plug = nilamp_from_plugin(plugin);
-    if (!plug || plug->active ||
-        (config_id != NILAMP_CLAP_PORT_CONFIG_MONO &&
-         config_id != NILAMP_CLAP_PORT_CONFIG_STEREO)) {
-        return false;
-    }
-    plug->audio_port_config_id = config_id;
-    return true;
-}
-
-static const clap_plugin_audio_ports_config_t nilamp_audio_ports_config_ext = {
-    .count = nilamp_audio_ports_config_count,
-    .get = nilamp_audio_ports_config_get,
-    .select = nilamp_audio_ports_config_select,
-};
-
-static clap_id nilamp_audio_ports_config_info_current(const clap_plugin_t *plugin)
-{
-    const NilampClap *plug = nilamp_from_plugin(plugin);
-    return plug ? plug->audio_port_config_id : CLAP_INVALID_ID;
-}
-
-static bool nilamp_audio_ports_config_info_get(const clap_plugin_t *plugin,
-                                               clap_id config_id,
-                                               uint32_t port_index,
-                                               bool is_input,
-                                               clap_audio_port_info_t *info)
-{
-    (void)plugin;
-    if (port_index != 0u || !info) {
-        return false;
-    }
-    clap_audio_ports_config_t config;
-    if (!nilamp_audio_port_config_info(config_id, &config)) {
-        return false;
-    }
-
-    memset(info, 0, sizeof(*info));
-    const bool stereo = config_id == NILAMP_CLAP_PORT_CONFIG_STEREO;
-    info->id = is_input ? 0u : 1u;
-    nilamp_copy_text(info->name, sizeof(info->name), is_input ? "Audio In" : "Audio Out");
-    info->flags = CLAP_AUDIO_PORT_IS_MAIN;
-    info->channel_count = stereo ? 2u : 1u;
-    info->port_type = stereo ? CLAP_PORT_STEREO : CLAP_PORT_MONO;
-    info->in_place_pair = is_input ? 1u : 0u;
-    return true;
-}
-
-static const clap_plugin_audio_ports_config_info_t nilamp_audio_ports_config_info_ext = {
-    .current_config = nilamp_audio_ports_config_info_current,
-    .get = nilamp_audio_ports_config_info_get,
 };
 
 static uint32_t nilamp_params_count(const clap_plugin_t *plugin)
@@ -2129,13 +1920,6 @@ static const void *nilamp_get_extension(const clap_plugin_t *plugin, const char 
     if (strcmp(id, CLAP_EXT_NOTE_PORTS) == 0) {
         return &nilamp_note_ports_ext;
     }
-    if (strcmp(id, CLAP_EXT_AUDIO_PORTS_CONFIG) == 0) {
-        return &nilamp_audio_ports_config_ext;
-    }
-    if (strcmp(id, CLAP_EXT_AUDIO_PORTS_CONFIG_INFO) == 0 ||
-        strcmp(id, CLAP_EXT_AUDIO_PORTS_CONFIG_INFO_COMPAT) == 0) {
-        return &nilamp_audio_ports_config_info_ext;
-    }
     if (strcmp(id, CLAP_EXT_PARAMS) == 0) {
         return &nilamp_params_ext;
     }
@@ -2187,7 +1971,6 @@ static const clap_plugin_t *nilamp_create_plugin(const clap_plugin_factory_t *fa
     plug->host = host;
     plug->process_log = nilamp_process_log_create("clap");
     plug->params = nilamp_default_params();
-    plug->audio_port_config_id = NILAMP_CLAP_PORT_CONFIG_MONO;
     nilamp_store_params(plug, &plug->params);
     atomic_store_explicit(&plug->gui_gesture_begin_mask, 0u, memory_order_release);
     atomic_store_explicit(&plug->gui_dirty_mask, 0u, memory_order_release);

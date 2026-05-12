@@ -18,7 +18,7 @@ extern "C" {
 #define NILAMP_HOST_OUTPUT_LIMIT 1.0f
 
 typedef struct NilampHostCore {
-    NilampEngine *engines[2];
+    NilampEngine *engine;
     NilampParams params;
     float values[NILAMP_PARAM_COUNT];
     double sample_rate;
@@ -26,11 +26,10 @@ typedef struct NilampHostCore {
 } NilampHostCore;
 
 typedef struct NilampHostAudioBlock {
-    const float *inputs[2];
-    float *outputs[2];
-    uint32_t input_channels;
-    uint32_t output_channels;
-    uint64_t input_constant_mask;
+    const float *input;
+    float *output;
+    bool has_input;
+    bool input_is_constant;
 } NilampHostAudioBlock;
 
 typedef bool (*NilampHostReadFn)(void *user, void *data, uint64_t size);

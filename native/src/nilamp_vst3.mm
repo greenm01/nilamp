@@ -220,10 +220,13 @@ public:
         if (!inputs || !outputs || numIns != 1 || numOuts != 1) {
             return kResultFalse;
         }
+        // Guitar amp: mono in / mono out only. Accepting stereo here lets
+        // REAPER call us with two distinct buffers carrying the same mono
+        // content, which previously doubled our DSP cost. Refusing stereo
+        // keeps the host's mono-on-stereo-track adapter on the host side.
         const int32 inputChannels = SpeakerArr::getChannelCount(inputs[0]);
         const int32 outputChannels = SpeakerArr::getChannelCount(outputs[0]);
-        if ((inputChannels != 1 && inputChannels != 2) ||
-            (outputChannels != 1 && outputChannels != 2)) {
+        if (inputChannels != 1 || outputChannels != 1) {
             return kResultFalse;
         }
         getAudioInput(0)->setArrangement(inputs[0]);
@@ -250,19 +253,19 @@ public:
         nilamp_cpu_enable_realtime_float_mode();
         handleParameterChanges(data.inputParameterChanges, data.numSamples);
 
+        // Strict mono I/O — see setBusArrangements. Pick up channel 0 of the
+        // single input/output bus when present; ignore any extra channels the
+        // host happens to pass.
         NilampHostAudioBlock block = {};
-        if (data.numInputs > 0 && data.inputs && data.inputs[0].channelBuffers32) {
-            block.input_channels = static_cast<uint32_t>(data.inputs[0].numChannels);
-            for (uint32_t ch = 0; ch < block.input_channels && ch < 2u; ch++) {
-                block.inputs[ch] = data.inputs[0].channelBuffers32[ch];
-            }
-            block.input_constant_mask = data.inputs[0].silenceFlags;
+        if (data.numInputs > 0 && data.inputs && data.inputs[0].channelBuffers32 &&
+            data.inputs[0].numChannels > 0) {
+            block.input = data.inputs[0].channelBuffers32[0];
+            block.has_input = block.input != nullptr;
+            block.input_is_constant = (data.inputs[0].silenceFlags & 1ull) != 0u;
         }
-        if (data.numOutputs > 0 && data.outputs && data.outputs[0].channelBuffers32) {
-            block.output_channels = static_cast<uint32_t>(data.outputs[0].numChannels);
-            for (uint32_t ch = 0; ch < block.output_channels && ch < 2u; ch++) {
-                block.outputs[ch] = data.outputs[0].channelBuffers32[ch];
-            }
+        if (data.numOutputs > 0 && data.outputs && data.outputs[0].channelBuffers32 &&
+            data.outputs[0].numChannels > 0) {
+            block.output = data.outputs[0].channelBuffers32[0];
         }
 
         // Coalesce parameter applies: stage values per event and call
