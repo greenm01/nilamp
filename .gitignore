@@ -17,6 +17,9 @@ venv/
 .python-version
 *.egg-info/
 
+# Repo-local development tools
+/.dev-tools/
+
 # Generated lookup tables (regenerable from tools/)
 /dsp/tables/*.dsp
 /dsp/tables/*.bin

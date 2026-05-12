@@ -2,6 +2,40 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: DSP coefficient cache and smoothing refactor
+
+**Context.** Keller feedback identified that `nilamp_dsp.c` recomputed filter,
+tube, and gain coefficients inside the per-sample hot path, and that coefficient
+updates snapped on automation instead of using Keller-style smoothing.
+
+**Edit summary.**
+
+- Added private coefficient structs for one-pole filters, SVF tone/PEQ blocks,
+  high shelves, DF2 filters, PKD envelopes, ADNL EQ, and TWD DLX II topology
+  coefficients.
+- Moved parameter-derived `powf`/`expf`/`tanf`/`sinf`/`logf`/`sqrtf`/`iso266`
+  work out of `nilamp_twd_dlx_ii_process_sample` and into coefficient update
+  paths.
+- Added 10 ms linear `Smooth` ramps for continuous input, volume, output, tone,
+  speaker resonance, and speaker inductance coefficients.
+- Preserved startup/offline behavior by snapping coefficients before first
+  audio, while later continuous parameter changes ramp; tube/splitter topology
+  changes still reset state and snap related coefficients.
+- Folded output gain into the per-sample TWD output stage so it ramps with the
+  other continuous gain coefficients instead of being applied as a per-sample
+  `db_to_linear` call in `nilamp_engine_process`.
+
+**Verification.**
+
+- `PATH="$PWD/.dev-tools/bin:$PATH" make native-test`
+- `PATH="$PWD/.dev-tools/bin:$PATH" make native-host-test`; CLAP validator:
+  21 run, 18 passed, 0 failed, 3 skipped. VST3 validator: 47 passed, 0 failed.
+- `YSFX_ROOT="$PWD/.dev-tools/src/ysfx" PATH="$PWD/.dev-tools/bin:$PATH" make native-jsfx-test`;
+  sine residual `-84.3 dB`, tap diagnostics passed, low-input regression passed.
+- `PATH="$PWD/.dev-tools/bin:$PATH" YSFX_ROOT="$PWD/.dev-tools/src/ysfx" make native-perf-bench PERF_BENCH_ARGS="--quick --runs 3 --warmups 1"`;
+  steady-state medians: CLAP `279.7 ns/frame`, VST3 `280.7 ns/frame`, residual
+  `-86.2 dB`.
+
 ### Session: Windows v1.0.2 release package deploy
 
 **Context.** The GitHub `v1.0.2` release already had macOS and Linux packages
