@@ -49,6 +49,7 @@ double nilamp_host_clamp_param(double value, const NilampControlSpec *spec);
 double nilamp_host_get_param_value(const NilampParams *params, uint32_t id);
 bool nilamp_host_set_param_value(NilampParams *params, uint32_t id, double value);
 bool nilamp_host_core_set_param(NilampHostCore *core, uint32_t id, double value);
+bool nilamp_host_core_stage_param(NilampHostCore *core, uint32_t id, double value);
 double nilamp_host_core_get_param(const NilampHostCore *core, uint32_t id);
 void nilamp_host_core_load_values(NilampHostCore *core);
 void nilamp_host_core_store_values(NilampHostCore *core);

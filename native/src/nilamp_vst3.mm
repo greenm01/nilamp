@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+#include "nilamp_cpu.h"
 #include "nilamp_dsp.h"
 #include "nilamp_gui.h"
 #include "nilamp_host.h"
@@ -233,6 +234,7 @@ public:
         if (data.numSamples <= 0) {
             return kResultOk;
         }
+        nilamp_cpu_enable_realtime_float_mode();
         handleParameterChanges(data.inputParameterChanges, data.numSamples);
 
         NilampHostAudioBlock block = {};
@@ -250,16 +252,32 @@ public:
             }
         }
 
+        // Coalesce parameter applies: stage values per event and call
+        // nilamp_host_core_apply_params at most once per segment boundary.
+        // Events at the same offset (common when REAPER echoes current
+        // parameter values at block start) collapse to a single apply.
         uint32_t cursor = 0;
+        bool params_dirty = false;
         for (uint32_t i = 0; i < eventCount; i++) {
             const uint32_t offset = events[i].offset < static_cast<uint32_t>(data.numSamples) ?
                                         events[i].offset :
                                         static_cast<uint32_t>(data.numSamples);
-            if (!nilamp_host_process_segment(&core, &block, cursor, offset)) {
-                return kResultFalse;
+            if (offset > cursor) {
+                if (params_dirty) {
+                    nilamp_host_core_apply_params(&core);
+                    params_dirty = false;
+                }
+                if (!nilamp_host_process_segment(&core, &block, cursor, offset)) {
+                    return kResultFalse;
+                }
+                cursor = offset;
             }
-            (void)nilamp_host_core_set_param(&core, events[i].id, events[i].plain);
-            cursor = offset;
+            if (nilamp_host_core_stage_param(&core, events[i].id, events[i].plain)) {
+                params_dirty = true;
+            }
+        }
+        if (params_dirty) {
+            nilamp_host_core_apply_params(&core);
         }
         if (!nilamp_host_process_segment(&core, &block, cursor,
                                          static_cast<uint32_t>(data.numSamples))) {
@@ -618,7 +636,11 @@ public:
         const tresult result = EditControllerEx1::setParamNormalized(tag, value);
         const NilampControlSpec *spec = nilamp_host_find_param(tag);
         if (result == kResultOk && spec) {
-            (void)nilamp_host_core_set_param(&core, tag, normalizedToPlain(spec, value));
+            // Controller's core has no engines; stage the value to keep
+            // params/values mirrors in sync without walking the no-op
+            // apply path that nilamp_host_core_set_param would trigger.
+            (void)nilamp_host_core_stage_param(&core, tag,
+                                               normalizedToPlain(spec, value));
             if (!editorEditActive) {
                 notifyEditorParamsChanged();
             }
@@ -1093,9 +1115,15 @@ void Editor::tick()
 
 void Editor::hostParamsChanged()
 {
+    // Host UI-thread parameter pipeline: REAPER (and other VST3 hosts) call
+    // IEditController::setParamNormalized per parameter update during
+    // automation playback to keep the controller in sync with the processor.
+    // Refreshing the GUI synchronously per call burns CPU; instead, request
+    // the 30 Hz fast pump so the next Editor::tick() picks up the new
+    // values within <=33 ms. Editor-originated edits skip this path via
+    // editorEditActive in Controller::setParamNormalized.
     if (gui) {
         requestFastPump("host-param");
-        nilamp_gui_on_main_thread(gui);
     }
 }
 

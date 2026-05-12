@@ -202,6 +202,14 @@ static uint32_t nilamp_gui_param_index(const NilampGui *gui, uint32_t param_id)
     if (!gui) {
         return NILAMP_GUI_MAX_PARAMS;
     }
+    // gui->params mirrors the generated control spec table which is
+    // emitted in ID order, so param_id == index. Take the O(1) path and
+    // fall back to a scan only if a caller ever passes an out-of-order
+    // layout.
+    if (param_id < gui->param_count && param_id < NILAMP_GUI_MAX_PARAMS &&
+        gui->params[param_id].id == param_id) {
+        return param_id;
+    }
     for (uint32_t i = 0; i < gui->param_count; i++) {
         if (gui->params[i].id == param_id) {
             return i;

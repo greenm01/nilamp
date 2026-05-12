@@ -243,6 +243,12 @@ static double nilamp_clamp(double value, const NilampParamSpec *spec)
 
 static const NilampParamSpec *nilamp_find_param(clap_id id)
 {
+    // Specs are emitted in NilampParamId order so id == index. O(1) fast
+    // path on the audio thread; fall back to a scan only if the layout
+    // ever changes.
+    if (id < NILAMP_PARAM_COUNT && nilamp_param_specs[id].id == id) {
+        return &nilamp_param_specs[id];
+    }
     for (uint32_t i = 0; i < NILAMP_PARAM_COUNT; i++) {
         if (nilamp_param_specs[i].id == id) {
             return &nilamp_param_specs[i];
@@ -253,6 +259,9 @@ static const NilampParamSpec *nilamp_find_param(clap_id id)
 
 static uint32_t nilamp_param_index(clap_id id)
 {
+    if (id < NILAMP_PARAM_COUNT && nilamp_param_specs[id].id == id) {
+        return id;
+    }
     for (uint32_t i = 0; i < NILAMP_PARAM_COUNT; i++) {
         if (nilamp_param_specs[i].id == id) {
             return i;

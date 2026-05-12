@@ -117,6 +117,12 @@ void nilamp_host_core_apply_params(NilampHostCore *core)
 const NilampControlSpec *nilamp_host_find_param(uint32_t id)
 {
     const NilampControlSpec *specs = nilamp_host_specs();
+    // Generated specs are emitted in NilampParamId order so id == index.
+    // Take the O(1) path when that invariant holds; fall back to a scan
+    // only if the layout ever changes.
+    if (id < NILAMP_PARAM_COUNT && specs[id].id == id) {
+        return &specs[id];
+    }
     for (uint32_t i = 0; i < NILAMP_PARAM_COUNT; i++) {
         if (specs[i].id == id) {
             return &specs[i];
@@ -128,6 +134,9 @@ const NilampControlSpec *nilamp_host_find_param(uint32_t id)
 uint32_t nilamp_host_param_index(uint32_t id)
 {
     const NilampControlSpec *specs = nilamp_host_specs();
+    if (id < NILAMP_PARAM_COUNT && specs[id].id == id) {
+        return id;
+    }
     for (uint32_t i = 0; i < NILAMP_PARAM_COUNT; i++) {
         if (specs[i].id == id) {
             return i;
@@ -280,7 +289,7 @@ bool nilamp_host_set_param_value(NilampParams *params, uint32_t id, double value
     }
 }
 
-bool nilamp_host_core_set_param(NilampHostCore *core, uint32_t id, double value)
+bool nilamp_host_core_stage_param(NilampHostCore *core, uint32_t id, double value)
 {
     if (!core || !nilamp_host_set_param_value(&core->params, id, value)) {
         return false;
@@ -288,6 +297,14 @@ bool nilamp_host_core_set_param(NilampHostCore *core, uint32_t id, double value)
     const uint32_t index = nilamp_host_param_index(id);
     if (index < NILAMP_PARAM_COUNT) {
         core->values[index] = (float)nilamp_host_get_param_value(&core->params, id);
+    }
+    return true;
+}
+
+bool nilamp_host_core_set_param(NilampHostCore *core, uint32_t id, double value)
+{
+    if (!nilamp_host_core_stage_param(core, id, value)) {
+        return false;
     }
     nilamp_host_core_apply_params(core);
     return true;

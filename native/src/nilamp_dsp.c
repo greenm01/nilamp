@@ -781,6 +781,12 @@ const NilampControlSpec *nilamp_control_spec(uint32_t id)
 {
     uint32_t count = 0;
     const NilampControlSpec *specs = nilamp_control_specs(&count);
+    // Specs are emitted in NilampParamId order so id == index. Skip the
+    // scan when that invariant holds (every host VST3 sync hits this via
+    // getParamStringByValue / text formatting).
+    if (id < count && specs[id].id == id) {
+        return &specs[id];
+    }
     for (uint32_t i = 0; i < count; i++) {
         if (specs[i].id == id) {
             return &specs[i];
