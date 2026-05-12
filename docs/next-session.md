@@ -2,6 +2,35 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: Topology-neutral DSP engine boundary
+
+**Context.** The previous amp-agnostic pass removed direct generated Keller/TWD
+symbol coupling from handwritten engine dispatch, but `native/src/nilamp_dsp.c`
+still owned the Tweed 5E3 runner state, coefficients, and process functions.
+That kept the engine file tied to the first topology.
+
+**Edit summary.**
+
+- Added private DSP internal/topology headers so shared realtime primitives and
+  generated model descriptors can be used without making them public API.
+- Moved the Tweed 5E3 cathodyne/push-pull runner into its own topology source
+  behind `NilampTopologyOps`.
+- Changed `NilampEngine` to store selected topology ops plus opaque
+  state/coefficient storage allocated at engine creation, keeping processing
+  allocation-free.
+- Kept generated Keller/TWD model data in `nilamp_models.inc`, while removing
+  Tweed/Keller topology implementation names from `native/src/nilamp_dsp.c`.
+- Updated native build rules so normal, PIC, and test builds compile the
+  topology registry and topology implementation units.
+
+**Verification.**
+
+- `PATH="$PWD/.dev-tools/bin:$PATH" make native-test`
+- `PATH="$PWD/.dev-tools/bin:$PATH" make native-host-test`; CLAP validator:
+  21 run, 18 passed, 0 failed, 3 skipped. VST3 validator: 47 passed, 0 failed.
+- `YSFX_ROOT="$PWD/.dev-tools/src/ysfx" PATH="$PWD/.dev-tools/bin:$PATH" make native-jsfx-test`;
+  sine residual `-84.3 dB`, tap diagnostics passed, low-input regression passed.
+
 ### Session: Amp-agnostic DSP topology boundary
 
 **Context.** The DSP engine already had generated KDL model data, but the

@@ -116,15 +116,31 @@ NATIVE_FONT_TTF := third_party/fonts/0xproto/0xProto-Regular.ttf
 NATIVE_FONT_C := $(NATIVE_GENERATED)/nilamp_font_0xproto.c
 NATIVE_FONT_H := $(NATIVE_GENERATED)/nilamp_font_0xproto.h
 
-NATIVE_OBJS := \
+NATIVE_DSP_OBJS := \
 	$(NATIVE_BUILD)/nilamp_dsp.o \
-	$(NATIVE_BUILD)/nilamp_host.o \
+	$(NATIVE_BUILD)/nilamp_topologies.o \
+	$(NATIVE_BUILD)/nilamp_topology_tweed_5e3_pp.o \
 	$(NATIVE_BUILD)/nilamp_tables.o
 
-NATIVE_PIC_OBJS := \
+NATIVE_OBJS := \
+	$(NATIVE_DSP_OBJS) \
+	$(NATIVE_BUILD)/nilamp_host.o
+
+NATIVE_DSP_PIC_OBJS := \
 	$(NATIVE_BUILD)/nilamp_dsp.pic.o \
-	$(NATIVE_BUILD)/nilamp_host.pic.o \
+	$(NATIVE_BUILD)/nilamp_topologies.pic.o \
+	$(NATIVE_BUILD)/nilamp_topology_tweed_5e3_pp.pic.o \
 	$(NATIVE_BUILD)/nilamp_tables.pic.o
+
+NATIVE_PIC_OBJS := \
+	$(NATIVE_DSP_PIC_OBJS) \
+	$(NATIVE_BUILD)/nilamp_host.pic.o
+
+NATIVE_DSP_TEST_OBJS := \
+	$(NATIVE_BUILD)/nilamp_dsp_test.o \
+	$(NATIVE_BUILD)/nilamp_topologies_test.o \
+	$(NATIVE_BUILD)/nilamp_topology_tweed_5e3_pp_test.o \
+	$(NATIVE_BUILD)/nilamp_tables.o
 
 VST3_SDK_OBJS := \
 	$(NATIVE_BUILD)/vst3_baseiids.o \
@@ -293,7 +309,13 @@ $(NATIVE_FONT_H): $(NATIVE_FONT_C)
 $(NATIVE_BUILD)/nilamp_tables.o: $(NATIVE_TABLES_C) $(NATIVE_TABLES_H) | $(NATIVE_BUILD)
 	$(CC) $(CFLAGS) -c $(NATIVE_TABLES_C) -o $@
 
-$(NATIVE_BUILD)/nilamp_dsp.o: $(NATIVE_DIR)/src/nilamp_dsp.c $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_TABLES_H) $(NATIVE_MODELS_INC) | $(NATIVE_BUILD)
+$(NATIVE_BUILD)/nilamp_dsp.o: $(NATIVE_DIR)/src/nilamp_dsp.c $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_DIR)/src/nilamp_dsp_internal.h $(NATIVE_DIR)/src/nilamp_topologies.h $(NATIVE_TABLES_H) $(NATIVE_MODELS_INC) | $(NATIVE_BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(NATIVE_BUILD)/nilamp_topologies.o: $(NATIVE_DIR)/src/nilamp_topologies.c $(NATIVE_DIR)/src/nilamp_topologies.h $(NATIVE_DIR)/src/nilamp_dsp_internal.h $(NATIVE_DIR)/src/nilamp_dsp.h | $(NATIVE_BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(NATIVE_BUILD)/nilamp_topology_tweed_5e3_pp.o: $(NATIVE_DIR)/src/nilamp_topology_tweed_5e3_pp.c $(NATIVE_DIR)/src/nilamp_topologies.h $(NATIVE_DIR)/src/nilamp_dsp_internal.h $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_TABLES_H) | $(NATIVE_BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(NATIVE_BUILD)/nilamp_host.o: $(NATIVE_DIR)/src/nilamp_host.c $(NATIVE_DIR)/src/nilamp_host.h $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_DIR)/src/nilamp_cpu.h | $(NATIVE_BUILD)
@@ -302,13 +324,25 @@ $(NATIVE_BUILD)/nilamp_host.o: $(NATIVE_DIR)/src/nilamp_host.c $(NATIVE_DIR)/src
 $(NATIVE_BUILD)/nilamp_tables.pic.o: $(NATIVE_TABLES_C) $(NATIVE_TABLES_H) | $(NATIVE_BUILD)
 	$(CC) $(CFLAGS) -fPIC -c $(NATIVE_TABLES_C) -o $@
 
-$(NATIVE_BUILD)/nilamp_dsp.pic.o: $(NATIVE_DIR)/src/nilamp_dsp.c $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_TABLES_H) $(NATIVE_MODELS_INC) | $(NATIVE_BUILD)
+$(NATIVE_BUILD)/nilamp_dsp.pic.o: $(NATIVE_DIR)/src/nilamp_dsp.c $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_DIR)/src/nilamp_dsp_internal.h $(NATIVE_DIR)/src/nilamp_topologies.h $(NATIVE_TABLES_H) $(NATIVE_MODELS_INC) | $(NATIVE_BUILD)
+	$(CC) $(CFLAGS) -fPIC -c $< -o $@
+
+$(NATIVE_BUILD)/nilamp_topologies.pic.o: $(NATIVE_DIR)/src/nilamp_topologies.c $(NATIVE_DIR)/src/nilamp_topologies.h $(NATIVE_DIR)/src/nilamp_dsp_internal.h $(NATIVE_DIR)/src/nilamp_dsp.h | $(NATIVE_BUILD)
+	$(CC) $(CFLAGS) -fPIC -c $< -o $@
+
+$(NATIVE_BUILD)/nilamp_topology_tweed_5e3_pp.pic.o: $(NATIVE_DIR)/src/nilamp_topology_tweed_5e3_pp.c $(NATIVE_DIR)/src/nilamp_topologies.h $(NATIVE_DIR)/src/nilamp_dsp_internal.h $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_TABLES_H) | $(NATIVE_BUILD)
 	$(CC) $(CFLAGS) -fPIC -c $< -o $@
 
 $(NATIVE_BUILD)/nilamp_host.pic.o: $(NATIVE_DIR)/src/nilamp_host.c $(NATIVE_DIR)/src/nilamp_host.h $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_DIR)/src/nilamp_cpu.h | $(NATIVE_BUILD)
 	$(CC) $(CFLAGS) -fPIC -c $< -o $@
 
-$(NATIVE_BUILD)/nilamp_dsp_test.o: $(NATIVE_DIR)/src/nilamp_dsp.c $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_TABLES_H) $(NATIVE_MODELS_INC) | $(NATIVE_BUILD)
+$(NATIVE_BUILD)/nilamp_dsp_test.o: $(NATIVE_DIR)/src/nilamp_dsp.c $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_DIR)/src/nilamp_dsp_internal.h $(NATIVE_DIR)/src/nilamp_topologies.h $(NATIVE_TABLES_H) $(NATIVE_MODELS_INC) | $(NATIVE_BUILD)
+	$(CC) $(CFLAGS) -DNILAMP_ENABLE_TEST_API -c $< -o $@
+
+$(NATIVE_BUILD)/nilamp_topologies_test.o: $(NATIVE_DIR)/src/nilamp_topologies.c $(NATIVE_DIR)/src/nilamp_topologies.h $(NATIVE_DIR)/src/nilamp_dsp_internal.h $(NATIVE_DIR)/src/nilamp_dsp.h | $(NATIVE_BUILD)
+	$(CC) $(CFLAGS) -DNILAMP_ENABLE_TEST_API -c $< -o $@
+
+$(NATIVE_BUILD)/nilamp_topology_tweed_5e3_pp_test.o: $(NATIVE_DIR)/src/nilamp_topology_tweed_5e3_pp.c $(NATIVE_DIR)/src/nilamp_topologies.h $(NATIVE_DIR)/src/nilamp_dsp_internal.h $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_TABLES_H) | $(NATIVE_BUILD)
 	$(CC) $(CFLAGS) -DNILAMP_ENABLE_TEST_API -c $< -o $@
 
 $(NATIVE_BUILD)/nilamp_render.o: $(NATIVE_DIR)/src/nilamp_render.c $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_DIR)/src/nilamp_cpu.h | $(NATIVE_BUILD)
@@ -490,25 +524,25 @@ $(NATIVE_BUILD)/vst3_vstnoteexpressiontypes.o: $(VST3SDK_DIR)/public.sdk/source/
 $(NATIVE_BUILD)/test_native.o: $(NATIVE_DIR)/tests/test_native.c $(NATIVE_DIR)/src/nilamp_dsp.h | $(NATIVE_BUILD)
 	$(CC) $(CFLAGS) -DNILAMP_ENABLE_TEST_API -c $< -o $@
 
-$(NATIVE_BIN)/test_native: $(NATIVE_BUILD)/test_native.o $(NATIVE_BUILD)/nilamp_dsp_test.o $(NATIVE_BUILD)/nilamp_tables.o | $(NATIVE_BIN)
+$(NATIVE_BIN)/test_native: $(NATIVE_BUILD)/test_native.o $(NATIVE_DSP_TEST_OBJS) | $(NATIVE_BIN)
 	$(CC) $(LDFLAGS) $^ $(LDLIBS) -o $@
 
 $(NATIVE_BUILD)/bench_native.o: $(NATIVE_DIR)/tests/bench_native.c $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_DIR)/src/nilamp_cpu.h | $(NATIVE_BUILD)
 	$(CC) $(CFLAGS) -DNILAMP_ENABLE_TEST_API -c $< -o $@
 
-$(NATIVE_BIN)/bench_native: $(NATIVE_BUILD)/bench_native.o $(NATIVE_BUILD)/nilamp_dsp_test.o $(NATIVE_BUILD)/nilamp_tables.o | $(NATIVE_BIN)
+$(NATIVE_BIN)/bench_native: $(NATIVE_BUILD)/bench_native.o $(NATIVE_DSP_TEST_OBJS) | $(NATIVE_BIN)
 	$(CC) $(LDFLAGS) $^ $(LDLIBS) -o $@
 
 $(NATIVE_BUILD)/bench_ysfx_perf.o: $(NATIVE_DIR)/tests/bench_ysfx_perf.c $(NATIVE_DIR)/tests/bench_perf_common.h $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_DIR)/src/nilamp_cpu.h $(YSFX_ROOT)/include/ysfx.h | $(NATIVE_BUILD)
 	$(CC) $(YSFX_CFLAGS) -c $< -o $@
 
-$(NATIVE_BIN)/bench_ysfx_perf: $(NATIVE_BUILD)/bench_ysfx_perf.o $(NATIVE_BUILD)/nilamp_dsp.o $(NATIVE_BUILD)/nilamp_tables.o $(YSFX_LIB) | $(NATIVE_BIN)
+$(NATIVE_BIN)/bench_ysfx_perf: $(NATIVE_BUILD)/bench_ysfx_perf.o $(NATIVE_DSP_OBJS) $(YSFX_LIB) | $(NATIVE_BIN)
 	$(CXX) $(LDFLAGS) $^ $(YSFX_LDLIBS) -o $@
 
 $(NATIVE_BUILD)/bench_clap_perf.o: $(NATIVE_DIR)/tests/bench_clap_perf.c $(NATIVE_DIR)/tests/bench_perf_common.h $(NATIVE_DIR)/src/nilamp_dsp.h $(CLAP_INCLUDE)/clap/clap.h | $(NATIVE_BUILD)
 	$(CC) $(CLAP_CFLAGS) -c $< -o $@
 
-$(NATIVE_BIN)/bench_clap_perf: $(NATIVE_BUILD)/bench_clap_perf.o $(NATIVE_BUILD)/nilamp_dsp.o $(NATIVE_BUILD)/nilamp_tables.o | $(NATIVE_BIN)
+$(NATIVE_BIN)/bench_clap_perf: $(NATIVE_BUILD)/bench_clap_perf.o $(NATIVE_DSP_OBJS) | $(NATIVE_BIN)
 	$(CC) $(LDFLAGS) $^ $(LDLIBS) $(DL_LDLIBS) -o $@
 
 $(NATIVE_BUILD)/bench_vst3_perf.o: $(NATIVE_DIR)/tests/bench_vst3_perf.mm $(NATIVE_DIR)/tests/bench_perf_common.h $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_DIR)/src/nilamp_host.h | $(NATIVE_BUILD)

@@ -2,7 +2,9 @@
 
 #include "nilamp_dsp.h"
 
+#include "nilamp_dsp_internal.h"
 #include "nilamp_tables.h"
+#include "nilamp_topologies.h"
 
 #include <math.h>
 #include <stdbool.h>
@@ -17,341 +19,15 @@
 #define XMAX 15.0f
 #define DX 0.02f
 
-typedef struct {
-    float s;
-} Ii1;
-
-typedef struct {
-    float s1;
-    float s2;
-} Svf2;
-
-typedef struct {
-    float s1;
-} Svf1;
-
-typedef struct {
-    float z1;
-    float z2;
-} Df2;
-
-typedef struct {
-    float s1;
-    float s2;
-} Pkd;
-
-typedef struct {
-    float act;
-    float tgt;
-    float slope;
-} Smooth;
-
-typedef struct {
-    float k;
-} Ii1Coeffs;
-
-typedef struct {
-    float k;
-    float kf;
-    float kdiv;
-    float b0;
-    float kb1;
-    float b2;
-} Svf2Coeffs;
-
-typedef struct {
-    Smooth k;
-    Smooth kf;
-    Smooth kdiv;
-    Smooth b0;
-    Smooth kb1;
-    Smooth b2;
-} Svf2SmCoeffs;
-
-typedef struct {
-    float k;
-    float kdiv;
-    float b0;
-} Svf1HsCoeffs;
-
-typedef struct {
-    Smooth k;
-    Smooth kdiv;
-    Smooth b0;
-} Svf1HsSmCoeffs;
-
-typedef struct {
-    float b0;
-    float b1;
-    float b2;
-    float a1;
-    float a2;
-} Df2Coeffs;
-
-typedef struct {
-    float k1;
-    float k2;
-} PkdCoeffs;
-
-typedef struct {
-    Smooth g;
-} GainSmCoeffs;
-
-typedef struct {
-    double prev_x;
-    double prev_y;
-    double prev_z;
-} Adnl;
-
-typedef struct {
-    Pkd pkd;
-    Adnl adnl;
-    Df2 neq;
-    Ii1 advk_lp;
-    float advk;
-} TubeCk;
-
-typedef struct {
-    Pkd pkd;
-    Adnl adnl;
-    Df2 neq;
-} TubeCd;
-
-typedef struct {
-    Pkd pkd1;
-    Pkd pkd2;
-    Adnl adnl1;
-    Adnl adnl2;
-    Df2 neq1;
-    Df2 neq2;
-    float dia;
-    float vout2;
-} TubeLtp;
-
-typedef struct {
-    Ii1 s_lp;
-    Ii1 dvs_lp;
-    float s;
-} TubePss;
-
-typedef struct {
-    TubeCk t1;
-    TubeCk t2;
-    TubeCd t3;
-    TubeLtp t6;
-    TubeCk t4;
-    TubeCk t5;
-
-    Ii1 hp1;
-    Svf2 tone;
-    Ii1 lp1;
-    Ii1 hp2;
-
-    Ii1 hp3;
-    Svf2 peq1_t4;
-    Svf1 hs1_t4;
-
-    Ii1 hp4;
-    Svf2 peq1_t5;
-    Svf1 hs1_t5;
-
-    Svf2 peq3;
-    Svf1 hs3;
-    Ii1 hp5;
-    Df2 lp2;
-
-    TubePss p1;
-    TubePss p2;
-    TubePss p3;
-    float prev_dia1;
-    float prev_dig;
-    float prev_dia3;
-    int active_tube1;
-    int active_splitter;
-} NilampTweed5e3PpState;
-
-typedef struct {
-    float smooth_k;
-
-    GainSmCoeffs gain_stage;
-    GainSmCoeffs volume_stage;
-    GainSmCoeffs output_stage;
-
-    Ii1Coeffs hp1;
-    Ii1Coeffs lp1;
-    Ii1Coeffs hp2;
-    Ii1Coeffs hp3;
-    Ii1Coeffs hp4;
-    Ii1Coeffs hp5;
-    Ii1Coeffs pss1_f;
-    Ii1Coeffs pss2_f;
-    Ii1Coeffs pss3_f;
-    Ii1Coeffs advk_t1;
-    Ii1Coeffs advk_t2;
-    Ii1Coeffs advk_t4;
-    Ii1Coeffs advk_t5;
-
-    Svf2SmCoeffs tone;
-    Svf2SmCoeffs peq1_t4;
-    Svf2SmCoeffs peq1_t5;
-    Svf2SmCoeffs peq3;
-    Svf1HsSmCoeffs hs1_t4;
-    Svf1HsSmCoeffs hs1_t5;
-    Svf1HsSmCoeffs hs3;
-    Df2Coeffs lp2;
-    Df2Coeffs adnl_eq;
-
-    PkdCoeffs pk_t1;
-    PkdCoeffs pk_t2;
-    PkdCoeffs pk_t3;
-    PkdCoeffs pk_t4;
-    PkdCoeffs pk_t5;
-    PkdCoeffs pk_ltp1;
-    PkdCoeffs pk_ltp2;
-
-    float pss3_r;
-    float post_scale;
-    int tube1_mode;
-    int splitter_mode;
-} NilampTweed5e3PpCoeffs;
-
-typedef enum {
-    NILAMP_TOPOLOGY_TWEED_5E3_CATHODYNE_PP = 0,
-} NilampTopologyId;
-
-typedef enum {
-    NILAMP_STAGE_KIND_TRIODE_CK = 0,
-    NILAMP_STAGE_KIND_CATHODYNE = 1,
-    NILAMP_STAGE_KIND_POWER_CK = 2,
-} NilampStageKind;
-
-typedef enum {
-    NILAMP_DSP_METHOD_KELLER_GLF_ADAA = 0,
-    NILAMP_DSP_METHOD_KELLER_CD_ADAA = 1,
-    NILAMP_DSP_METHOD_DEMPWOLF_ZOLZER_ADAA = 2,
-    NILAMP_DSP_METHOD_HEGGLUN_BLOCKING_W = 3,
-    NILAMP_DSP_METHOD_KELLER_PSS = 4,
-} NilampDspMethod;
-
-typedef struct {
-    NilampModelId id;
-    NilampTopologyId topology;
-    const char *name;
-    const char *family;
-    const char *clap_name;
-    const char *clap_filename;
-    const char *vst3_name;
-    const char *vst3_filename;
-    const char *vst3_executable;
-    const char *vst3_bundle_id;
-    float speaker_source_ohms;
-    float speaker_nominal_ohms;
-    const void *topology_data;
-    const NilampControlSpec *controls;
-    uint32_t control_count;
-    const NilampGuiLayoutSpec *gui_layout;
-} NilampModelSpec;
-
 struct NilampEngine {
     double sr;
     NilampParams params;
     const NilampModelSpec *model;
+    const NilampTopologyOps *topology_ops;
+    void *topology_state;
+    void *topology_coeffs;
     bool has_processed;
-    union {
-        NilampTweed5e3PpState tweed_5e3_pp;
-    } state;
-    union {
-        NilampTweed5e3PpCoeffs tweed_5e3_pp;
-    } coeffs;
 };
-
-typedef struct {
-    const float *table;
-    size_t len;
-    float kpre;
-    float isat;
-    float rl;
-    float rkl;
-    float kspre;
-    float kspost;
-    float ksva;
-    float ksvk;
-    float ksib;
-    float kfb;
-    float kpk;
-    float pk_xth;
-    float pk_xdiode;
-    float pk_attack;
-    float pk_release;
-    float avg_tau;
-    NilampStageKind kind;
-    NilampDspMethod method;
-} StageCfg;
-
-typedef struct {
-    const float *table1;
-    size_t len1;
-    const float *table2;
-    size_t len2;
-    float kpre11;
-    float kpre12;
-    float kpre22;
-    float kpre21;
-    float kprek1;
-    float kprek2;
-    float isat;
-    float rl1;
-    float rl2;
-    float kspre;
-    float kspost;
-    float ksv1;
-    float ksv2;
-    float ksib;
-    float kpk;
-    float pk_xth;
-    float pk_xdiode;
-    float pk_attack;
-    float pk_release;
-} LtpCfg;
-
-typedef struct {
-    bool is_ltp;
-    const StageCfg *t4;
-    const StageCfg *t5;
-    float k1;
-    float k2;
-    float hp2;
-    float hp3;
-    float hp4;
-    float kmst;
-    float k4;
-} SplitterModeCfg;
-
-typedef struct {
-    float v_out;
-    float res1_v;
-    float res3_v;
-    float res4_v;
-    float drive_t4;
-    float res5_v;
-    float res_t5_v;
-    float dvs2;
-    float dvs3;
-    float p2_s;
-    float p3_s;
-    float drive_t5;
-    float post_pp;
-    float post_peq3;
-    float post_hs3;
-    float post_hp5;
-    float t4_advk_in;
-    float t5_advk_in;
-    float t4_dia;
-    float t5_dia;
-    float t4_advk_out;
-    float t5_advk_out;
-    float dia1_next;
-} NilampTapFrame;
 
 static int nilamp_tap_frame_is_finite(NilampTapFrame taps)
 {
@@ -366,81 +42,9 @@ static int nilamp_tap_frame_is_finite(NilampTapFrame taps)
            isfinite(taps.t5_advk_out) && isfinite(taps.dia1_next);
 }
 
-typedef struct {
-    NilampTopologyId topology;
-    NilampDspMethod supply_method;
-    const StageCfg *t1;
-    const StageCfg *t2;
-    const StageCfg *t3;
-    const StageCfg *t4;
-    const StageCfg *t5;
-    float input_feed_gain;
-    float input_gain_offset_db;
-    float input_keller_gain_sq;
-    float gain_comp_12ax7;
-    float gain_comp_ltp_base;
-    float pss1_r;
-    float pss1_tau;
-    float pss2_r;
-    float pss2_tau;
-    float pss3_r_at_full_sag;
-    float pss3_tau;
-    float phase_t4_gain;
-    float phase_t5_gain;
-    float screen_current_feedback;
-} NilampTweed5e3PpData;
-
 #include "nilamp_models.inc"
 
-/* Keller TWD DLX II topology switches from
- * vendor/keller-jsfx/TWD DLX  II.jsfx: Tube 1 lines 276-284,
- * Splitter lines 292-334, LTP setup line 182.
- */
-static const StageCfg T1_12AY7 = {
-    nilamp_t1_12ay7_table, 13503, 0.16f, 0.0022f, 100000.0f, 820.0f,
-    0.004201680672f, 0.004201680672f, 0.2f, 0.0f, 5.042016807e-06f,
-    0.008386363636f, 0.0f, 0.25f, 0.25f, 0.01f, 0.05f, 0.0205f,
-    NILAMP_STAGE_KIND_TRIODE_CK, NILAMP_DSP_METHOD_KELLER_GLF_ADAA,
-};
-
-static const StageCfg T5_CD_BAL = {
-    nilamp_t4_6v6_table, 13503, 0.02642706131f, 0.11f, 3000.0f, 540.0f,
-    0.0f, 0.00289017341f, 0.9302325581f, 0.0f, 0.0001213872832f,
-    0.18144f, 0.125f, 0.309f, 0.437f, 0.00575f, 0.0276f, 0.00675f,
-    NILAMP_STAGE_KIND_POWER_CK, NILAMP_DSP_METHOD_KELLER_GLF_ADAA,
-};
-
-static const StageCfg T4_LTP = {
-    nilamp_t4_6v6_table, 13503, 0.02642706131f, 0.11f, 3000.0f, 540.0f,
-    0.0f, 0.00289017341f, 0.9302325581f, 0.0f, 0.0001213872832f,
-    0.18144f, 0.125f, 0.309f, 0.439f, 0.00594f, 0.0278f, 0.00675f,
-    NILAMP_STAGE_KIND_POWER_CK, NILAMP_DSP_METHOD_KELLER_GLF_ADAA,
-};
-
-static const StageCfg T5_LTP = {
-    nilamp_t4_6v6_table, 13503, 0.02642706131f, 0.11f, 3000.0f, 540.0f,
-    0.0f, 0.00289017341f, 0.9302325581f, 0.0f, 0.0001213872832f,
-    0.18144f, 0.125f, 0.317f, 0.4442f, 0.00663f, 0.0285f, 0.00675f,
-    NILAMP_STAGE_KIND_POWER_CK, NILAMP_DSP_METHOD_KELLER_GLF_ADAA,
-};
-
-static const LtpCfg T6_LTP = {
-    nilamp_t6_ltp1_table, 13503, nilamp_t6_ltp2_table, 13503,
-    0.2060749075f, -0.2013672361f, 0.2055534423f, -0.2013672361f,
-    -0.004707671307f, -0.004186206178f, 0.0016f, 82000.0f, 100000.0f,
-    0.004201680672f, 0.004201680672f, 0.8090508876f, 0.7929294804f,
-    3.109243697e-06f, 0.05f, 0.269f, 0.602f, 0.015f, 0.05f,
-};
-
-static const SplitterModeCfg TWEED_5E3_PP_SPLITTER_MODES[] = {
-    {false, NULL, NULL, 0.797f, 0.940f, 0.41f, 5.8f, 6.4f, 0.0f, 0.0345f},
-    {false, NULL, &T5_CD_BAL, 0.797f, 0.797f, 0.41f, 5.8f, 5.8f, 0.0f, 0.0345f},
-    {true, &T4_LTP, &T5_LTP, 0.792f, 0.772f, 10.0f, 5.7f, 5.6f, 0.0f, 0.0345f},
-    {true, &T4_LTP, &T5_LTP, 0.792f, 0.772f, 10.0f, 5.7f, 5.6f, 0.5f, 0.185741756f},
-    {true, &T4_LTP, &T5_LTP, 0.792f, 0.772f, 10.0f, 5.7f, 5.6f, 1.0f, 1.0f},
-};
-
-static const NilampModelSpec *nilamp_find_model(NilampModelId model_id)
+const NilampModelSpec *nilamp_find_model(NilampModelId model_id)
 {
     for (size_t i = 0; i < sizeof(NILAMP_MODELS) / sizeof(NILAMP_MODELS[0]); i++) {
         if (NILAMP_MODELS[i].id == model_id) {
@@ -450,27 +54,12 @@ static const NilampModelSpec *nilamp_find_model(NilampModelId model_id)
     return NULL;
 }
 
-#ifdef NILAMP_ENABLE_TEST_API
-static const StageCfg T2_DZ = {
-    nilamp_t2_12ax7_table_dz, 13503, 0.3970223325f, 0.00155f, 100000.0f, 0.0f,
-    0.004201680672f, 0.004201680672f, 0.3846153846f, 0.0f, 3.193277311e-06f,
-    0.01515f, 0.05f, 0.255f, 0.57f, 0.015f, 0.05f, 0.0375f,
-    NILAMP_STAGE_KIND_TRIODE_CK, NILAMP_DSP_METHOD_DEMPWOLF_ZOLZER_ADAA,
-};
-static const StageCfg T3_DZ = {
-    nilamp_t3_cd_table_dz, 13503, 0.01054674317f, 0.0016f, 56000.0f, 57500.0f,
-    0.004201680672f, 0.004201680672f, 0.8282208589f, 0.1763803681f,
-    3.067226891e-06f, 0.0f, 0.125f, 0.272f, 0.394f, 0.00085f, 0.3872f, 0.0f,
-    NILAMP_STAGE_KIND_CATHODYNE, NILAMP_DSP_METHOD_DEMPWOLF_ZOLZER_ADAA,
-};
-#endif
-
-static float db_to_linear(float db)
+float db_to_linear(float db)
 {
     return powf(10.0f, db / 20.0f);
 }
 
-static float iso266(float dbhz)
+float iso266(float dbhz)
 {
     const float f = db_to_linear(dbhz);
     const float decade = floorf(0.05f * dbhz);
@@ -486,7 +75,7 @@ static float iso266(float dbhz)
     return resolution * floorf(f / resolution + 0.5f);
 }
 
-static void smooth_snap(Smooth *s, float v)
+void smooth_snap(Smooth *s, float v)
 {
     if (!isfinite(v)) {
         v = 0.0f;
@@ -496,7 +85,7 @@ static void smooth_snap(Smooth *s, float v)
     s->slope = 0.0f;
 }
 
-static void smooth_set(Smooth *s, float v, float smooth_k)
+void smooth_set(Smooth *s, float v, float smooth_k)
 {
     if (!isfinite(v)) {
         v = 0.0f;
@@ -524,26 +113,26 @@ static void smooth_tick(Smooth *s)
     }
 }
 
-static float gain_sm_process(GainSmCoeffs *c, float x)
+float gain_sm_process(GainSmCoeffs *c, float x)
 {
     smooth_tick(&c->g);
     return x * c->g.act;
 }
 
-static Ii1Coeffs ii1_lp_coeffs(float f, double sr)
+Ii1Coeffs ii1_lp_coeffs(float f, double sr)
 {
     const float k = 1.0f - expf((float)(-2.0 * M_PI * (double)f / sr));
     return (Ii1Coeffs) { k };
 }
 
-static float ii1_lp_process(Ii1 *st, Ii1Coeffs c, float x)
+float ii1_lp_process(Ii1 *st, Ii1Coeffs c, float x)
 {
     const float k = c.k;
     st->s = (x - st->s) * k + st->s;
     return st->s;
 }
 
-static float ii1_hp_process(Ii1 *st, Ii1Coeffs c, float x)
+float ii1_hp_process(Ii1 *st, Ii1Coeffs c, float x)
 {
     return x - ii1_lp_process(st, c, x);
 }
@@ -576,7 +165,7 @@ static float sv2_kq(float f, float q, double sr, int pwq)
     return expf(aux2) - expf(-aux2);
 }
 
-static Svf2Coeffs svf2_tst_coeffs(float b, float m, float t, float f, float q, double sr)
+Svf2Coeffs svf2_tst_coeffs(float b, float m, float t, float f, float q, double sr)
 {
     const float kq = sv2_kq(f, q, sr, 1);
     const float k = sv2_k(f, sr, 1);
@@ -585,7 +174,7 @@ static Svf2Coeffs svf2_tst_coeffs(float b, float m, float t, float f, float q, d
     return (Svf2Coeffs) { k, kf, kdiv, t, kq * m, b };
 }
 
-static Svf2Coeffs svf2_peq_coeffs(float kgain, float f, float qc, double sr)
+Svf2Coeffs svf2_peq_coeffs(float kgain, float f, float qc, double sr)
 {
     const float sqrt_gain = sqrtf(kgain);
     const float kq = sv2_kq(f, qc * sqrt_gain, sr, 1);
@@ -596,7 +185,7 @@ static Svf2Coeffs svf2_peq_coeffs(float kgain, float f, float qc, double sr)
 }
 
 #ifdef NILAMP_ENABLE_TEST_API
-static float svf2_coeffs_process(Svf2 *st, Svf2Coeffs c, float x)
+float svf2_coeffs_process(Svf2 *st, Svf2Coeffs c, float x)
 {
     float hp, bp, lp;
     svf2_process(st, c.k, c.kf, c.kdiv, x, &hp, &bp, &lp);
@@ -604,7 +193,7 @@ static float svf2_coeffs_process(Svf2 *st, Svf2Coeffs c, float x)
 }
 #endif
 
-static void svf2_sm_snap(Svf2SmCoeffs *dst, Svf2Coeffs src)
+void svf2_sm_snap(Svf2SmCoeffs *dst, Svf2Coeffs src)
 {
     smooth_snap(&dst->k, src.k);
     smooth_snap(&dst->kf, src.kf);
@@ -614,7 +203,7 @@ static void svf2_sm_snap(Svf2SmCoeffs *dst, Svf2Coeffs src)
     smooth_snap(&dst->b2, src.b2);
 }
 
-static void svf2_sm_set(Svf2SmCoeffs *dst, Svf2Coeffs src, float smooth_k)
+void svf2_sm_set(Svf2SmCoeffs *dst, Svf2Coeffs src, float smooth_k)
 {
     smooth_set(&dst->k, src.k, smooth_k);
     smooth_set(&dst->kf, src.kf, smooth_k);
@@ -624,7 +213,7 @@ static void svf2_sm_set(Svf2SmCoeffs *dst, Svf2Coeffs src, float smooth_k)
     smooth_set(&dst->b2, src.b2, smooth_k);
 }
 
-static float svf2_sm_process(Svf2 *st, Svf2SmCoeffs *c, float x)
+float svf2_sm_process(Svf2 *st, Svf2SmCoeffs *c, float x)
 {
     smooth_tick(&c->k);
     smooth_tick(&c->kf);
@@ -637,7 +226,7 @@ static float svf2_sm_process(Svf2 *st, Svf2SmCoeffs *c, float x)
     return hp * c->b0.act + bp * c->kb1.act + lp * c->b2.act;
 }
 
-static Svf1HsCoeffs svf1_hs_coeffs(float kgain, float fs, double sr)
+Svf1HsCoeffs svf1_hs_coeffs(float kgain, float fs, double sr)
 {
     const float k_raw = tanf((float)(M_PI * (double)fs / sr));
     const float k = sqrtf(kgain) * k_raw;
@@ -646,7 +235,7 @@ static Svf1HsCoeffs svf1_hs_coeffs(float kgain, float fs, double sr)
 }
 
 #ifdef NILAMP_ENABLE_TEST_API
-static float svf1_hs_coeffs_process(Svf1 *st, Svf1HsCoeffs c, float x)
+float svf1_hs_coeffs_process(Svf1 *st, Svf1HsCoeffs c, float x)
 {
     const float hp = (x - st->s1) * c.kdiv;
     const float v = c.k * hp;
@@ -656,21 +245,21 @@ static float svf1_hs_coeffs_process(Svf1 *st, Svf1HsCoeffs c, float x)
 }
 #endif
 
-static void svf1_hs_sm_snap(Svf1HsSmCoeffs *dst, Svf1HsCoeffs src)
+void svf1_hs_sm_snap(Svf1HsSmCoeffs *dst, Svf1HsCoeffs src)
 {
     smooth_snap(&dst->k, src.k);
     smooth_snap(&dst->kdiv, src.kdiv);
     smooth_snap(&dst->b0, src.b0);
 }
 
-static void svf1_hs_sm_set(Svf1HsSmCoeffs *dst, Svf1HsCoeffs src, float smooth_k)
+void svf1_hs_sm_set(Svf1HsSmCoeffs *dst, Svf1HsCoeffs src, float smooth_k)
 {
     smooth_set(&dst->k, src.k, smooth_k);
     smooth_set(&dst->kdiv, src.kdiv, smooth_k);
     smooth_set(&dst->b0, src.b0, smooth_k);
 }
 
-static float svf1_hs_sm_process(Svf1 *st, Svf1HsSmCoeffs *c, float x)
+float svf1_hs_sm_process(Svf1 *st, Svf1HsSmCoeffs *c, float x)
 {
     smooth_tick(&c->k);
     smooth_tick(&c->kdiv);
@@ -743,19 +332,19 @@ static void adnl_eq_coeffs(int n, float *b0, float *b1, float *b2, float *a1, fl
     }
 }
 
-static Df2Coeffs adnl_eq_make_coeffs(double sr)
+Df2Coeffs adnl_eq_make_coeffs(double sr)
 {
     float b0, b1, b2, a1, a2;
     adnl_eq_coeffs(adnl_eq_index(sr), &b0, &b1, &b2, &a1, &a2);
     return (Df2Coeffs) { b0, b1, b2, a1, a2 };
 }
 
-static float df2_coeffs_process(Df2 *st, Df2Coeffs c, float x)
+float df2_coeffs_process(Df2 *st, Df2Coeffs c, float x)
 {
     return df2_process(st, c.b0, c.b1, c.b2, c.a1, c.a2, x);
 }
 
-static Df2Coeffs df2_lp_coeffs(double sr, float f, float q, bool prewarp_q)
+Df2Coeffs df2_lp_coeffs(double sr, float f, float q, bool prewarp_q)
 {
     const float pi_t = (float)(M_PI / sr);
     const float k0 = f * pi_t;
@@ -864,19 +453,19 @@ static float pk_k2(float tau, double sr)
     return tau > 0.0f ? expf(-1.0f / (tau * (float)sr)) : 0.0f;
 }
 
-static PkdCoeffs pkd_coeffs(float attack, float release, double sr)
+PkdCoeffs pkd_coeffs(float attack, float release, double sr)
 {
     return (PkdCoeffs) { pk_k1(attack, sr), pk_k2(release, sr) };
 }
 
-static Ii1Coeffs tube_advk_coeffs(const StageCfg *cfg, double sr)
+Ii1Coeffs tube_advk_coeffs(const StageCfg *cfg, double sr)
 {
     const float avg_tau = fmaxf(1e-10f, cfg->avg_tau);
     const float avg_f = 1.0f / (float)(2.0 * M_PI * (double)avg_tau);
     return ii1_lp_coeffs(avg_f, sr);
 }
 
-static void tube_ck_process(TubeCk *st, const StageCfg *cfg, PkdCoeffs pk_coeffs,
+void tube_ck_process(TubeCk *st, const StageCfg *cfg, PkdCoeffs pk_coeffs,
                             Df2Coeffs adnl_eq, Ii1Coeffs advk_coeffs,
                             float v, float dvs, float *v_out, float *dia)
 {
@@ -894,7 +483,7 @@ static void tube_ck_process(TubeCk *st, const StageCfg *cfg, PkdCoeffs pk_coeffs
     st->advk = ii1_lp_process(&st->advk_lp, advk_coeffs, *v_out - dvs) * cfg->kfb;
 }
 
-static void tube_cd_process(TubeCd *st, const StageCfg *cfg, PkdCoeffs pk_coeffs,
+void tube_cd_process(TubeCd *st, const StageCfg *cfg, PkdCoeffs pk_coeffs,
                             Df2Coeffs adnl_eq, float v, float dvs,
                             float *v_out, float *vk_out, float *dia)
 {
@@ -911,7 +500,7 @@ static void tube_cd_process(TubeCd *st, const StageCfg *cfg, PkdCoeffs pk_coeffs
     *v_out = *dia * (-cfg->rl) + cfg->ksva * dvs;
 }
 
-static void tube_ltp_process(TubeLtp *st, const LtpCfg *cfg,
+void tube_ltp_process(TubeLtp *st, const LtpCfg *cfg,
                              PkdCoeffs pk1_coeffs, PkdCoeffs pk2_coeffs,
                              Df2Coeffs adnl_eq,
                              float vin1, float vink, float vin2, float dvs,
@@ -951,7 +540,7 @@ static void tube_ltp_process(TubeLtp *st, const LtpCfg *cfg,
     st->vout2 = *vout2;
 }
 
-static float tube_pss_process(TubePss *st, float r, Ii1Coeffs coeffs,
+float tube_pss_process(TubePss *st, float r, Ii1Coeffs coeffs,
                               float snext, float dia, float dvs_in)
 {
     st->s = ii1_lp_process(&st->s_lp, coeffs, dia + snext);
@@ -1063,15 +652,36 @@ NilampEngine *nilamp_engine_create_model(double sample_rate, NilampModelId model
         free(engine);
         return NULL;
     }
+    const NilampTopologyOps *topology_ops = nilamp_topology_ops(model->topology);
+    if (topology_ops == NULL ||
+        topology_ops->accepts_model_data == NULL ||
+        !topology_ops->accepts_model_data(model->topology_data)) {
+        free(engine);
+        return NULL;
+    }
+    engine->topology_state = calloc(1, topology_ops->state_size);
+    engine->topology_coeffs = calloc(1, topology_ops->coeffs_size);
+    if (engine->topology_state == NULL || engine->topology_coeffs == NULL) {
+        free(engine->topology_state);
+        free(engine->topology_coeffs);
+        free(engine);
+        return NULL;
+    }
     engine->sr = sample_rate;
     engine->params = nilamp_model_default_params(model_id);
     engine->model = model;
+    engine->topology_ops = topology_ops;
     nilamp_engine_reset(engine);
     return engine;
 }
 
 void nilamp_engine_destroy(NilampEngine *engine)
 {
+    if (engine == NULL) {
+        return;
+    }
+    free(engine->topology_state);
+    free(engine->topology_coeffs);
     free(engine);
 }
 
@@ -1085,7 +695,7 @@ void nilamp_engine_destroy(NilampEngine *engine)
  * (vendor/keller-jsfx/Libs/HK_LIB_ADNL.jsfx-inc:181-184); we replicate that
  * after the engine zero-init.
  */
-static void adnl_seed_at_zero(Adnl *st, const float *table)
+void adnl_seed_at_zero(Adnl *st, const float *table)
 {
     const int idx_zero = (int)(XMAX / DX);
     const size_t base = (size_t)idx_zero * 9u;
@@ -1095,7 +705,7 @@ static void adnl_seed_at_zero(Adnl *st, const float *table)
     st->prev_z = table[base + 8u]; /* b0 at x=0 = z(0) */
 }
 
-static int nilamp_enum_param(float value, int count, int fallback)
+int nilamp_enum_param(float value, int count, int fallback)
 {
     if (!isfinite(value)) {
         return fallback;
@@ -1104,254 +714,16 @@ static int nilamp_enum_param(float value, int count, int fallback)
     return index >= 0 && index < count ? index : fallback;
 }
 
-static const NilampTweed5e3PpData *nilamp_tweed_5e3_pp_data(const NilampModelSpec *model)
-{
-    if (model == NULL || model->topology != NILAMP_TOPOLOGY_TWEED_5E3_CATHODYNE_PP) {
-        return NULL;
-    }
-    const NilampTweed5e3PpData *data = (const NilampTweed5e3PpData *)model->topology_data;
-    return data != NULL && data->topology == model->topology ? data : NULL;
-}
-
-#ifdef NILAMP_ENABLE_TEST_API
-static const NilampTweed5e3PpData *nilamp_default_tweed_5e3_pp_data(void)
-{
-    return nilamp_tweed_5e3_pp_data(nilamp_find_model(NILAMP_MODEL_DEFAULT));
-}
-#endif
-
-static const StageCfg *nilamp_tube1_cfg(const NilampTweed5e3PpData *model, int tube1)
-{
-    return tube1 == 0 ? &T1_12AY7 : model->t1;
-}
-
-static const SplitterModeCfg *nilamp_splitter_cfg(int splitter)
-{
-    const int count = (int)(sizeof(TWEED_5E3_PP_SPLITTER_MODES) / sizeof(TWEED_5E3_PP_SPLITTER_MODES[0]));
-    return &TWEED_5E3_PP_SPLITTER_MODES[nilamp_enum_param((float)splitter, count, 2)];
-}
-
-static const StageCfg *nilamp_splitter_t4_cfg(const SplitterModeCfg *splitter,
-                                              const NilampTweed5e3PpData *model)
-{
-    return splitter->t4 != NULL ? splitter->t4 : model->t4;
-}
-
-static const StageCfg *nilamp_splitter_t5_cfg(const SplitterModeCfg *splitter,
-                                              const NilampTweed5e3PpData *model)
-{
-    return splitter->t5 != NULL ? splitter->t5 : model->t5;
-}
-
-static Ii1Coeffs tube_pss_coeffs(float tau, double sr)
-{
-    const float f = 1.0f / (float)(2.0 * M_PI * fmax(1e-10, (double)tau));
-    return ii1_lp_coeffs(f, sr);
-}
-
-static void nilamp_tweed_5e3_pp_apply_coeffs(NilampTweed5e3PpCoeffs *c,
-                                           const NilampParams *params,
-                                           const NilampTweed5e3PpData *model,
-                                           double sr,
-                                           bool snap)
-{
-    const int tube1 = nilamp_enum_param(params->tube1, 2, 1);
-    const int splitter = nilamp_enum_param(params->phase_splitter,
-                                           (int)(sizeof(TWEED_5E3_PP_SPLITTER_MODES) /
-                                                 sizeof(TWEED_5E3_PP_SPLITTER_MODES[0])),
-                                           2);
-    const StageCfg *t1_cfg = nilamp_tube1_cfg(model, tube1);
-    const SplitterModeCfg *splitter_cfg = nilamp_splitter_cfg(splitter);
-    const StageCfg *t4_cfg = nilamp_splitter_t4_cfg(splitter_cfg, model);
-    const StageCfg *t5_cfg = nilamp_splitter_t5_cfg(splitter_cfg, model);
-
-    c->smooth_k = 1.0f / (0.01f * (float)sr);
-    c->tube1_mode = tube1;
-    c->splitter_mode = splitter;
-
-    c->hp1 = ii1_lp_coeffs(10.0f, sr);
-    c->lp1 = ii1_lp_coeffs(8800.0f, sr);
-    c->hp2 = ii1_lp_coeffs(splitter_cfg->hp2, sr);
-    c->hp3 = ii1_lp_coeffs(splitter_cfg->hp3, sr);
-    c->hp4 = ii1_lp_coeffs(splitter_cfg->hp4, sr);
-    c->hp5 = ii1_lp_coeffs(40.0f, sr);
-    c->pss1_f = tube_pss_coeffs(model->pss1_tau, sr);
-    c->pss2_f = tube_pss_coeffs(model->pss2_tau, sr);
-    c->pss3_f = tube_pss_coeffs(model->pss3_tau, sr);
-    c->advk_t1 = tube_advk_coeffs(t1_cfg, sr);
-    c->advk_t2 = tube_advk_coeffs(model->t2, sr);
-    c->advk_t4 = tube_advk_coeffs(t4_cfg, sr);
-    c->advk_t5 = tube_advk_coeffs(t5_cfg, sr);
-
-    c->lp2 = df2_lp_coeffs(sr, 10000.0f, sqrtf(0.5f), false);
-    c->adnl_eq = adnl_eq_make_coeffs(sr);
-    c->pk_t1 = pkd_coeffs(t1_cfg->pk_attack, t1_cfg->pk_release, sr);
-    c->pk_t2 = pkd_coeffs(model->t2->pk_attack, model->t2->pk_release, sr);
-    c->pk_t3 = pkd_coeffs(model->t3->pk_attack, model->t3->pk_release, sr);
-    c->pk_t4 = pkd_coeffs(t4_cfg->pk_attack, t4_cfg->pk_release, sr);
-    c->pk_t5 = pkd_coeffs(t5_cfg->pk_attack, t5_cfg->pk_release, sr);
-    c->pk_ltp1 = pkd_coeffs(T6_LTP.pk_attack, T6_LTP.pk_release, sr);
-    c->pk_ltp2 = c->pk_ltp1;
-
-    const float gain =
-        db_to_linear(params->gain_db + model->input_gain_offset_db) *
-        model->input_feed_gain * sqrtf(model->input_keller_gain_sq);
-    const float volume_knob = params->volume_pct * 0.01f;
-    float volume_gain = volume_knob * volume_knob;
-    const int gain_comp = (int)lroundf(params->gain_comp);
-    if ((gain_comp == 1 || gain_comp == 3) && tube1 == 1) {
-        volume_gain *= model->gain_comp_12ax7;
-    }
-    if ((gain_comp == 2 || gain_comp == 3) && splitter_cfg->is_ltp) {
-        volume_gain *= powf(model->gain_comp_ltp_base, splitter_cfg->kmst);
-    }
-    float sag = params->sag_pct * 0.02f;
-    if (!isfinite(sag)) {
-        sag = 1.0f;
-    } else if (sag < 0.0f) {
-        sag = 0.0f;
-    }
-    sag *= sag;
-    c->pss3_r = sag * model->pss3_r_at_full_sag;
-    c->post_scale = 0.5f / (t4_cfg->rl * t4_cfg->isat + t5_cfg->rl * t5_cfg->isat);
-
-    const float bass = params->bass_pct * 0.01f;
-    const float mid = params->mid_pct * 0.01f;
-    const float treble = params->treble_pct * 0.01f;
-    const float tone_fmid = iso266(params->tone_fmid_dbhz);
-    const float tone_qmid = iso266(params->tone_qmid_db);
-    const float res_gain1 = db_to_linear(params->spk_res_gain1_db);
-    const float res_gain2 = db_to_linear(params->spk_res_gain2_db);
-    const float res_fres = iso266(params->spk_res_fres_dbhz);
-    const float res_qts = iso266(params->spk_res_qts_db);
-    const float res_q2 = res_qts * sqrtf(res_gain2);
-    const float res_q1 = res_q2 * sqrtf(res_gain2 * res_gain1);
-    const float ind_gain1 = db_to_linear(params->spk_ind_gain1_db);
-    const float ind_gain2 = db_to_linear(params->spk_ind_gain2_db);
-    const float ind_find = iso266(params->spk_ind_find_dbhz);
-    float ind_f2 = ind_find * sqrtf(ind_gain2);
-    if (ind_f2 >= 0.4f * (float)sr) {
-        ind_f2 = 0.4f * (float)sr;
-    }
-    float ind_f1 = ind_f2 * sqrtf(ind_gain2 * ind_gain1);
-    if (ind_f1 >= 0.4f * (float)sr) {
-        ind_f1 = 0.4f * (float)sr;
-    }
-
-    const Svf2Coeffs tone = svf2_tst_coeffs(bass * bass, mid * mid, treble * treble,
-                                            tone_fmid, tone_qmid, sr);
-    const Svf2Coeffs peq1 = svf2_peq_coeffs(res_gain1, res_fres, res_q1, sr);
-    const Svf2Coeffs peq3 = svf2_peq_coeffs(res_gain2, res_fres, res_q2, sr);
-    const Svf1HsCoeffs hs1 = svf1_hs_coeffs(ind_gain1, ind_f1, sr);
-    const Svf1HsCoeffs hs3 = svf1_hs_coeffs(ind_gain2, ind_f2, sr);
-
-    if (snap) {
-        smooth_snap(&c->gain_stage.g, gain);
-        smooth_snap(&c->volume_stage.g, volume_gain);
-        smooth_snap(&c->output_stage.g, db_to_linear(params->output_gain_db));
-        svf2_sm_snap(&c->tone, tone);
-        svf2_sm_snap(&c->peq1_t4, peq1);
-        svf2_sm_snap(&c->peq1_t5, peq1);
-        svf2_sm_snap(&c->peq3, peq3);
-        svf1_hs_sm_snap(&c->hs1_t4, hs1);
-        svf1_hs_sm_snap(&c->hs1_t5, hs1);
-        svf1_hs_sm_snap(&c->hs3, hs3);
-    } else {
-        const float sk = c->smooth_k;
-        smooth_set(&c->gain_stage.g, gain, sk);
-        smooth_set(&c->volume_stage.g, volume_gain, sk);
-        smooth_set(&c->output_stage.g, db_to_linear(params->output_gain_db), sk);
-        svf2_sm_set(&c->tone, tone, sk);
-        svf2_sm_set(&c->peq1_t4, peq1, sk);
-        svf2_sm_set(&c->peq1_t5, peq1, sk);
-        svf2_sm_set(&c->peq3, peq3, sk);
-        svf1_hs_sm_set(&c->hs1_t4, hs1, sk);
-        svf1_hs_sm_set(&c->hs1_t5, hs1, sk);
-        svf1_hs_sm_set(&c->hs3, hs3, sk);
-    }
-}
-
-static void nilamp_tweed_5e3_pp_snap_coeffs(NilampTweed5e3PpCoeffs *c,
-                                          const NilampParams *params,
-                                          const NilampTweed5e3PpData *model,
-                                          double sr)
-{
-    nilamp_tweed_5e3_pp_apply_coeffs(c, params, model, sr, true);
-}
-
-static void nilamp_tweed_5e3_pp_update_coeffs(NilampTweed5e3PpCoeffs *c,
-                                            const NilampParams *params,
-                                            const NilampTweed5e3PpData *model,
-                                            double sr,
-                                            bool snap)
-{
-    nilamp_tweed_5e3_pp_apply_coeffs(c, params, model, sr, snap);
-}
-
-static void nilamp_tweed_5e3_pp_seed_modes(NilampTweed5e3PpState *st,
-                                         const NilampParams *params,
-                                         const NilampTweed5e3PpData *model,
-                                         bool force)
-{
-    const int tube1 = nilamp_enum_param(params->tube1, 2, 1);
-    const int splitter = nilamp_enum_param(params->phase_splitter,
-                                           (int)(sizeof(TWEED_5E3_PP_SPLITTER_MODES) /
-                                                 sizeof(TWEED_5E3_PP_SPLITTER_MODES[0])),
-                                           2);
-    const SplitterModeCfg *splitter_cfg = nilamp_splitter_cfg(splitter);
-    const StageCfg *t4_cfg = nilamp_splitter_t4_cfg(splitter_cfg, model);
-    const StageCfg *t5_cfg = nilamp_splitter_t5_cfg(splitter_cfg, model);
-
-    if (force || st->active_tube1 != tube1) {
-        memset(&st->t1, 0, sizeof(st->t1));
-        adnl_seed_at_zero(&st->t1.adnl, nilamp_tube1_cfg(model, tube1)->table);
-        st->active_tube1 = tube1;
-    }
-
-    if (force || st->active_splitter != splitter) {
-        memset(&st->t3, 0, sizeof(st->t3));
-        memset(&st->t6, 0, sizeof(st->t6));
-        memset(&st->t4, 0, sizeof(st->t4));
-        memset(&st->t5, 0, sizeof(st->t5));
-        memset(&st->hp2, 0, sizeof(st->hp2));
-        memset(&st->hp3, 0, sizeof(st->hp3));
-        memset(&st->hp4, 0, sizeof(st->hp4));
-        memset(&st->peq1_t4, 0, sizeof(st->peq1_t4));
-        memset(&st->peq1_t5, 0, sizeof(st->peq1_t5));
-        memset(&st->hs1_t4, 0, sizeof(st->hs1_t4));
-        memset(&st->hs1_t5, 0, sizeof(st->hs1_t5));
-        adnl_seed_at_zero(&st->t3.adnl, model->t3->table);
-        adnl_seed_at_zero(&st->t6.adnl1, T6_LTP.table1);
-        adnl_seed_at_zero(&st->t6.adnl2, T6_LTP.table2);
-        adnl_seed_at_zero(&st->t4.adnl, t4_cfg->table);
-        adnl_seed_at_zero(&st->t5.adnl, t5_cfg->table);
-        st->prev_dia1 = 0.0f;
-        st->prev_dig = 0.0f;
-        st->prev_dia3 = 0.0f;
-        st->active_splitter = splitter;
-    }
-}
-
 void nilamp_engine_reset(NilampEngine *engine)
 {
     if (engine == NULL) {
         return;
     }
-    const double sr = engine->sr;
-    const NilampParams params = engine->params;
-    const NilampModelSpec *model = engine->model;
-    memset(engine, 0, sizeof(*engine));
-    engine->sr = sr;
-    engine->params = params;
-    engine->model = model;
-
-    const NilampTweed5e3PpData *data = nilamp_tweed_5e3_pp_data(model);
-    if (data != NULL) {
-        NilampTweed5e3PpState *st = &engine->state.tweed_5e3_pp;
-        NilampTweed5e3PpCoeffs *coeffs = &engine->coeffs.tweed_5e3_pp;
-        nilamp_tweed_5e3_pp_snap_coeffs(coeffs, &engine->params, data, engine->sr);
-        adnl_seed_at_zero(&st->t2.adnl, data->t2->table);
-        nilamp_tweed_5e3_pp_seed_modes(st, &engine->params, data, true);
+    engine->has_processed = false;
+    if (engine->topology_ops != NULL && engine->topology_ops->reset != NULL) {
+        engine->topology_ops->reset(engine->topology_state, engine->topology_coeffs,
+                                    &engine->params, engine->model->topology_data,
+                                    engine->sr);
     }
 }
 
@@ -1360,24 +732,12 @@ void nilamp_engine_set_params(NilampEngine *engine, const NilampParams *params)
     if (engine == NULL || params == NULL) {
         return;
     }
-    const NilampTweed5e3PpData *data = nilamp_tweed_5e3_pp_data(engine->model);
-    if (data != NULL) {
-        NilampTweed5e3PpCoeffs *coeffs = &engine->coeffs.tweed_5e3_pp;
-        const int tube1 = nilamp_enum_param(params->tube1, 2, 1);
-        const int splitter = nilamp_enum_param(params->phase_splitter,
-                                               (int)(sizeof(TWEED_5E3_PP_SPLITTER_MODES) /
-                                                     sizeof(TWEED_5E3_PP_SPLITTER_MODES[0])),
-                                               2);
-        const bool topology_changed =
-            tube1 != coeffs->tube1_mode || splitter != coeffs->splitter_mode;
-        const bool snap = !engine->has_processed || topology_changed;
-        engine->params = *params;
-        nilamp_tweed_5e3_pp_update_coeffs(coeffs, &engine->params, data, engine->sr, snap);
-        nilamp_tweed_5e3_pp_seed_modes(&engine->state.tweed_5e3_pp, &engine->params,
-                                       data, topology_changed);
-        return;
-    }
     engine->params = *params;
+    if (engine->topology_ops != NULL && engine->topology_ops->set_params != NULL) {
+        engine->topology_ops->set_params(engine->topology_state, engine->topology_coeffs,
+                                         &engine->params, engine->model->topology_data,
+                                         engine->sr, engine->has_processed);
+    }
 }
 
 NilampModelId nilamp_engine_model_id(const NilampEngine *engine)
@@ -1437,128 +797,14 @@ float nilamp_control_display_value(const NilampControlSpec *spec, float raw_valu
     return spec->display == NILAMP_CONTROL_DISPLAY_ISO266 ? iso266(raw_value) : raw_value;
 }
 
-static NilampTapFrame nilamp_tweed_5e3_pp_process_sample(NilampTweed5e3PpState *st,
-                                                       NilampTweed5e3PpCoeffs *c,
-                                                       const NilampParams *params,
-                                                       const NilampTweed5e3PpData *model,
-                                                       float input)
-{
-    nilamp_tweed_5e3_pp_seed_modes(st, params, model, false);
-    const StageCfg *t1_cfg = nilamp_tube1_cfg(model, c->tube1_mode);
-    const SplitterModeCfg *splitter_cfg = nilamp_splitter_cfg(c->splitter_mode);
-    const StageCfg *t4_cfg = nilamp_splitter_t4_cfg(splitter_cfg, model);
-    const StageCfg *t5_cfg = nilamp_splitter_t5_cfg(splitter_cfg, model);
-
-    st->t4.advk = 0.5f * (st->t4.advk + st->t5.advk);
-    st->t5.advk = st->t4.advk;
-    const float t4_advk_in = st->t4.advk;
-    const float t5_advk_in = st->t5.advk;
-
-    const float old_s2 = st->p2.s;
-    const float old_s3 = st->p3.s;
-
-    const float dvs1 =
-        tube_pss_process(&st->p1, model->pss1_r, c->pss1_f, old_s2, st->prev_dia1, 0.0f);
-    const float dvs2 =
-        tube_pss_process(&st->p2, model->pss2_r, c->pss2_f, old_s3, st->prev_dig, dvs1);
-    const float dvs3 = tube_pss_process(
-        &st->p3, c->pss3_r, c->pss3_f, 0.0f, st->prev_dia3, dvs2);
-    const float p2_s = st->p2.s;
-    const float p3_s = st->p3.s;
-
-    float res1_v, res1_dia;
-    tube_ck_process(&st->t1, t1_cfg, c->pk_t1, c->adnl_eq, c->advk_t1,
-                    gain_sm_process(&c->gain_stage, input), dvs3, &res1_v, &res1_dia);
-
-    float v2 = ii1_hp_process(&st->hp1, c->hp1, res1_v);
-    v2 = gain_sm_process(&c->volume_stage, v2);
-    v2 = svf2_sm_process(&st->tone, &c->tone, v2);
-    v2 = ii1_lp_process(&st->lp1, c->lp1, v2);
-
-    float res3_v, res3_dia;
-    tube_ck_process(&st->t2, model->t2, c->pk_t2, c->adnl_eq, c->advk_t2,
-                    v2, dvs3, &res3_v, &res3_dia);
-    const float res3_hp = ii1_hp_process(&st->hp2, c->hp2, res3_v);
-
-    float res4_v, res4_aux, res4_dia;
-    if (splitter_cfg->is_ltp) {
-        tube_ltp_process(&st->t6, &T6_LTP, c->pk_ltp1, c->pk_ltp2, c->adnl_eq,
-                         res3_hp * splitter_cfg->k4, 0.0f, 0.0f,
-                         dvs3, &res4_v, &res4_aux, &res4_dia);
-    } else {
-        tube_cd_process(&st->t3, model->t3, c->pk_t3, c->adnl_eq,
-                        res3_hp, dvs3, &res4_v, &res4_aux, &res4_dia);
-    }
-
-    float drive_t4 = res4_v * splitter_cfg->k1;
-    drive_t4 = ii1_hp_process(&st->hp3, c->hp3, drive_t4);
-    drive_t4 = svf2_sm_process(&st->peq1_t4, &c->peq1_t4, drive_t4);
-    drive_t4 = svf1_hs_sm_process(&st->hs1_t4, &c->hs1_t4, drive_t4);
-
-    float res5_v, res5_dia;
-    tube_ck_process(&st->t4, t4_cfg, c->pk_t4, c->adnl_eq, c->advk_t4,
-                    drive_t4, dvs2, &res5_v, &res5_dia);
-    const float t4_advk_out = st->t4.advk;
-
-    float aux = res4_aux * splitter_cfg->k2;
-    aux = ii1_hp_process(&st->hp4, c->hp4, aux);
-    aux = svf2_sm_process(&st->peq1_t5, &c->peq1_t5, aux);
-    aux = svf1_hs_sm_process(&st->hs1_t5, &c->hs1_t5, aux);
-    const float drive_t5 = aux;
-
-    float res_t5_v, res_t5_dia;
-    tube_ck_process(&st->t5, t5_cfg, c->pk_t5, c->adnl_eq, c->advk_t5,
-                    aux, dvs2, &res_t5_v, &res_t5_dia);
-    const float t5_advk_out = st->t5.advk;
-
-    const float post_pp = res5_v - res_t5_v;
-    const float post_peq3 = svf2_sm_process(&st->peq3, &c->peq3, post_pp);
-    const float post_hs3 = svf1_hs_sm_process(&st->hs3, &c->hs3, post_peq3);
-    const float post_hp5 = ii1_hp_process(&st->hp5, c->hp5, post_hs3);
-    float v_out = post_hp5;
-    v_out = df2_coeffs_process(&st->lp2, c->lp2, v_out);
-    v_out *= c->post_scale;
-    v_out = gain_sm_process(&c->output_stage, v_out);
-
-    const float dia1_next = res5_dia + res_t5_dia;
-    st->prev_dia1 = dia1_next;
-    st->prev_dig = model->screen_current_feedback * st->prev_dia1;
-    st->prev_dia3 = res1_dia + res3_dia + res4_dia;
-
-    return (NilampTapFrame) {
-        .v_out = v_out,
-        .res1_v = res1_v,
-        .res3_v = res3_v,
-        .res4_v = res4_v,
-        .drive_t4 = drive_t4,
-        .res5_v = res5_v,
-        .res_t5_v = res_t5_v,
-        .dvs2 = dvs2,
-        .dvs3 = dvs3,
-        .p2_s = p2_s,
-        .p3_s = p3_s,
-        .drive_t5 = drive_t5,
-        .post_pp = post_pp,
-        .post_peq3 = post_peq3,
-        .post_hs3 = post_hs3,
-        .post_hp5 = post_hp5,
-        .t4_advk_in = t4_advk_in,
-        .t5_advk_in = t5_advk_in,
-        .t4_dia = res5_dia,
-        .t5_dia = res_t5_dia,
-        .t4_advk_out = t4_advk_out,
-        .t5_advk_out = t5_advk_out,
-        .dia1_next = dia1_next,
-    };
-}
-
 static NilampTapFrame nilamp_engine_process_sample(NilampEngine *engine, float input)
 {
-    const NilampTweed5e3PpData *data = nilamp_tweed_5e3_pp_data(engine->model);
-    if (data != NULL) {
-        return nilamp_tweed_5e3_pp_process_sample(
-            &engine->state.tweed_5e3_pp, &engine->coeffs.tweed_5e3_pp,
-            &engine->params, data, input);
+    if (engine->topology_ops != NULL && engine->topology_ops->process_sample != NULL) {
+        return engine->topology_ops->process_sample(engine->topology_state,
+                                                    engine->topology_coeffs,
+                                                    &engine->params,
+                                                    engine->model->topology_data,
+                                                    input);
     }
     return (NilampTapFrame) { 0 };
 }
@@ -1742,108 +988,4 @@ void nilamp_test_filter_backend(double sample_rate, const float *input, float *o
     }
 }
 
-static void test_tube_ck(const StageCfg *cfg, double sample_rate, const float *input, float *v_out, float *dia, size_t n)
-{
-    TubeCk st = { 0 };
-    adnl_seed_at_zero(&st.adnl, cfg->table);
-    const PkdCoeffs pk = pkd_coeffs(cfg->pk_attack, cfg->pk_release, sample_rate);
-    const Df2Coeffs adnl_eq = adnl_eq_make_coeffs(sample_rate);
-    const Ii1Coeffs advk = tube_advk_coeffs(cfg, sample_rate);
-    for (size_t i = 0; i < n; i++) {
-        tube_ck_process(&st, cfg, pk, adnl_eq, advk, input[i], 0.0f, &v_out[i], &dia[i]);
-    }
-}
-
-void nilamp_test_tube_ck_t2(double sample_rate, const float *input, float *v_out, float *dia, size_t n)
-{
-    test_tube_ck(nilamp_default_tweed_5e3_pp_data()->t2, sample_rate, input, v_out, dia, n);
-}
-
-void nilamp_test_tube_ck_t5(double sample_rate, const float *input, float *v_out, float *dia, size_t n)
-{
-    test_tube_ck(nilamp_default_tweed_5e3_pp_data()->t5, sample_rate, input, v_out, dia, n);
-}
-
-void nilamp_test_tube_ck_t2_dz(double sample_rate, const float *input, float *v_out, float *dia, size_t n)
-{
-    test_tube_ck(&T2_DZ, sample_rate, input, v_out, dia, n);
-}
-
-static void test_tube_cd(const StageCfg *cfg, double sample_rate, const float *input, float *v_out, float *vk_out, float *dia, size_t n)
-{
-    TubeCd st = { 0 };
-    adnl_seed_at_zero(&st.adnl, cfg->table);
-    const PkdCoeffs pk = pkd_coeffs(cfg->pk_attack, cfg->pk_release, sample_rate);
-    const Df2Coeffs adnl_eq = adnl_eq_make_coeffs(sample_rate);
-    for (size_t i = 0; i < n; i++) {
-        tube_cd_process(&st, cfg, pk, adnl_eq, input[i], 0.0f, &v_out[i], &vk_out[i], &dia[i]);
-    }
-}
-
-void nilamp_test_tube_cd_t3(double sample_rate, const float *input, float *v_out, float *vk_out, float *dia, size_t n)
-{
-    test_tube_cd(nilamp_default_tweed_5e3_pp_data()->t3, sample_rate, input, v_out, vk_out, dia, n);
-}
-
-void nilamp_test_tube_cd_t3_dz(double sample_rate, const float *input, float *v_out, float *vk_out, float *dia, size_t n)
-{
-    test_tube_cd(&T3_DZ, sample_rate, input, v_out, vk_out, dia, n);
-}
-
-void nilamp_test_power_pair(double sample_rate, const float *t3_v, const float *t3_vk, float *outputs[NILAMP_TEST_NUM_POWER_PAIR_OUTPUTS], size_t n)
-{
-    Ii1 hp3 = { 0 };
-    Svf2 peq_t4 = { 0 };
-    Svf1 hs_t4 = { 0 };
-    Ii1 hp4 = { 0 };
-    Svf2 peq_t5 = { 0 };
-    Svf1 hs_t5 = { 0 };
-    TubeCk t4 = { 0 };
-    TubeCk t5 = { 0 };
-    const NilampTweed5e3PpData *model = nilamp_default_tweed_5e3_pp_data();
-    const StageCfg *t4_cfg = model->t4;
-    const StageCfg *t5_cfg = model->t5;
-    adnl_seed_at_zero(&t4.adnl, t4_cfg->table);
-    adnl_seed_at_zero(&t5.adnl, t5_cfg->table);
-    const Ii1Coeffs hp3_coeffs = ii1_lp_coeffs(5.8f, sample_rate);
-    const Ii1Coeffs hp4_coeffs = ii1_lp_coeffs(6.4f, sample_rate);
-    const Svf2Coeffs peq_coeffs =
-        svf2_peq_coeffs(1.1220184543f, 80.0f, 2.6685237666f, sample_rate);
-    const Svf1HsCoeffs hs_coeffs =
-        svf1_hs_coeffs(1.4125375446f, 2098.1359672f, sample_rate);
-    const Df2Coeffs adnl_eq = adnl_eq_make_coeffs(sample_rate);
-    const PkdCoeffs t4_pk = pkd_coeffs(t4_cfg->pk_attack, t4_cfg->pk_release, sample_rate);
-    const PkdCoeffs t5_pk = pkd_coeffs(t5_cfg->pk_attack, t5_cfg->pk_release, sample_rate);
-    const Ii1Coeffs t4_advk = tube_advk_coeffs(t4_cfg, sample_rate);
-    const Ii1Coeffs t5_advk = tube_advk_coeffs(t5_cfg, sample_rate);
-
-    for (size_t i = 0; i < n; i++) {
-        float t4_in = ii1_hp_process(&hp3, hp3_coeffs, t3_v[i] * 0.797f);
-        t4_in = svf2_coeffs_process(&peq_t4, peq_coeffs, t4_in);
-        t4_in = svf1_hs_coeffs_process(&hs_t4, hs_coeffs, t4_in);
-
-        float t5_in = ii1_hp_process(&hp4, hp4_coeffs, t3_vk[i] * 0.940f);
-        t5_in = svf2_coeffs_process(&peq_t5, peq_coeffs, t5_in);
-        t5_in = svf1_hs_coeffs_process(&hs_t5, hs_coeffs, t5_in);
-
-        float t4_dia;
-        float t5_dia;
-        tube_ck_process(&t4, t4_cfg, t4_pk, adnl_eq, t4_advk,
-                        t4_in, 0.0f, &outputs[0][i], &t4_dia);
-        tube_ck_process(&t5, t5_cfg, t5_pk, adnl_eq, t5_advk,
-                        t5_in, 0.0f, &outputs[1][i], &t5_dia);
-        outputs[2][i] = outputs[0][i] - outputs[1][i];
-        outputs[3][i] = t4_dia + t5_dia;
-    }
-}
-
-void nilamp_test_pss(float r, float tau, double sample_rate, const float *dia, float *dvs, float *s, size_t n)
-{
-    TubePss st = { 0 };
-    const Ii1Coeffs coeffs = tube_pss_coeffs(tau, sample_rate);
-    for (size_t i = 0; i < n; i++) {
-        dvs[i] = tube_pss_process(&st, r, coeffs, 0.0f, dia[i], 0.0f);
-        s[i] = st.s;
-    }
-}
 #endif
