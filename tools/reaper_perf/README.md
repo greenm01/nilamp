@@ -31,6 +31,18 @@ On macOS:
 python3 tools/reaper_perf/measure_reaper_cpu.py
 ```
 
+To sample the values displayed in REAPER's own Performance Meter instead, use:
+
+```bash
+python3 tools/reaper_perf/measure_reaper_perf_meter.py
+```
+
+That sampler reads the visible `CPU` and `FX CPU` text from REAPER through
+macOS Accessibility. Grant the terminal app Accessibility permission in System
+Settings first, and keep the REAPER Performance Meter window available. The
+sampler writes a temporary config file that the Lua scenario driver reads, so
+it works even when REAPER was launched from Finder rather than from the shell.
+
 On Windows, from PowerShell:
 
 ```powershell
@@ -65,6 +77,18 @@ The Lua script reads these optional environment variables:
 - `NILAMP_REAPER_PERF_SURFACES`: comma-separated surfaces, default
   `nilamp_clap,nilamp_vst3,keller_ysfx`
 - `NILAMP_REAPER_PERF_MARKERS`: marker JSONL path
+- `NILAMP_REAPER_PERF_CONFIG`: Lua config table path. If unset, the script
+  checks `nilamp_reaper_perf_config.lua` in the system temp directory.
+
+The macOS Performance Meter sampler accepts:
+
+```bash
+python3 tools/reaper_perf/measure_reaper_perf_meter.py \
+  --scenario-seconds 15 \
+  --settle-seconds 3 \
+  --repeats 3 \
+  --surfaces nilamp_clap,nilamp_vst3
+```
 
 The PowerShell script accepts:
 
@@ -91,7 +115,7 @@ The sampler reports two CPU forms:
   roughly comparable to Windows process CPU percentage.
 - `cpu_pct_one_core`: process CPU relative to one fully busy logical processor.
 
-This workflow does not scrape REAPER's `FX CPU` meter. REAPER's public
-ReaScript API controls FX/editor state, but does not provide a stable
-Performance Meter CPU/FX CPU data API. For FX-only cost, use
-`make native-perf-bench`.
+The `measure_reaper_perf_meter.py` sampler reports `reaper_cpu_pct` and
+`reaper_fx_cpu_pct` exactly as exposed by REAPER's Performance Meter UI on
+macOS. It is useful for matching what a user sees in REAPER, but it is more
+host/UI-state dependent than `make native-perf-bench`.

@@ -4,24 +4,41 @@
 --
 -- Usage:
 --   1. Open a REAPER project with nilamp CLAP and VST3 instances.
---   2. Start tools/reaper_perf/measure_reaper_cpu.py.
+--   2. Start one of the tools/reaper_perf/measure_reaper_*.py samplers.
 --   3. Run this script from REAPER's Action List.
 --
 -- The sampler timestamps marker arrival and produces the final
 -- report. This script only controls repeatable host state.
 
-local marker_path = os.getenv("NILAMP_REAPER_PERF_MARKERS")
-if marker_path == nil or marker_path == "" then
+local function default_temp_path(name)
   local temp = os.getenv("TMPDIR") or os.getenv("TEMP") or os.getenv("TMP") or "."
   local last = string.sub(temp, -1)
   local sep = (last == "/" or last == "\\") and "" or "/"
-  marker_path = temp .. sep .. "nilamp_reaper_perf_markers.jsonl"
+  return temp .. sep .. name
 end
 
-local scenario_seconds = tonumber(os.getenv("NILAMP_REAPER_PERF_SECONDS") or "") or 30.0
-local settle_seconds = tonumber(os.getenv("NILAMP_REAPER_PERF_SETTLE_SECONDS") or "") or 3.0
-local repeats = tonumber(os.getenv("NILAMP_REAPER_PERF_REPEATS") or "") or 3
-local selected_surfaces = os.getenv("NILAMP_REAPER_PERF_SURFACES") or
+local config = {}
+local config_path = os.getenv("NILAMP_REAPER_PERF_CONFIG")
+if config_path == nil or config_path == "" then
+  config_path = default_temp_path("nilamp_reaper_perf_config.lua")
+end
+local config_chunk = loadfile(config_path)
+if config_chunk then
+  local ok, loaded = pcall(config_chunk)
+  if ok and type(loaded) == "table" then
+    config = loaded
+  end
+end
+
+local marker_path = config.marker_path or os.getenv("NILAMP_REAPER_PERF_MARKERS")
+if marker_path == nil or marker_path == "" then
+  marker_path = default_temp_path("nilamp_reaper_perf_markers.jsonl")
+end
+
+local scenario_seconds = tonumber(config.scenario_seconds or os.getenv("NILAMP_REAPER_PERF_SECONDS") or "") or 30.0
+local settle_seconds = tonumber(config.settle_seconds or os.getenv("NILAMP_REAPER_PERF_SETTLE_SECONDS") or "") or 3.0
+local repeats = tonumber(config.repeats or os.getenv("NILAMP_REAPER_PERF_REPEATS") or "") or 3
+local selected_surfaces = config.surfaces or os.getenv("NILAMP_REAPER_PERF_SURFACES") or
                           "nilamp_clap,nilamp_vst3,keller_ysfx"
 
 local all_surfaces = {

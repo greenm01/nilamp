@@ -2,6 +2,38 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: REAPER Performance Meter CPU/FX CPU measurement
+
+**Context.** After CLAP/VST3 editor and wrapper optimizations, REAPER's visible
+Performance Meter needed to be measured directly rather than inferred from the
+existing process-CPU sampler or isolated no-editor benchmark.
+
+**Edit summary.**
+
+- Added a macOS Performance Meter sampler that reads REAPER's visible `CPU`
+  and `FX CPU` text through Accessibility while the Lua scenario driver switches
+  CLAP/VST3 surfaces and editor-open/editor-closed states.
+- Let `tools/reaper_perf/run_reaper_perf_scenarios.lua` read a temp Lua config
+  file so shell-launched samplers can control duration, repeats, surfaces, and
+  marker path even when REAPER was opened from Finder.
+- Documented the distinction between process CPU sampling and direct
+  Performance Meter sampling in `tools/reaper_perf/README.md`.
+
+**Verification.**
+
+- `PYTHONPYCACHEPREFIX=/private/tmp/nilamp-pycache python3 -m py_compile tools/reaper_perf/measure_reaper_perf_meter.py`
+- Smoke run: `measure_reaper_perf_meter.py --scenario-seconds 2 --settle-seconds 1 --repeats 1 --poll-ms 500 --timeout-seconds 90`; found
+  `CLAP: nilamp TWD MKII (niltempus)` and
+  `VST3: nilamp TWD MKII (niltempus) (mono)`.
+- Full REAPER Performance Meter run:
+  `measure_reaper_perf_meter.py --scenario-seconds 15 --settle-seconds 3 --repeats 3 --poll-ms 500 --timeout-seconds 360`.
+  Aggregate medians:
+  - CLAP editor closed: `CPU 1.600%`, `FX CPU 0.290%`
+  - CLAP editor open: `CPU 1.650%`, `FX CPU 0.270%`
+  - VST3 editor closed: `CPU 1.700%`, `FX CPU 0.465%`
+  - VST3 editor open: `CPU 1.800%`, `FX CPU 0.460%`
+  Results written under `dist/reaper-perf/` with stamp `20260512-181247`.
+
 ### Session: Cross-platform adaptive VST3 editor pump
 
 **Context.** After the duplicate VST3 editor timer was removed, REAPER still
