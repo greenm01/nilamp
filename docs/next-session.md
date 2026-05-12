@@ -2,6 +2,40 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: Amp-agnostic DSP topology boundary
+
+**Context.** The DSP engine already had generated KDL model data, but the
+private runtime state/coefficient types and dispatch still used TWD DLX II
+names. That made the first amp look like the engine rather than one model using
+a reusable C-backed topology.
+
+**Edit summary.**
+
+- Renamed private runtime DSP state, coefficient, and process functions from
+  TWD DLX II labels to the `tweed_5e3_pp` topology.
+- Added private topology, stage-kind, and DSP-method enums so generated KDL
+  data records which C-backed topology/method/table choices each model uses.
+- Updated the Keller TWD DLX II KDL stage symbols to model-prefixed names so
+  future generated amp data does not collide on bare `T1`/`T2` symbols.
+- Moved model dispatch from `NILAMP_MODEL_KELLER_TWD_DLX_II` checks to
+  `NilampModelSpec.topology` plus per-model `topology_data`.
+- Made model specs own their control table/count and added model-aware default
+  parameter/control accessors while preserving the existing default-model API.
+- Routed test-only stage helpers through the default model's topology data
+  instead of hardcoding generated Keller/TWD DSP symbols in handwritten DSP
+  code.
+- Kept Keller/TWD names in model identity, plugin metadata, generated GUI text,
+  and reference-source comments only.
+
+**Verification.**
+
+- `PATH="$PWD/.dev-tools/bin:$PATH" make native-test`
+- `python3 -m py_compile tools/gen_amp_models.py`
+- `PATH="$PWD/.dev-tools/bin:$PATH" make native-host-test`; CLAP validator:
+  21 run, 18 passed, 0 failed, 3 skipped. VST3 validator: 47 passed, 0 failed.
+- `YSFX_ROOT="$PWD/.dev-tools/src/ysfx" PATH="$PWD/.dev-tools/bin:$PATH" make native-jsfx-test`;
+  sine residual `-84.3 dB`, tap diagnostics passed, low-input regression passed.
+
 ### Session: DSP coefficient cache and smoothing refactor
 
 **Context.** Keller feedback identified that `nilamp_dsp.c` recomputed filter,

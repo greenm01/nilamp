@@ -168,7 +168,7 @@ typedef struct {
     float prev_dia3;
     int active_tube1;
     int active_splitter;
-} NilampTwdDlxIiState;
+} NilampTweed5e3PpState;
 
 typedef struct {
     float smooth_k;
@@ -213,10 +213,29 @@ typedef struct {
     float post_scale;
     int tube1_mode;
     int splitter_mode;
-} NilampTwdDlxIiCoeffs;
+} NilampTweed5e3PpCoeffs;
+
+typedef enum {
+    NILAMP_TOPOLOGY_TWEED_5E3_CATHODYNE_PP = 0,
+} NilampTopologyId;
+
+typedef enum {
+    NILAMP_STAGE_KIND_TRIODE_CK = 0,
+    NILAMP_STAGE_KIND_CATHODYNE = 1,
+    NILAMP_STAGE_KIND_POWER_CK = 2,
+} NilampStageKind;
+
+typedef enum {
+    NILAMP_DSP_METHOD_KELLER_GLF_ADAA = 0,
+    NILAMP_DSP_METHOD_KELLER_CD_ADAA = 1,
+    NILAMP_DSP_METHOD_DEMPWOLF_ZOLZER_ADAA = 2,
+    NILAMP_DSP_METHOD_HEGGLUN_BLOCKING_W = 3,
+    NILAMP_DSP_METHOD_KELLER_PSS = 4,
+} NilampDspMethod;
 
 typedef struct {
     NilampModelId id;
+    NilampTopologyId topology;
     const char *name;
     const char *family;
     const char *clap_name;
@@ -227,6 +246,9 @@ typedef struct {
     const char *vst3_bundle_id;
     float speaker_source_ohms;
     float speaker_nominal_ohms;
+    const void *topology_data;
+    const NilampControlSpec *controls;
+    uint32_t control_count;
     const NilampGuiLayoutSpec *gui_layout;
 } NilampModelSpec;
 
@@ -236,10 +258,10 @@ struct NilampEngine {
     const NilampModelSpec *model;
     bool has_processed;
     union {
-        NilampTwdDlxIiState twd_dlx_ii;
+        NilampTweed5e3PpState tweed_5e3_pp;
     } state;
     union {
-        NilampTwdDlxIiCoeffs twd_dlx_ii;
+        NilampTweed5e3PpCoeffs tweed_5e3_pp;
     } coeffs;
 };
 
@@ -262,6 +284,8 @@ typedef struct {
     float pk_attack;
     float pk_release;
     float avg_tau;
+    NilampStageKind kind;
+    NilampDspMethod method;
 } StageCfg;
 
 typedef struct {
@@ -343,6 +367,8 @@ static int nilamp_tap_frame_is_finite(NilampTapFrame taps)
 }
 
 typedef struct {
+    NilampTopologyId topology;
+    NilampDspMethod supply_method;
     const StageCfg *t1;
     const StageCfg *t2;
     const StageCfg *t3;
@@ -362,7 +388,7 @@ typedef struct {
     float phase_t4_gain;
     float phase_t5_gain;
     float screen_current_feedback;
-} NilampTwdDlxIiData;
+} NilampTweed5e3PpData;
 
 #include "nilamp_models.inc"
 
@@ -374,24 +400,28 @@ static const StageCfg T1_12AY7 = {
     nilamp_t1_12ay7_table, 13503, 0.16f, 0.0022f, 100000.0f, 820.0f,
     0.004201680672f, 0.004201680672f, 0.2f, 0.0f, 5.042016807e-06f,
     0.008386363636f, 0.0f, 0.25f, 0.25f, 0.01f, 0.05f, 0.0205f,
+    NILAMP_STAGE_KIND_TRIODE_CK, NILAMP_DSP_METHOD_KELLER_GLF_ADAA,
 };
 
 static const StageCfg T5_CD_BAL = {
     nilamp_t4_6v6_table, 13503, 0.02642706131f, 0.11f, 3000.0f, 540.0f,
     0.0f, 0.00289017341f, 0.9302325581f, 0.0f, 0.0001213872832f,
     0.18144f, 0.125f, 0.309f, 0.437f, 0.00575f, 0.0276f, 0.00675f,
+    NILAMP_STAGE_KIND_POWER_CK, NILAMP_DSP_METHOD_KELLER_GLF_ADAA,
 };
 
 static const StageCfg T4_LTP = {
     nilamp_t4_6v6_table, 13503, 0.02642706131f, 0.11f, 3000.0f, 540.0f,
     0.0f, 0.00289017341f, 0.9302325581f, 0.0f, 0.0001213872832f,
     0.18144f, 0.125f, 0.309f, 0.439f, 0.00594f, 0.0278f, 0.00675f,
+    NILAMP_STAGE_KIND_POWER_CK, NILAMP_DSP_METHOD_KELLER_GLF_ADAA,
 };
 
 static const StageCfg T5_LTP = {
     nilamp_t4_6v6_table, 13503, 0.02642706131f, 0.11f, 3000.0f, 540.0f,
     0.0f, 0.00289017341f, 0.9302325581f, 0.0f, 0.0001213872832f,
     0.18144f, 0.125f, 0.317f, 0.4442f, 0.00663f, 0.0285f, 0.00675f,
+    NILAMP_STAGE_KIND_POWER_CK, NILAMP_DSP_METHOD_KELLER_GLF_ADAA,
 };
 
 static const LtpCfg T6_LTP = {
@@ -402,9 +432,9 @@ static const LtpCfg T6_LTP = {
     3.109243697e-06f, 0.05f, 0.269f, 0.602f, 0.015f, 0.05f,
 };
 
-static const SplitterModeCfg TWD_SPLITTER_MODES[] = {
-    {false, &T4, &T5, 0.797f, 0.940f, 0.41f, 5.8f, 6.4f, 0.0f, 0.0345f},
-    {false, &T4, &T5_CD_BAL, 0.797f, 0.797f, 0.41f, 5.8f, 5.8f, 0.0f, 0.0345f},
+static const SplitterModeCfg TWEED_5E3_PP_SPLITTER_MODES[] = {
+    {false, NULL, NULL, 0.797f, 0.940f, 0.41f, 5.8f, 6.4f, 0.0f, 0.0345f},
+    {false, NULL, &T5_CD_BAL, 0.797f, 0.797f, 0.41f, 5.8f, 5.8f, 0.0f, 0.0345f},
     {true, &T4_LTP, &T5_LTP, 0.792f, 0.772f, 10.0f, 5.7f, 5.6f, 0.0f, 0.0345f},
     {true, &T4_LTP, &T5_LTP, 0.792f, 0.772f, 10.0f, 5.7f, 5.6f, 0.5f, 0.185741756f},
     {true, &T4_LTP, &T5_LTP, 0.792f, 0.772f, 10.0f, 5.7f, 5.6f, 1.0f, 1.0f},
@@ -425,11 +455,13 @@ static const StageCfg T2_DZ = {
     nilamp_t2_12ax7_table_dz, 13503, 0.3970223325f, 0.00155f, 100000.0f, 0.0f,
     0.004201680672f, 0.004201680672f, 0.3846153846f, 0.0f, 3.193277311e-06f,
     0.01515f, 0.05f, 0.255f, 0.57f, 0.015f, 0.05f, 0.0375f,
+    NILAMP_STAGE_KIND_TRIODE_CK, NILAMP_DSP_METHOD_DEMPWOLF_ZOLZER_ADAA,
 };
 static const StageCfg T3_DZ = {
     nilamp_t3_cd_table_dz, 13503, 0.01054674317f, 0.0016f, 56000.0f, 57500.0f,
     0.004201680672f, 0.004201680672f, 0.8282208589f, 0.1763803681f,
     3.067226891e-06f, 0.0f, 0.125f, 0.272f, 0.394f, 0.00085f, 0.3872f, 0.0f,
+    NILAMP_STAGE_KIND_CATHODYNE, NILAMP_DSP_METHOD_DEMPWOLF_ZOLZER_ADAA,
 };
 #endif
 
@@ -1001,11 +1033,16 @@ static void nilamp_params_set_raw(NilampParams *params, uint32_t id, float value
 
 NilampParams nilamp_default_params(void)
 {
+    return nilamp_model_default_params(NILAMP_MODEL_DEFAULT);
+}
+
+NilampParams nilamp_model_default_params(NilampModelId model_id)
+{
     NilampParams params = {0};
-    for (uint32_t i = 0; i < sizeof(KELLER_TWD_DLX_II_CONTROLS) /
-                                sizeof(KELLER_TWD_DLX_II_CONTROLS[0]); i++) {
-        nilamp_params_set_raw(&params, KELLER_TWD_DLX_II_CONTROLS[i].id,
-                              KELLER_TWD_DLX_II_CONTROLS[i].default_value);
+    uint32_t count = 0;
+    const NilampControlSpec *controls = nilamp_model_control_specs(model_id, &count);
+    for (uint32_t i = 0; i < count; i++) {
+        nilamp_params_set_raw(&params, controls[i].id, controls[i].default_value);
     }
     return params;
 }
@@ -1027,7 +1064,7 @@ NilampEngine *nilamp_engine_create_model(double sample_rate, NilampModelId model
         return NULL;
     }
     engine->sr = sample_rate;
-    engine->params = nilamp_default_params();
+    engine->params = nilamp_model_default_params(model_id);
     engine->model = model;
     nilamp_engine_reset(engine);
     return engine;
@@ -1067,15 +1104,43 @@ static int nilamp_enum_param(float value, int count, int fallback)
     return index >= 0 && index < count ? index : fallback;
 }
 
-static const StageCfg *nilamp_tube1_cfg(int tube1)
+static const NilampTweed5e3PpData *nilamp_tweed_5e3_pp_data(const NilampModelSpec *model)
 {
-    return tube1 == 0 ? &T1_12AY7 : TWD_DLX_II_DATA.t1;
+    if (model == NULL || model->topology != NILAMP_TOPOLOGY_TWEED_5E3_CATHODYNE_PP) {
+        return NULL;
+    }
+    const NilampTweed5e3PpData *data = (const NilampTweed5e3PpData *)model->topology_data;
+    return data != NULL && data->topology == model->topology ? data : NULL;
+}
+
+#ifdef NILAMP_ENABLE_TEST_API
+static const NilampTweed5e3PpData *nilamp_default_tweed_5e3_pp_data(void)
+{
+    return nilamp_tweed_5e3_pp_data(nilamp_find_model(NILAMP_MODEL_DEFAULT));
+}
+#endif
+
+static const StageCfg *nilamp_tube1_cfg(const NilampTweed5e3PpData *model, int tube1)
+{
+    return tube1 == 0 ? &T1_12AY7 : model->t1;
 }
 
 static const SplitterModeCfg *nilamp_splitter_cfg(int splitter)
 {
-    const int count = (int)(sizeof(TWD_SPLITTER_MODES) / sizeof(TWD_SPLITTER_MODES[0]));
-    return &TWD_SPLITTER_MODES[nilamp_enum_param((float)splitter, count, 2)];
+    const int count = (int)(sizeof(TWEED_5E3_PP_SPLITTER_MODES) / sizeof(TWEED_5E3_PP_SPLITTER_MODES[0]));
+    return &TWEED_5E3_PP_SPLITTER_MODES[nilamp_enum_param((float)splitter, count, 2)];
+}
+
+static const StageCfg *nilamp_splitter_t4_cfg(const SplitterModeCfg *splitter,
+                                              const NilampTweed5e3PpData *model)
+{
+    return splitter->t4 != NULL ? splitter->t4 : model->t4;
+}
+
+static const StageCfg *nilamp_splitter_t5_cfg(const SplitterModeCfg *splitter,
+                                              const NilampTweed5e3PpData *model)
+{
+    return splitter->t5 != NULL ? splitter->t5 : model->t5;
 }
 
 static Ii1Coeffs tube_pss_coeffs(float tau, double sr)
@@ -1084,19 +1149,21 @@ static Ii1Coeffs tube_pss_coeffs(float tau, double sr)
     return ii1_lp_coeffs(f, sr);
 }
 
-static void nilamp_twd_dlx_ii_apply_coeffs(NilampTwdDlxIiCoeffs *c,
+static void nilamp_tweed_5e3_pp_apply_coeffs(NilampTweed5e3PpCoeffs *c,
                                            const NilampParams *params,
-                                           const NilampTwdDlxIiData *model,
+                                           const NilampTweed5e3PpData *model,
                                            double sr,
                                            bool snap)
 {
     const int tube1 = nilamp_enum_param(params->tube1, 2, 1);
     const int splitter = nilamp_enum_param(params->phase_splitter,
-                                           (int)(sizeof(TWD_SPLITTER_MODES) /
-                                                 sizeof(TWD_SPLITTER_MODES[0])),
+                                           (int)(sizeof(TWEED_5E3_PP_SPLITTER_MODES) /
+                                                 sizeof(TWEED_5E3_PP_SPLITTER_MODES[0])),
                                            2);
-    const StageCfg *t1_cfg = nilamp_tube1_cfg(tube1);
+    const StageCfg *t1_cfg = nilamp_tube1_cfg(model, tube1);
     const SplitterModeCfg *splitter_cfg = nilamp_splitter_cfg(splitter);
+    const StageCfg *t4_cfg = nilamp_splitter_t4_cfg(splitter_cfg, model);
+    const StageCfg *t5_cfg = nilamp_splitter_t5_cfg(splitter_cfg, model);
 
     c->smooth_k = 1.0f / (0.01f * (float)sr);
     c->tube1_mode = tube1;
@@ -1113,16 +1180,16 @@ static void nilamp_twd_dlx_ii_apply_coeffs(NilampTwdDlxIiCoeffs *c,
     c->pss3_f = tube_pss_coeffs(model->pss3_tau, sr);
     c->advk_t1 = tube_advk_coeffs(t1_cfg, sr);
     c->advk_t2 = tube_advk_coeffs(model->t2, sr);
-    c->advk_t4 = tube_advk_coeffs(splitter_cfg->t4, sr);
-    c->advk_t5 = tube_advk_coeffs(splitter_cfg->t5, sr);
+    c->advk_t4 = tube_advk_coeffs(t4_cfg, sr);
+    c->advk_t5 = tube_advk_coeffs(t5_cfg, sr);
 
     c->lp2 = df2_lp_coeffs(sr, 10000.0f, sqrtf(0.5f), false);
     c->adnl_eq = adnl_eq_make_coeffs(sr);
     c->pk_t1 = pkd_coeffs(t1_cfg->pk_attack, t1_cfg->pk_release, sr);
     c->pk_t2 = pkd_coeffs(model->t2->pk_attack, model->t2->pk_release, sr);
     c->pk_t3 = pkd_coeffs(model->t3->pk_attack, model->t3->pk_release, sr);
-    c->pk_t4 = pkd_coeffs(splitter_cfg->t4->pk_attack, splitter_cfg->t4->pk_release, sr);
-    c->pk_t5 = pkd_coeffs(splitter_cfg->t5->pk_attack, splitter_cfg->t5->pk_release, sr);
+    c->pk_t4 = pkd_coeffs(t4_cfg->pk_attack, t4_cfg->pk_release, sr);
+    c->pk_t5 = pkd_coeffs(t5_cfg->pk_attack, t5_cfg->pk_release, sr);
     c->pk_ltp1 = pkd_coeffs(T6_LTP.pk_attack, T6_LTP.pk_release, sr);
     c->pk_ltp2 = c->pk_ltp1;
 
@@ -1146,8 +1213,7 @@ static void nilamp_twd_dlx_ii_apply_coeffs(NilampTwdDlxIiCoeffs *c,
     }
     sag *= sag;
     c->pss3_r = sag * model->pss3_r_at_full_sag;
-    c->post_scale = 0.5f / (splitter_cfg->t4->rl * splitter_cfg->t4->isat +
-                            splitter_cfg->t5->rl * splitter_cfg->t5->isat);
+    c->post_scale = 0.5f / (t4_cfg->rl * t4_cfg->isat + t5_cfg->rl * t5_cfg->isat);
 
     const float bass = params->bass_pct * 0.01f;
     const float mid = params->mid_pct * 0.01f;
@@ -1205,37 +1271,40 @@ static void nilamp_twd_dlx_ii_apply_coeffs(NilampTwdDlxIiCoeffs *c,
     }
 }
 
-static void nilamp_twd_dlx_ii_snap_coeffs(NilampTwdDlxIiCoeffs *c,
+static void nilamp_tweed_5e3_pp_snap_coeffs(NilampTweed5e3PpCoeffs *c,
                                           const NilampParams *params,
-                                          const NilampTwdDlxIiData *model,
+                                          const NilampTweed5e3PpData *model,
                                           double sr)
 {
-    nilamp_twd_dlx_ii_apply_coeffs(c, params, model, sr, true);
+    nilamp_tweed_5e3_pp_apply_coeffs(c, params, model, sr, true);
 }
 
-static void nilamp_twd_dlx_ii_update_coeffs(NilampTwdDlxIiCoeffs *c,
+static void nilamp_tweed_5e3_pp_update_coeffs(NilampTweed5e3PpCoeffs *c,
                                             const NilampParams *params,
-                                            const NilampTwdDlxIiData *model,
+                                            const NilampTweed5e3PpData *model,
                                             double sr,
                                             bool snap)
 {
-    nilamp_twd_dlx_ii_apply_coeffs(c, params, model, sr, snap);
+    nilamp_tweed_5e3_pp_apply_coeffs(c, params, model, sr, snap);
 }
 
-static void nilamp_twd_dlx_ii_seed_modes(NilampTwdDlxIiState *st,
+static void nilamp_tweed_5e3_pp_seed_modes(NilampTweed5e3PpState *st,
                                          const NilampParams *params,
+                                         const NilampTweed5e3PpData *model,
                                          bool force)
 {
     const int tube1 = nilamp_enum_param(params->tube1, 2, 1);
     const int splitter = nilamp_enum_param(params->phase_splitter,
-                                           (int)(sizeof(TWD_SPLITTER_MODES) /
-                                                 sizeof(TWD_SPLITTER_MODES[0])),
+                                           (int)(sizeof(TWEED_5E3_PP_SPLITTER_MODES) /
+                                                 sizeof(TWEED_5E3_PP_SPLITTER_MODES[0])),
                                            2);
     const SplitterModeCfg *splitter_cfg = nilamp_splitter_cfg(splitter);
+    const StageCfg *t4_cfg = nilamp_splitter_t4_cfg(splitter_cfg, model);
+    const StageCfg *t5_cfg = nilamp_splitter_t5_cfg(splitter_cfg, model);
 
     if (force || st->active_tube1 != tube1) {
         memset(&st->t1, 0, sizeof(st->t1));
-        adnl_seed_at_zero(&st->t1.adnl, nilamp_tube1_cfg(tube1)->table);
+        adnl_seed_at_zero(&st->t1.adnl, nilamp_tube1_cfg(model, tube1)->table);
         st->active_tube1 = tube1;
     }
 
@@ -1251,11 +1320,11 @@ static void nilamp_twd_dlx_ii_seed_modes(NilampTwdDlxIiState *st,
         memset(&st->peq1_t5, 0, sizeof(st->peq1_t5));
         memset(&st->hs1_t4, 0, sizeof(st->hs1_t4));
         memset(&st->hs1_t5, 0, sizeof(st->hs1_t5));
-        adnl_seed_at_zero(&st->t3.adnl, TWD_DLX_II_DATA.t3->table);
+        adnl_seed_at_zero(&st->t3.adnl, model->t3->table);
         adnl_seed_at_zero(&st->t6.adnl1, T6_LTP.table1);
         adnl_seed_at_zero(&st->t6.adnl2, T6_LTP.table2);
-        adnl_seed_at_zero(&st->t4.adnl, splitter_cfg->t4->table);
-        adnl_seed_at_zero(&st->t5.adnl, splitter_cfg->t5->table);
+        adnl_seed_at_zero(&st->t4.adnl, t4_cfg->table);
+        adnl_seed_at_zero(&st->t5.adnl, t5_cfg->table);
         st->prev_dia1 = 0.0f;
         st->prev_dig = 0.0f;
         st->prev_dia3 = 0.0f;
@@ -1276,13 +1345,13 @@ void nilamp_engine_reset(NilampEngine *engine)
     engine->params = params;
     engine->model = model;
 
-    if (model != NULL && model->id == NILAMP_MODEL_KELLER_TWD_DLX_II) {
-        NilampTwdDlxIiState *st = &engine->state.twd_dlx_ii;
-        NilampTwdDlxIiCoeffs *coeffs = &engine->coeffs.twd_dlx_ii;
-        const NilampTwdDlxIiData *data = &TWD_DLX_II_DATA;
-        nilamp_twd_dlx_ii_snap_coeffs(coeffs, &engine->params, data, engine->sr);
+    const NilampTweed5e3PpData *data = nilamp_tweed_5e3_pp_data(model);
+    if (data != NULL) {
+        NilampTweed5e3PpState *st = &engine->state.tweed_5e3_pp;
+        NilampTweed5e3PpCoeffs *coeffs = &engine->coeffs.tweed_5e3_pp;
+        nilamp_tweed_5e3_pp_snap_coeffs(coeffs, &engine->params, data, engine->sr);
         adnl_seed_at_zero(&st->t2.adnl, data->t2->table);
-        nilamp_twd_dlx_ii_seed_modes(st, &engine->params, true);
+        nilamp_tweed_5e3_pp_seed_modes(st, &engine->params, data, true);
     }
 }
 
@@ -1291,21 +1360,21 @@ void nilamp_engine_set_params(NilampEngine *engine, const NilampParams *params)
     if (engine == NULL || params == NULL) {
         return;
     }
-    if (engine->model != NULL && engine->model->id == NILAMP_MODEL_KELLER_TWD_DLX_II) {
-        NilampTwdDlxIiCoeffs *coeffs = &engine->coeffs.twd_dlx_ii;
+    const NilampTweed5e3PpData *data = nilamp_tweed_5e3_pp_data(engine->model);
+    if (data != NULL) {
+        NilampTweed5e3PpCoeffs *coeffs = &engine->coeffs.tweed_5e3_pp;
         const int tube1 = nilamp_enum_param(params->tube1, 2, 1);
         const int splitter = nilamp_enum_param(params->phase_splitter,
-                                               (int)(sizeof(TWD_SPLITTER_MODES) /
-                                                     sizeof(TWD_SPLITTER_MODES[0])),
+                                               (int)(sizeof(TWEED_5E3_PP_SPLITTER_MODES) /
+                                                     sizeof(TWEED_5E3_PP_SPLITTER_MODES[0])),
                                                2);
         const bool topology_changed =
             tube1 != coeffs->tube1_mode || splitter != coeffs->splitter_mode;
         const bool snap = !engine->has_processed || topology_changed;
         engine->params = *params;
-        nilamp_twd_dlx_ii_update_coeffs(coeffs, &engine->params, &TWD_DLX_II_DATA,
-                                        engine->sr, snap);
-        nilamp_twd_dlx_ii_seed_modes(&engine->state.twd_dlx_ii, &engine->params,
-                                     topology_changed);
+        nilamp_tweed_5e3_pp_update_coeffs(coeffs, &engine->params, data, engine->sr, snap);
+        nilamp_tweed_5e3_pp_seed_modes(&engine->state.tweed_5e3_pp, &engine->params,
+                                       data, topology_changed);
         return;
     }
     engine->params = *params;
@@ -1330,11 +1399,22 @@ const NilampGuiLayoutSpec *nilamp_model_gui_layout(NilampModelId model_id)
 
 const NilampControlSpec *nilamp_control_specs(uint32_t *count)
 {
+    return nilamp_model_control_specs(NILAMP_MODEL_DEFAULT, count);
+}
+
+const NilampControlSpec *nilamp_model_control_specs(NilampModelId model_id, uint32_t *count)
+{
     if (count) {
-        *count = (uint32_t)(sizeof(KELLER_TWD_DLX_II_CONTROLS) /
-                            sizeof(KELLER_TWD_DLX_II_CONTROLS[0]));
+        *count = 0u;
     }
-    return KELLER_TWD_DLX_II_CONTROLS;
+    const NilampModelSpec *model = nilamp_find_model(model_id);
+    if (model == NULL) {
+        return NULL;
+    }
+    if (count) {
+        *count = model->control_count;
+    }
+    return model->controls;
 }
 
 const NilampControlSpec *nilamp_control_spec(uint32_t id)
@@ -1357,15 +1437,17 @@ float nilamp_control_display_value(const NilampControlSpec *spec, float raw_valu
     return spec->display == NILAMP_CONTROL_DISPLAY_ISO266 ? iso266(raw_value) : raw_value;
 }
 
-static NilampTapFrame nilamp_twd_dlx_ii_process_sample(NilampTwdDlxIiState *st,
-                                                       NilampTwdDlxIiCoeffs *c,
+static NilampTapFrame nilamp_tweed_5e3_pp_process_sample(NilampTweed5e3PpState *st,
+                                                       NilampTweed5e3PpCoeffs *c,
                                                        const NilampParams *params,
+                                                       const NilampTweed5e3PpData *model,
                                                        float input)
 {
-    const NilampTwdDlxIiData *model = &TWD_DLX_II_DATA;
-    nilamp_twd_dlx_ii_seed_modes(st, params, false);
-    const StageCfg *t1_cfg = nilamp_tube1_cfg(c->tube1_mode);
+    nilamp_tweed_5e3_pp_seed_modes(st, params, model, false);
+    const StageCfg *t1_cfg = nilamp_tube1_cfg(model, c->tube1_mode);
     const SplitterModeCfg *splitter_cfg = nilamp_splitter_cfg(c->splitter_mode);
+    const StageCfg *t4_cfg = nilamp_splitter_t4_cfg(splitter_cfg, model);
+    const StageCfg *t5_cfg = nilamp_splitter_t5_cfg(splitter_cfg, model);
 
     st->t4.advk = 0.5f * (st->t4.advk + st->t5.advk);
     st->t5.advk = st->t4.advk;
@@ -1414,7 +1496,7 @@ static NilampTapFrame nilamp_twd_dlx_ii_process_sample(NilampTwdDlxIiState *st,
     drive_t4 = svf1_hs_sm_process(&st->hs1_t4, &c->hs1_t4, drive_t4);
 
     float res5_v, res5_dia;
-    tube_ck_process(&st->t4, splitter_cfg->t4, c->pk_t4, c->adnl_eq, c->advk_t4,
+    tube_ck_process(&st->t4, t4_cfg, c->pk_t4, c->adnl_eq, c->advk_t4,
                     drive_t4, dvs2, &res5_v, &res5_dia);
     const float t4_advk_out = st->t4.advk;
 
@@ -1425,7 +1507,7 @@ static NilampTapFrame nilamp_twd_dlx_ii_process_sample(NilampTwdDlxIiState *st,
     const float drive_t5 = aux;
 
     float res_t5_v, res_t5_dia;
-    tube_ck_process(&st->t5, splitter_cfg->t5, c->pk_t5, c->adnl_eq, c->advk_t5,
+    tube_ck_process(&st->t5, t5_cfg, c->pk_t5, c->adnl_eq, c->advk_t5,
                     aux, dvs2, &res_t5_v, &res_t5_dia);
     const float t5_advk_out = st->t5.advk;
 
@@ -1472,9 +1554,11 @@ static NilampTapFrame nilamp_twd_dlx_ii_process_sample(NilampTwdDlxIiState *st,
 
 static NilampTapFrame nilamp_engine_process_sample(NilampEngine *engine, float input)
 {
-    if (engine->model == NULL || engine->model->id == NILAMP_MODEL_KELLER_TWD_DLX_II) {
-        return nilamp_twd_dlx_ii_process_sample(
-            &engine->state.twd_dlx_ii, &engine->coeffs.twd_dlx_ii, &engine->params, input);
+    const NilampTweed5e3PpData *data = nilamp_tweed_5e3_pp_data(engine->model);
+    if (data != NULL) {
+        return nilamp_tweed_5e3_pp_process_sample(
+            &engine->state.tweed_5e3_pp, &engine->coeffs.tweed_5e3_pp,
+            &engine->params, data, input);
     }
     return (NilampTapFrame) { 0 };
 }
@@ -1672,12 +1756,12 @@ static void test_tube_ck(const StageCfg *cfg, double sample_rate, const float *i
 
 void nilamp_test_tube_ck_t2(double sample_rate, const float *input, float *v_out, float *dia, size_t n)
 {
-    test_tube_ck(&T2, sample_rate, input, v_out, dia, n);
+    test_tube_ck(nilamp_default_tweed_5e3_pp_data()->t2, sample_rate, input, v_out, dia, n);
 }
 
 void nilamp_test_tube_ck_t5(double sample_rate, const float *input, float *v_out, float *dia, size_t n)
 {
-    test_tube_ck(&T5, sample_rate, input, v_out, dia, n);
+    test_tube_ck(nilamp_default_tweed_5e3_pp_data()->t5, sample_rate, input, v_out, dia, n);
 }
 
 void nilamp_test_tube_ck_t2_dz(double sample_rate, const float *input, float *v_out, float *dia, size_t n)
@@ -1698,7 +1782,7 @@ static void test_tube_cd(const StageCfg *cfg, double sample_rate, const float *i
 
 void nilamp_test_tube_cd_t3(double sample_rate, const float *input, float *v_out, float *vk_out, float *dia, size_t n)
 {
-    test_tube_cd(&T3, sample_rate, input, v_out, vk_out, dia, n);
+    test_tube_cd(nilamp_default_tweed_5e3_pp_data()->t3, sample_rate, input, v_out, vk_out, dia, n);
 }
 
 void nilamp_test_tube_cd_t3_dz(double sample_rate, const float *input, float *v_out, float *vk_out, float *dia, size_t n)
@@ -1716,8 +1800,11 @@ void nilamp_test_power_pair(double sample_rate, const float *t3_v, const float *
     Svf1 hs_t5 = { 0 };
     TubeCk t4 = { 0 };
     TubeCk t5 = { 0 };
-    adnl_seed_at_zero(&t4.adnl, T4.table);
-    adnl_seed_at_zero(&t5.adnl, T5.table);
+    const NilampTweed5e3PpData *model = nilamp_default_tweed_5e3_pp_data();
+    const StageCfg *t4_cfg = model->t4;
+    const StageCfg *t5_cfg = model->t5;
+    adnl_seed_at_zero(&t4.adnl, t4_cfg->table);
+    adnl_seed_at_zero(&t5.adnl, t5_cfg->table);
     const Ii1Coeffs hp3_coeffs = ii1_lp_coeffs(5.8f, sample_rate);
     const Ii1Coeffs hp4_coeffs = ii1_lp_coeffs(6.4f, sample_rate);
     const Svf2Coeffs peq_coeffs =
@@ -1725,10 +1812,10 @@ void nilamp_test_power_pair(double sample_rate, const float *t3_v, const float *
     const Svf1HsCoeffs hs_coeffs =
         svf1_hs_coeffs(1.4125375446f, 2098.1359672f, sample_rate);
     const Df2Coeffs adnl_eq = adnl_eq_make_coeffs(sample_rate);
-    const PkdCoeffs t4_pk = pkd_coeffs(T4.pk_attack, T4.pk_release, sample_rate);
-    const PkdCoeffs t5_pk = pkd_coeffs(T5.pk_attack, T5.pk_release, sample_rate);
-    const Ii1Coeffs t4_advk = tube_advk_coeffs(&T4, sample_rate);
-    const Ii1Coeffs t5_advk = tube_advk_coeffs(&T5, sample_rate);
+    const PkdCoeffs t4_pk = pkd_coeffs(t4_cfg->pk_attack, t4_cfg->pk_release, sample_rate);
+    const PkdCoeffs t5_pk = pkd_coeffs(t5_cfg->pk_attack, t5_cfg->pk_release, sample_rate);
+    const Ii1Coeffs t4_advk = tube_advk_coeffs(t4_cfg, sample_rate);
+    const Ii1Coeffs t5_advk = tube_advk_coeffs(t5_cfg, sample_rate);
 
     for (size_t i = 0; i < n; i++) {
         float t4_in = ii1_hp_process(&hp3, hp3_coeffs, t3_v[i] * 0.797f);
@@ -1741,9 +1828,9 @@ void nilamp_test_power_pair(double sample_rate, const float *t3_v, const float *
 
         float t4_dia;
         float t5_dia;
-        tube_ck_process(&t4, &T4, t4_pk, adnl_eq, t4_advk,
+        tube_ck_process(&t4, t4_cfg, t4_pk, adnl_eq, t4_advk,
                         t4_in, 0.0f, &outputs[0][i], &t4_dia);
-        tube_ck_process(&t5, &T5, t5_pk, adnl_eq, t5_advk,
+        tube_ck_process(&t5, t5_cfg, t5_pk, adnl_eq, t5_advk,
                         t5_in, 0.0f, &outputs[1][i], &t5_dia);
         outputs[2][i] = outputs[0][i] - outputs[1][i];
         outputs[3][i] = t4_dia + t5_dia;

@@ -179,9 +179,11 @@ void nilamp_engine_process(NilampEngine *engine, const float *input, float *outp
 void nilamp_engine_process_taps(NilampEngine *engine, const float *input, float *outputs[NILAMP_NUM_TAPS], uint32_t nframes);
 
 NilampParams nilamp_default_params(void);
+NilampParams nilamp_model_default_params(NilampModelId model_id);
 NilampModelId nilamp_engine_model_id(const NilampEngine *engine);
 const char *nilamp_model_name(NilampModelId model_id);
 const NilampControlSpec *nilamp_control_specs(uint32_t *count);
+const NilampControlSpec *nilamp_model_control_specs(NilampModelId model_id, uint32_t *count);
 const NilampControlSpec *nilamp_control_spec(uint32_t id);
 const NilampGuiLayoutSpec *nilamp_model_gui_layout(NilampModelId model_id);
 float nilamp_control_display_value(const NilampControlSpec *spec, float raw_value);

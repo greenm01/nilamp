@@ -30,6 +30,24 @@ STAGE_ORDER = ("t1", "t2", "t3", "t4", "t5")
 KNOWN_TOPOLOGIES = {"tweed_5e3_cathodyne_pp"}
 KNOWN_METHODS = {"keller_glf_adaa", "keller_cd_adaa", "dempwolf_zolzer_adaa", "hegglun_blocking_w", "keller_pss"}
 KNOWN_KINDS = {"triode_ck", "cathodyne", "power_ck"}
+TOPOLOGY_ENUMS = {
+    "tweed_5e3_cathodyne_pp": "NILAMP_TOPOLOGY_TWEED_5E3_CATHODYNE_PP",
+}
+TOPOLOGY_DATA_TYPES = {
+    "tweed_5e3_cathodyne_pp": "NilampTweed5e3PpData",
+}
+METHOD_ENUMS = {
+    "keller_glf_adaa": "NILAMP_DSP_METHOD_KELLER_GLF_ADAA",
+    "keller_cd_adaa": "NILAMP_DSP_METHOD_KELLER_CD_ADAA",
+    "dempwolf_zolzer_adaa": "NILAMP_DSP_METHOD_DEMPWOLF_ZOLZER_ADAA",
+    "hegglun_blocking_w": "NILAMP_DSP_METHOD_HEGGLUN_BLOCKING_W",
+    "keller_pss": "NILAMP_DSP_METHOD_KELLER_PSS",
+}
+STAGE_KIND_ENUMS = {
+    "triode_ck": "NILAMP_STAGE_KIND_TRIODE_CK",
+    "cathodyne": "NILAMP_STAGE_KIND_CATHODYNE",
+    "power_ck": "NILAMP_STAGE_KIND_POWER_CK",
+}
 KNOWN_TABLES = {
     "nilamp_t1_12ax7_table",
     "nilamp_t2_12ax7_table",
@@ -528,6 +546,8 @@ def validate_amp(node: Node) -> dict[str, Any]:
         peak = node_child(stage, "peak")
         stages[stage_name] = {
             "symbol": required_prop(stage, "symbol", str),
+            "kind": kind,
+            "method": method,
             "table": table,
             "len": int(required_number(stage, "len")),
             "kpre": required_number(coeffs, "kpre"),
@@ -646,6 +666,7 @@ def validate_amp(node: Node) -> dict[str, Any]:
         "vst3_bundle_id": vst3_bundle_id,
         "speaker_source_ohms": speaker_source,
         "speaker_nominal_ohms": speaker_nominal,
+        "supply_method": supply_method,
         "stages": stages,
         "process": process_values,
         "controls": controls,
@@ -667,6 +688,8 @@ def render(models: list[dict[str, Any]]) -> str:
         "",
     ]
     for model in models:
+        model_prefix = model["slug"].upper()
+        data_symbol = f"{model_prefix}_DSP_DATA"
         lines.append(f"/* {model['name']} */")
         for stage_name in STAGE_ORDER:
             stage = model["stages"][stage_name]
@@ -685,9 +708,14 @@ def render(models: list[dict[str, Any]]) -> str:
                 f"{c_float(stage['pk_attack'])}, {c_float(stage['pk_release'])}, "
                 f"{c_float(stage['avg_tau'])},"
             )
+            lines.append(
+                f"    {STAGE_KIND_ENUMS[stage['kind']]}, {METHOD_ENUMS[stage['method']]},"
+            )
             lines.append("};")
         lines.append("")
-        lines.append("static const NilampTwdDlxIiData TWD_DLX_II_DATA = {")
+        lines.append(f"static const {TOPOLOGY_DATA_TYPES[model['topology']]} {data_symbol} = {{")
+        lines.append(f"    .topology = {TOPOLOGY_ENUMS[model['topology']]},")
+        lines.append(f"    .supply_method = {METHOD_ENUMS[model['supply_method']]},")
         for stage_name in STAGE_ORDER:
             lines.append(f"    .{stage_name} = &{model['stages'][stage_name]['symbol']},")
         for field_name in PROCESS_FIELDS:
@@ -782,9 +810,13 @@ def render(models: list[dict[str, Any]]) -> str:
 
     lines.append("static const NilampModelSpec NILAMP_MODELS[] = {")
     for model in models:
+        model_prefix = model["slug"].upper()
+        data_symbol = f"{model_prefix}_DSP_DATA"
         layout_symbol = f"{model['slug'].upper()}_GUI_LAYOUT"
+        controls_symbol = f"{model_prefix}_CONTROLS"
         lines.append("    {")
         lines.append(f"        .id = {model['id']},")
+        lines.append(f"        .topology = {TOPOLOGY_ENUMS[model['topology']]},")
         lines.append(f"        .name = {c_string(model['name'])},")
         lines.append(f"        .family = {c_string(model['family'])},")
         lines.append(f"        .clap_name = {c_string(model['clap_name'])},")
@@ -795,6 +827,11 @@ def render(models: list[dict[str, Any]]) -> str:
         lines.append(f"        .vst3_bundle_id = {c_string(model['vst3_bundle_id'])},")
         lines.append(f"        .speaker_source_ohms = {c_float(model['speaker_source_ohms'])},")
         lines.append(f"        .speaker_nominal_ohms = {c_float(model['speaker_nominal_ohms'])},")
+        lines.append(f"        .topology_data = &{data_symbol},")
+        lines.append(f"        .controls = {controls_symbol},")
+        lines.append(
+            f"        .control_count = (uint32_t)(sizeof({controls_symbol}) / sizeof({controls_symbol}[0])),"
+        )
         lines.append(f"        .gui_layout = &{layout_symbol},")
         lines.append("    },")
     lines.append("};")
