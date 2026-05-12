@@ -26,7 +26,7 @@ FX_COUNT_RE = re.compile(r"\b([0-9]+)\s+FX:")
 MEDIA_RE = re.compile(r"\bMedia\s+([0-9]+(?:\.[0-9]+)?)%")
 
 OPEN_PERF_METER_SCRIPT = """
-tell application "System Events" to tell process "REAPER"
+tell application "System Events" to tell {process_ref}
   if not (exists window "Performance Meter") then
     click menu item "Performance Meter" of menu "View" of menu bar 1
   end if
@@ -34,7 +34,7 @@ end tell
 """
 
 READ_PERF_METER_SCRIPT = """
-tell application "System Events" to tell process "REAPER"
+tell application "System Events" to tell {process_ref}
   if not (exists window "Performance Meter") then
     return "__NILAMP_NO_PERF_WINDOW__"
   end if
@@ -93,12 +93,18 @@ def run_osascript(script: str) -> str:
     return proc.stdout
 
 
-def ensure_perf_meter() -> None:
-    run_osascript(OPEN_PERF_METER_SCRIPT)
+def process_ref(pid: int) -> str:
+    if pid > 0:
+        return f"(first application process whose unix id is {pid})"
+    return 'process "REAPER"'
 
 
-def read_perf_meter_text() -> str:
-    return run_osascript(READ_PERF_METER_SCRIPT)
+def ensure_perf_meter(pid: int) -> None:
+    run_osascript(OPEN_PERF_METER_SCRIPT.format(process_ref=process_ref(pid)))
+
+
+def read_perf_meter_text(pid: int) -> str:
+    return run_osascript(READ_PERF_METER_SCRIPT.format(process_ref=process_ref(pid)))
 
 
 def parse_perf_meter(text: str) -> dict[str, Any]:
@@ -242,6 +248,8 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--marker-path", type=Path, default=default_marker_path())
     ap.add_argument("--config-path", type=Path, default=default_config_path())
+    ap.add_argument("--reaper-pid", type=int, default=0,
+                    help="target a specific REAPER process by PID for Accessibility reads")
     ap.add_argument("--out-dir", type=Path, default=Path("dist/reaper-perf"))
     ap.add_argument("--poll-ms", type=int, default=1000)
     ap.add_argument("--timeout-seconds", type=float, default=900.0)
@@ -265,7 +273,7 @@ def main() -> int:
         args.marker_path.unlink(missing_ok=True)
     args.marker_path.touch(exist_ok=True)
     write_lua_config(args.config_path, args)
-    ensure_perf_meter()
+    ensure_perf_meter(args.reaper_pid)
 
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     raw_csv = args.out_dir / f"reaper-perf-meter-samples-{stamp}.csv"
@@ -290,7 +298,7 @@ def main() -> int:
         if elapsed_s > args.timeout_seconds:
             raise RuntimeError(f"timed out after {args.timeout_seconds:g} seconds waiting for done marker")
 
-        text = read_perf_meter_text()
+        text = read_perf_meter_text(args.reaper_pid)
         if "__NILAMP_NO_PERF_WINDOW__" in text:
             raise RuntimeError("REAPER Performance Meter window is not open")
         sample = parse_perf_meter(text)

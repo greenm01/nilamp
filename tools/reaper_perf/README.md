@@ -84,11 +84,14 @@ The macOS Performance Meter sampler accepts:
 
 ```bash
 python3 tools/reaper_perf/measure_reaper_perf_meter.py \
+  --reaper-pid 12345 \
   --scenario-seconds 15 \
   --settle-seconds 3 \
   --repeats 3 \
   --surfaces nilamp_clap,nilamp_vst3
 ```
+
+Use `--reaper-pid` when more than one REAPER instance is running.
 
 The PowerShell script accepts:
 
