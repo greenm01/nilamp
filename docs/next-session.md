@@ -2,6 +2,33 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: Cross-platform adaptive VST3 editor pump
+
+**Context.** After the duplicate VST3 editor timer was removed, REAPER still
+showed lower CPU for CLAP than VST3 with the editor open. The no-editor
+benchmarks remained tied, so the follow-up targeted idle GUI pump cost rather
+than audio processing.
+
+**Edit summary.**
+
+- Added a read-only GUI helper that reports whether the editor needs fast
+  pumping because it is dirty, being edited, dragging, has an open dropdown, or
+  has pending mouse/key/scroll/text input.
+- Made the VST3 editor pump adapt across macOS, Windows, and Linux by keeping
+  the host timer at 30 Hz but skipping expensive GUI/Pugl work on idle ticks for
+  an effective 15 Hz idle pump.
+- Returned immediately to the fast 30 Hz pump on interaction or host parameter
+  refresh, and added `NILAMP_GUI_LOG` mode-change messages for VST3.
+- Left CLAP timer behavior, DSP, routing, parameter IDs/state, and default VST3
+  mono metadata unchanged.
+
+**Verification.**
+
+- `PATH="$PWD/.dev-tools/bin:$PATH" make native-host-test`; CLAP validator:
+  21 run, 18 passed, 0 failed, 3 skipped. VST3 validator: 47 passed, 0 failed.
+- `PATH="$PWD/.dev-tools/bin:$PATH" make native-perf-bench PERF_BENCH_ARGS="--quick --runs 5 --warmups 2 --duration 1.0 --surfaces nilamp_clap,nilamp_vst3 --phases steady_plugin_process"`;
+  no-editor medians: CLAP `153.0 ns/frame`, VST3 `149.3 ns/frame`.
+
 ### Session: VST3 editor timer de-duplication
 
 **Context.** REAPER showed nilamp VST3 using more CPU than CLAP in host-visible

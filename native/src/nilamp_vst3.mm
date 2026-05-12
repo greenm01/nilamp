@@ -28,6 +28,9 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdarg>
+#include <cstdio>
+#include <cstdlib>
 #include <cmath>
 #include <cstring>
 
@@ -46,13 +49,33 @@ using namespace Steinberg::Vst;
 
 static const FUID ProcessorUID(0xb0494b81, 0xb2385c29, 0x8c4d5734, 0x6d0b1222);
 static const FUID ControllerUID(0x66e72a3a, 0x9187500d, 0xafa4d86a, 0x88935c65);
-#if !defined(__APPLE__)
-static constexpr uint32 kEditorTimerMs = 33;
-#endif
-static constexpr double kEditorFrameIntervalSeconds = 1.0 / 30.0;
+static constexpr uint32_t kEditorIdleTickThreshold = 8u;
+static constexpr uint32_t kEditorFastPumpMs = 33u;
+static constexpr uint32_t kEditorIdlePumpMs = 67u;
 static constexpr std::array<CtrlNumber, 6> kFrontFaceMidiCcs = {
     kCtrlGPC1, kCtrlGPC2, kCtrlGPC3, kCtrlGPC4, kCtrlGPC5, kCtrlGPC6,
 };
+
+static void nilamp_vst3_log(const char *fmt, ...)
+{
+    const char *path = std::getenv("NILAMP_GUI_LOG");
+    if (!path || !path[0]) {
+        return;
+    }
+
+    FILE *fp = std::fopen(path, "a");
+    if (!fp) {
+        return;
+    }
+
+    std::fputs("[nilamp_vst3] ", fp);
+    va_list args;
+    va_start(args, fmt);
+    std::vfprintf(fp, fmt, args);
+    va_end(args);
+    std::fputc('\n', fp);
+    std::fclose(fp);
+}
 
 static bool iidEqual(const TUID a, const TUID b)
 {
@@ -379,6 +402,8 @@ private:
     void updateScaledRect();
     void startTimer();
     void stopTimer();
+    void requestFastPump(const char *reason);
+    bool shouldPumpThisTick();
     void tick();
 #if defined(__linux__)
     friend class LinuxEditorTimer;
@@ -396,6 +421,9 @@ private:
     LinuxEditorTimer *runLoopTimer = nullptr;
     bool runLoopTimerRegistered = false;
 #endif
+    uint32_t idlePumpTicks = 0u;
+    uint32_t idlePumpAccumMs = 0u;
+    bool idlePumpMode = false;
     double contentScale = 1.0;
 };
 
@@ -814,20 +842,24 @@ tresult PLUGIN_API Editor::attached(void *parent, FIDString type)
 
 void Editor::startTimer()
 {
+    idlePumpTicks = 0u;
+    idlePumpAccumMs = 0u;
+    idlePumpMode = false;
 #if defined(__APPLE__)
     if (timer) {
         return;
     }
-    timer = [NSTimer scheduledTimerWithTimeInterval:kEditorFrameIntervalSeconds
+    timer = [NSTimer scheduledTimerWithTimeInterval:(double)kEditorFastPumpMs / 1000.0
                                             repeats:YES
                                               block:^(NSTimer *) {
                                                   this->tick();
                                               }];
+    nilamp_vst3_log("editor pump mode=fast reason=start");
 #else
     if (timer) {
         return;
     }
-    timer = Timer::create(this, kEditorTimerMs);
+    timer = Timer::create(this, static_cast<uint32>(kEditorFastPumpMs));
 #if defined(__linux__)
     if (!timer && controller && !runLoopTimer) {
         if (!runLoop) {
@@ -835,7 +867,7 @@ void Editor::startTimer()
         }
         if (runLoop) {
             runLoopTimer = new LinuxEditorTimer(this);
-            if (runLoop->registerTimer(runLoopTimer, kEditorTimerMs) == kResultTrue) {
+            if (runLoop->registerTimer(runLoopTimer, kEditorFastPumpMs) == kResultTrue) {
                 runLoopTimerRegistered = true;
             } else {
                 runLoopTimer->detach();
@@ -845,6 +877,7 @@ void Editor::startTimer()
         }
     }
 #endif
+    nilamp_vst3_log("editor pump mode=fast reason=start");
 #endif
 }
 
@@ -874,6 +907,44 @@ void Editor::stopTimer()
     runLoop = FUnknownPtr<Linux::IRunLoop>();
 #endif
 #endif
+    idlePumpTicks = 0u;
+    idlePumpAccumMs = 0u;
+    idlePumpMode = false;
+}
+
+void Editor::requestFastPump(const char *reason)
+{
+    idlePumpTicks = 0u;
+    idlePumpAccumMs = 0u;
+    if (idlePumpMode) {
+        idlePumpMode = false;
+        nilamp_vst3_log("editor pump mode=fast reason=%s", reason ? reason : "(none)");
+    }
+}
+
+bool Editor::shouldPumpThisTick()
+{
+    if (!gui) {
+        return false;
+    }
+    if (nilamp_gui_wants_fast_pump(gui)) {
+        requestFastPump("active");
+        return true;
+    }
+    if (idlePumpTicks < kEditorIdleTickThreshold) {
+        idlePumpTicks++;
+        return true;
+    }
+    if (!idlePumpMode) {
+        idlePumpMode = true;
+        nilamp_vst3_log("editor pump mode=idle interval=%.3f", (double)kEditorIdlePumpMs / 1000.0);
+    }
+    idlePumpAccumMs += kEditorFastPumpMs;
+    if (idlePumpAccumMs < kEditorIdlePumpMs) {
+        return false;
+    }
+    idlePumpAccumMs = 0u;
+    return true;
 }
 
 #if defined(__linux__)
@@ -1015,7 +1086,7 @@ void Editor::onTimer(Timer *timerIn)
 
 void Editor::tick()
 {
-    if (gui) {
+    if (shouldPumpThisTick()) {
         nilamp_gui_on_main_thread(gui);
     }
 }
@@ -1023,6 +1094,7 @@ void Editor::tick()
 void Editor::hostParamsChanged()
 {
     if (gui) {
+        requestFastPump("host-param");
         nilamp_gui_on_main_thread(gui);
     }
 }

@@ -2355,6 +2355,26 @@ bool nilamp_gui_is_visible(const NilampGui *gui)
     return gui && gui->visible;
 }
 
+bool nilamp_gui_wants_fast_pump(const NilampGui *gui)
+{
+    if (!gui || !gui->visible) {
+        return false;
+    }
+    if (gui->model.dirty || gui->mouse_motion || gui->mouse_double_click ||
+        gui->scroll_x != 0.0f || gui->scroll_y != 0.0f ||
+        gui->text_input_len > 0u || gui->key_enter || gui->key_escape ||
+        gui->key_backspace || gui->key_delete || gui->active_knob >= 0 ||
+        gui->active_edit >= 0 || gui->open_dropdown != NILAMP_GUI_DROPDOWN_NONE) {
+        return true;
+    }
+    for (uint32_t i = 0; i < 3u; i++) {
+        if (gui->mouse_down[i] || gui->mouse_up[i]) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool nilamp_gui_start_frame_timer(NilampGui *gui, double interval_seconds)
 {
     if (!gui || !gui->view || !gui->realized || interval_seconds <= 0.0) {
