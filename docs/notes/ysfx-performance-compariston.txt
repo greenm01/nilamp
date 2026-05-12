@@ -2,86 +2,68 @@ YSFX VS NILAMP PERFORMANCE COMPARISON
 =====================================
 
 Updated: 2026-05-12
+Platform: macOS 26.4.1, Mac mini Mac16,11, Apple M4 Pro, 12 cores, 24 GB RAM
+nilamp commit: ca97506, "Make CLAP and VST3 strictly mono"
+REAPER: v7.71
 
 
 SUMMARY
 -------
 
-I measured nilamp against Keller's TWD DLX II JSFX in two different ways.
-They answer different questions.
+This note replaces the older mixed Linux/macOS comparison. All numbers below
+were recorded on the same Mac after the strict-mono CLAP/VST3 fix was deployed.
 
-The command-line benchmark, run on Linux, measures audio processing only. It
-loads Keller's JSFX under headless ysfx, loads nilamp as CLAP and VST3, warms
-the effects, and then times in-memory processing blocks. It excludes REAPER,
-plugin editors, host scheduling, meters, graphics, and UI event processing.
+Two benchmarks are reported because they answer different questions:
 
-The latest command-line run, after the DSP coefficient-cache/smoothing
-refactor, shows nilamp processing about four times as fast as Keller's JSFX
-under ysfx on the same machine:
+1. `make native-perf-bench` measures audio processing only. It compares
+   Keller's TWD DLX II JSFX running under the command-line ysfx harness against
+   nilamp loaded as CLAP and VST3. It excludes REAPER, plugin editors, REAPER
+   routing, host meters, transport, graphics, and UI event processing.
 
-    Surface        Median ns/frame  Median realtime factor
-    -------------  ---------------  ----------------------
-    Keller/ysfx            1074.46                   19.39x
-    nilamp CLAP             262.92                   79.25x
-    nilamp VST3             266.27                   78.35x
+2. `tools/reaper_perf/measure_reaper_perf_meter.py` samples REAPER's visible
+   Performance Meter `CPU` and `FX CPU` values while a ReaScript enables one
+   amp format at a time on the same guitar track. This is the best answer for
+   "what does REAPER show?" on this Mac.
 
-    Matched-condition median speedup:
-        nilamp CLAP vs Keller/ysfx:  4.09x
-        nilamp VST3 vs Keller/ysfx:  4.06x
+Headline result:
 
-The previous recorded audio-only run showed nilamp at roughly 2x Keller/ysfx.
-That older run was on different hardware, so the safest comparison is the
-within-run speedup against Keller/ysfx. As a rough historical comparison,
-current nilamp CLAP is 1.73x faster than the previous recorded CLAP median, and
-current nilamp VST3 is 1.72x faster than the previous recorded VST3 median.
+    Audio-only command-line processing:
+        nilamp CLAP:  148.26 ns/frame, 7.06x faster than Keller/ysfx
+        nilamp VST3:  148.41 ns/frame, 7.05x faster than Keller/ysfx
+        Keller/ysfx: 993.30 ns/frame
 
-The REAPER benchmark, run on macOS, measures host-visible process CPU. It
-plays a recorded guitar track in REAPER with nilamp CLAP, nilamp VST3, and
-Keller's JSFX under ysfx in the track FX chain. A ReaScript enables one amp
-format at a time and switches between editor-closed and editor-open states. A
-Python sampler records REAPER process CPU.
+    REAPER Performance Meter, editor closed:
+        Keller JSFX: 0.825% median FX CPU
+        nilamp CLAP: 0.280% median FX CPU
+        nilamp VST3: 0.270% median FX CPU
 
-The macOS REAPER run shows nilamp CLAP and VST3 both below Keller/ysfx:
+    REAPER Performance Meter, editor open:
+        Keller JSFX: 0.880% median FX CPU
+        nilamp CLAP: 0.280% median FX CPU
+        nilamp VST3: 0.240% median FX CPU
 
-    Scenario                   Median CPU  p95 CPU
-    -------------------------  ----------  -------
-    Keller/ysfx, editor closed     1.958%   2.539%
-    Keller/ysfx, editor open       2.867%   3.358%
-    nilamp CLAP, editor closed     1.208%   1.665%
-    nilamp CLAP, editor open       1.317%   1.807%
-    nilamp VST3, editor closed     1.600%   2.149%
-    nilamp VST3, editor open       1.742%   2.250%
-
-CLAP used about 1.62x less median process CPU than Keller/ysfx with the editor
-closed and 2.18x less with the editor open. VST3 used about 1.22x less median
-process CPU with the editor closed and 1.65x less with the editor open.
-
-These results are not contradictory. The Linux command-line benchmark isolates
-raw audio processing. The REAPER benchmark includes the host, plugin wrappers,
-windows, transport, scheduling, and whatever REAPER itself does while playing.
-The command-line result is the better DSP-throughput measurement. The REAPER
-result is the better "what does the DAW see?" measurement.
+After the strict-mono fix, CLAP and VST3 are tied in the isolated benchmark and
+close in REAPER. VST3 no longer shows the previous doubled process cost.
 
 
-REAPER CPU MEASUREMENT FILES
-----------------------------
+WHY THE VST3 RESULT CHANGED
+---------------------------
 
-The REAPER numbers come from a scripted macOS run:
+Before commit `ca97506`, REAPER could call nilamp VST3 with stereo input and
+stereo output bus arrangements on a default stereo track. The VST3 accepted
+that arrangement and ran two independent mono engines over two host buffers
+that carried the same mono guitar content. CLAP advertised mono by default, so
+REAPER routed CLAP as mono and avoided the duplicate work.
 
-    Summary JSON:
-        dist/reaper-perf/reaper-cpu-summary-20260511-131909.json
+Keller's TWD DLX II JSFX is strictly mono in / mono out:
 
-    Raw samples:
-        dist/reaper-perf/reaper-cpu-samples-20260511-131909.json
+    in_pin:mono input
+    out_pin:mono output
 
-    Scenario markers:
-        dist/reaper-perf/reaper-markers-20260511-131909.json
-
-The sampler records host-visible REAPER process CPU using `ps` samples. It
-does not scrape REAPER's "CPU" or "FX CPU" Performance Meter values. REAPER
-exposes good scripting control for FX windows and playback, but not a stable
-public API for reading those meter values. For FX-only cost, use the
-command-line benchmark instead.
+The current CLAP and VST3 builds now match that contract. VST3 rejects
+stereo/stereo bus arrangements and lets the host adapt mono output to the
+track. CLAP advertises one mono input and one mono output port, with no stereo
+audio-port-config alternative.
 
 
 COMMAND-LINE AUDIO-ONLY BENCHMARK
@@ -89,20 +71,20 @@ COMMAND-LINE AUDIO-ONLY BENCHMARK
 
 Source:
 
-    /tmp/nilamp_perf/refactor_vs_ysfx_full.json
+    /private/tmp/nilamp_perf/macos-mono-vs-ysfx-full-20260512.json
+
+Command:
+
+    PATH="$PWD/.dev-tools/bin:$PATH" YSFX_ROOT="$HOME/src/ysfx" \
+    make native-perf-bench \
+        PERF_BENCH_ARGS="--json-out /private/tmp/nilamp_perf/macos-mono-vs-ysfx-full-20260512.json"
 
 Harness:
 
-    make native-perf-bench
-
-Platform:
-
-    OS/kernel:        Void Linux 6.18.28_1
-    CPU:              AMD Ryzen 7 PRO 5850U with Radeon Graphics
-    Cores / threads:  8 cores / 16 threads
-    CPU governor:     powersave
-    Scaling driver:   amd-pstate-epp
-    Memory:           14 GiB total
+    tools/benchmark_keller_perf.py
+    native/bin/bench_ysfx_perf
+    native/bin/bench_clap_perf
+    native/bin/bench_vst3_perf
 
 Matrix:
 
@@ -115,138 +97,139 @@ Matrix:
     Surfaces:     Keller JSFX under ysfx, nilamp CLAP, nilamp VST3
     Records:      2880 total
 
-Command:
-
-    PATH="$PWD/.dev-tools/bin:$PATH" YSFX_ROOT="$PWD/.dev-tools/src/ysfx" \
-    make native-perf-bench \
-        PERF_BENCH_ARGS="--json-out /tmp/nilamp_perf/refactor_vs_ysfx_full.json"
-
 Headline phase:
 
     steady_plugin_process
 
 This phase loads and warms each effect first, then times only in-memory audio
-processing blocks. Keller/ysfx JIT and native plugin activation are complete
-before the timed processing section.
+processing blocks.
 
 Median steady-state processing:
 
     Surface        Median ns/frame  Median realtime factor
     -------------  ---------------  ----------------------
-    Keller/ysfx            1074.46                   19.39x
-    nilamp CLAP             262.92                   79.25x
-    nilamp VST3             266.27                   78.35x
+    Keller/ysfx             993.30                   20.97x
+    nilamp CLAP             148.26                  140.52x
+    nilamp VST3             148.41                  140.38x
 
 Matched-condition speedup vs Keller/ysfx:
 
     Surface        Median speedup  Min speedup  Max speedup
     -------------  --------------  -----------  -----------
-    nilamp CLAP             4.09x        3.81x        5.46x
-    nilamp VST3             4.06x        3.80x        5.54x
+    nilamp CLAP             7.06x        6.35x       15.65x
+    nilamp VST3             7.05x        6.25x       16.19x
 
 Speedup by block size:
 
     Block  nilamp CLAP median  nilamp VST3 median
     -----  ------------------  ------------------
-       32               4.05x               4.06x
-       64               4.18x               4.18x
-      128               4.09x               4.07x
-      512               4.12x               4.05x
+       32               7.02x               7.02x
+       64               7.03x               7.02x
+      128               7.07x               7.06x
+      512               7.06x               7.14x
 
-VST3 speedup by input:
+Speedup by input:
 
-    Input     Median speedup vs Keller/ysfx
-    --------  -----------------------------
-    di_like                           4.06x
-    silence                           5.22x
-    sine                              4.00x
-    sweep                             4.02x
+    Input     nilamp CLAP median  nilamp VST3 median
+    --------  ------------------  ------------------
+    di_like                7.00x               6.98x
+    silence               14.81x              14.76x
+    sine                   6.97x               7.00x
+    sweep                  6.94x               6.97x
 
 Native-vs-YSFX output residual sanity:
 
     Median RMS(native output - YSFX output) vs Keller peak:  -77.2 dB
     Range observed:                                        -109.0 dB to -23.2 dB
 
-This is not an input-to-output noise-floor measurement. It is the RMS
-difference between nilamp native output and Keller/YSFX output, after trimming
-the first 100 ms warm-up window, normalized against the peak Keller/YSFX output
-for that condition. The residual range varies because the matrix includes both
-linear and nonlinear settings.
-
-Historical audio-only comparison:
-
-    Surface        Previous ns/frame  Current ns/frame  Change
-    -------------  -----------------  ----------------  ----------------
-    Keller/ysfx               941.11           1074.46  14.2% slower
-    nilamp CLAP               454.10            262.92  42.1% faster
-    nilamp VST3               456.84            266.27  41.7% faster
-
-The previous audio-only run was recorded on a Ryzen 9 7950X3D with the CPU
-governor set to performance. The current run was recorded on a Ryzen 7 PRO
-5850U with the governor set to powersave. The absolute ns/frame deltas are
-therefore not an apples-to-apples hardware comparison; the matched-condition
-speedup within each run is the more reliable DSP-throughput signal.
+This residual is not an input-to-output noise-floor measurement. It is the RMS
+difference between nilamp native output and Keller/ysfx output, after trimming
+the first 100 ms warm-up window, normalized against the peak Keller/ysfx output
+for that condition. The range is wide because the matrix includes both linear
+and nonlinear cases.
 
 
-MACOS REAPER HOST-VISIBLE CPU BENCHMARK
----------------------------------------
+MACOS REAPER PERFORMANCE METER BENCHMARK
+----------------------------------------
 
 Source:
 
-    dist/reaper-perf/reaper-cpu-summary-20260511-131909.json
+    Summary JSON:
+        dist/reaper-perf/reaper-perf-meter-summary-20260512-192716.json
 
-Host:
+    Raw samples:
+        dist/reaper-perf/reaper-perf-meter-samples-20260512-192716.json
 
-    REAPER on macOS
+    Scenario markers:
+        dist/reaper-perf/reaper-perf-meter-markers-20260512-192716.json
 
-Project:
+Compared FX found by the scenario driver:
 
-    One recorded guitar track with all three FX in the track FX chain.
-
-    Compared FX:       nilamp CLAP, nilamp VST3, HK TWD DLX II JSFX under ysfx
+    nilamp_clap:  CLAP: nilamp TWD MKII (niltempus)
+    nilamp_vst3:  VST3: nilamp TWD MKII (niltempus) (mono)
+    keller_ysfx:  JS: HK TWD DLX II
 
 Method:
 
-    1. Start REAPER with the guitar project open.
-    2. Start tools/reaper_perf/measure_reaper_cpu.py.
+    1. Open the guitar project in a fresh REAPER instance.
+    2. Start the macOS Performance Meter sampler:
+
+       PYTHONPYCACHEPREFIX=/private/tmp/nilamp-pycache \
+       python3 tools/reaper_perf/measure_reaper_perf_meter.py \
+           --reaper-pid 73277 \
+           --scenario-seconds 15 \
+           --settle-seconds 3 \
+           --repeats 3 \
+           --poll-ms 500 \
+           --timeout-seconds 720 \
+           --surfaces nilamp_clap,nilamp_vst3,keller_ysfx
+
     3. Run tools/reaper_perf/run_reaper_perf_scenarios.lua from REAPER.
-    4. The ReaScript runs three passes of six scenarios:
-           nilamp CLAP, editor closed
-           nilamp CLAP, editor open
-           nilamp VST3, editor closed
-           nilamp VST3, editor open
-           Keller JSFX under ysfx, editor closed
-           Keller JSFX under ysfx, editor open
-    5. The script enables one amp format at a time on the same track and
-       restores the original state when done.
-    6. The Python sampler records REAPER process CPU every 250 ms.
+    4. The ReaScript enables one amp format at a time, switches editor
+       closed/open states, starts playback, writes marker timestamps, and
+       restores the original FX state when done.
+    5. The sampler reads REAPER's visible Performance Meter text every 500 ms.
+       Warm-up and cooldown samples are trimmed from each scenario window.
 
-Aggregate results, normalized to total logical CPU capacity:
+Aggregate REAPER Performance Meter results:
 
-    Scenario                   Samples  Mean CPU  Median CPU  p95 CPU  Max CPU
-    -------------------------  -------  --------  ----------  -------  -------
-    Keller/ysfx, editor closed     304    2.037%      1.958%   2.539%   2.683%
-    Keller/ysfx, editor open       304    2.926%      2.867%   3.358%   3.492%
-    nilamp CLAP, editor closed     304    1.251%      1.208%   1.665%   1.800%
-    nilamp CLAP, editor open       304    1.366%      1.317%   1.807%   1.958%
-    nilamp VST3, editor closed     303    1.690%      1.600%   2.149%   2.742%
-    nilamp VST3, editor open       305    1.788%      1.742%   2.250%   2.375%
+    Scenario                   Samples  Median CPU  p95 CPU  Median FX CPU  p95 FX CPU
+    -------------------------  -------  ----------  -------  -------------  ----------
+    Keller JSFX, editor closed      54      1.700%   1.900%         0.825%      1.100%
+    Keller JSFX, editor open        54      2.150%   2.500%         0.880%      1.135%
+    nilamp CLAP, editor closed      54      1.200%   1.635%         0.280%      0.310%
+    nilamp CLAP, editor open        54      1.250%   1.870%         0.280%      0.323%
+    nilamp VST3, editor closed      54      1.000%   1.100%         0.270%      0.290%
+    nilamp VST3, editor open        54      1.100%   1.200%         0.240%      0.300%
 
-Median process-CPU comparison against Keller/ysfx:
+Median FX CPU comparison against Keller JSFX:
 
     Editor closed:
-        Keller/ysfx median:  1.958%
-        nilamp CLAP median:  1.208%  (1.62x lower)
-        nilamp VST3 median:  1.600%  (1.22x lower)
+        Keller JSFX median: 0.825%
+        nilamp CLAP:       0.280%  (2.95x lower)
+        nilamp VST3:       0.270%  (3.06x lower)
 
     Editor open:
-        Keller/ysfx median:  2.867%
-        nilamp CLAP median:  1.317%  (2.18x lower)
-        nilamp VST3 median:  1.742%  (1.65x lower)
+        Keller JSFX median: 0.880%
+        nilamp CLAP:       0.280%  (3.14x lower)
+        nilamp VST3:       0.240%  (3.67x lower)
 
-This macOS REAPER run supports the command-line result directionally: native
-CLAP/VST3 both use less host-visible process CPU than Keller/ysfx, with CLAP
-showing the largest margin in this project.
+The visible REAPER `FX CPU` meter now shows nilamp CLAP and VST3 both far below
+Keller JSFX, with VST3 no longer higher than CLAP after the strict-mono change.
+
+
+NOTES ON DRY AUDIO DURING RUNS
+------------------------------
+
+The scenario driver is not intended to measure a dry-guitar scenario. It stops
+transport, closes/open FX windows, flips enabled states, restarts playback, and
+then waits through the configured settle period before writing the `start`
+marker. Any short dry or half-switched audio heard during those transitions is
+outside the measured window.
+
+If dry guitar is audible throughout a full 15-second measured segment, that run
+should be discarded because the FX chain state is wrong. The `20260512-192716`
+run markers show that all three expected FX were found and selected.
 
 
 LIFECYCLE AND RELOAD
@@ -256,37 +239,32 @@ The command-line benchmark also reports warm-path lifecycle/reload timings:
 
     Phase             Surface        Median wall time
     ----------------  -------------  ----------------
-    plugin_lifecycle  Keller/ysfx            12.75 ms
-    plugin_lifecycle  nilamp CLAP             1.17 ms
+    plugin_lifecycle  Keller/ysfx             8.24 ms
+    plugin_lifecycle  nilamp CLAP             0.026 ms
     plugin_lifecycle  nilamp VST3             0.006 ms
-    reload            Keller/ysfx            12.78 ms
-    reload            nilamp CLAP             1.16 ms
+    reload            Keller/ysfx             8.22 ms
+    reload            nilamp CLAP             0.026 ms
     reload            nilamp VST3             0.006 ms
 
 Keller/ysfx lifecycle and reload include JSFX load/compile/JIT behavior. The
 VST3 lifecycle/reload numbers are warm-path measurements inside one process, so
-they are useful for regression checks but not for a cold-start DAW claim.
+they are useful for regression checks but not for cold-start DAW claims.
 
 
 CONCLUSION
 ----------
 
-For isolated audio processing, the current nilamp native CLAP/VST3 build is
-about four times as fast as Keller's JSFX under ysfx on this machine.
-
-Inside REAPER, the difference is much smaller because REAPER measures a larger
-system: the DAW, transport, wrappers, editor windows, and scheduling. In the
-scripted macOS REAPER run, nilamp CLAP and VST3 both used less median process
-CPU than Keller's JSFX under ysfx.
-
-The cleanest summary is:
+On this Mac, the current strict-mono nilamp build is faster than Keller's TWD
+DLX II JSFX in both measured contexts:
 
     Audio-only command-line benchmark:
-        nilamp is about 4x faster in the current refactor run.
+        nilamp CLAP and VST3 are both about 7.05x faster than Keller/ysfx.
 
-    REAPER host-visible benchmark:
-        nilamp is lower than Keller/ysfx, with CLAP showing the largest margin.
+    REAPER Performance Meter benchmark:
+        nilamp CLAP and VST3 both show about 0.24-0.28% median FX CPU, while
+        Keller JSFX shows about 0.83-0.88%.
 
-That is the expected shape. Raw DSP improvements show up strongly in an
-isolated harness. In a real DAW, host and UI costs dilute the difference, but
-the current macOS REAPER run still favors native CLAP/VST3 over Keller/ysfx.
+The previous VST3 penalty was a routing contract bug, not a DSP difference.
+After forcing both plugin formats to the same mono in / mono out contract as
+Keller's JSFX, CLAP and VST3 are effectively tied in the isolated benchmark and
+both comfortably below Keller JSFX in REAPER.
