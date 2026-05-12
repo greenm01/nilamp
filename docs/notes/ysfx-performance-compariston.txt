@@ -1,7 +1,7 @@
 YSFX VS NILAMP PERFORMANCE COMPARISON
 =====================================
 
-Updated: 2026-05-11
+Updated: 2026-05-12
 
 
 SUMMARY
@@ -15,18 +15,25 @@ loads Keller's JSFX under headless ysfx, loads nilamp as CLAP and VST3, warms
 the effects, and then times in-memory processing blocks. It excludes REAPER,
 plugin editors, host scheduling, meters, graphics, and UI event processing.
 
-That benchmark shows nilamp processing about twice as fast as Keller's JSFX
-under ysfx:
+The latest command-line run, after the DSP coefficient-cache/smoothing
+refactor, shows nilamp processing about four times as fast as Keller's JSFX
+under ysfx on the same machine:
 
     Surface        Median ns/frame  Median realtime factor
     -------------  ---------------  ----------------------
-    Keller/ysfx             941.11                   22.14x
-    nilamp CLAP             454.10                   45.88x
-    nilamp VST3             456.84                   45.60x
+    Keller/ysfx            1074.46                   19.39x
+    nilamp CLAP             262.92                   79.25x
+    nilamp VST3             266.27                   78.35x
 
     Matched-condition median speedup:
-        nilamp CLAP vs Keller/ysfx:  2.08x
-        nilamp VST3 vs Keller/ysfx:  2.06x
+        nilamp CLAP vs Keller/ysfx:  4.09x
+        nilamp VST3 vs Keller/ysfx:  4.06x
+
+The previous recorded audio-only run showed nilamp at roughly 2x Keller/ysfx.
+That older run was on different hardware, so the safest comparison is the
+within-run speedup against Keller/ysfx. As a rough historical comparison,
+current nilamp CLAP is 1.73x faster than the previous recorded CLAP median, and
+current nilamp VST3 is 1.72x faster than the previous recorded VST3 median.
 
 The REAPER benchmark, run on macOS, measures host-visible process CPU. It
 plays a recorded guitar track in REAPER with nilamp CLAP, nilamp VST3, and
@@ -82,7 +89,7 @@ COMMAND-LINE AUDIO-ONLY BENCHMARK
 
 Source:
 
-    /tmp/nilamp_perf/results_unity_input_full.json
+    /tmp/nilamp_perf/refactor_vs_ysfx_full.json
 
 Harness:
 
@@ -90,12 +97,12 @@ Harness:
 
 Platform:
 
-    OS/kernel:        CachyOS Linux 7.0.5-2-cachyos, PREEMPT_DYNAMIC
-    CPU:              AMD Ryzen 9 7950X3D 16-Core Processor
-    Cores / threads:  16 cores / 32 threads
-    CPU governor:     performance
+    OS/kernel:        Void Linux 6.18.28_1
+    CPU:              AMD Ryzen 7 PRO 5850U with Radeon Graphics
+    Cores / threads:  8 cores / 16 threads
+    CPU governor:     powersave
     Scaling driver:   amd-pstate-epp
-    Memory:           61 GiB total
+    Memory:           14 GiB total
 
 Matrix:
 
@@ -107,6 +114,12 @@ Matrix:
     Phases:       steady_plugin_process, plugin_lifecycle, reload
     Surfaces:     Keller JSFX under ysfx, nilamp CLAP, nilamp VST3
     Records:      2880 total
+
+Command:
+
+    PATH="$PWD/.dev-tools/bin:$PATH" YSFX_ROOT="$PWD/.dev-tools/src/ysfx" \
+    make native-perf-bench \
+        PERF_BENCH_ARGS="--json-out /tmp/nilamp_perf/refactor_vs_ysfx_full.json"
 
 Headline phase:
 
@@ -120,34 +133,34 @@ Median steady-state processing:
 
     Surface        Median ns/frame  Median realtime factor
     -------------  ---------------  ----------------------
-    Keller/ysfx             941.11                   22.14x
-    nilamp CLAP             454.10                   45.88x
-    nilamp VST3             456.84                   45.60x
+    Keller/ysfx            1074.46                   19.39x
+    nilamp CLAP             262.92                   79.25x
+    nilamp VST3             266.27                   78.35x
 
 Matched-condition speedup vs Keller/ysfx:
 
     Surface        Median speedup  Min speedup  Max speedup
     -------------  --------------  -----------  -----------
-    nilamp CLAP             2.08x        1.68x        2.35x
-    nilamp VST3             2.06x        1.65x        2.42x
+    nilamp CLAP             4.09x        3.81x        5.46x
+    nilamp VST3             4.06x        3.80x        5.54x
 
 Speedup by block size:
 
     Block  nilamp CLAP median  nilamp VST3 median
     -----  ------------------  ------------------
-       32               2.05x               2.04x
-       64               2.13x               2.07x
-      128               2.07x               2.02x
-      512               2.07x               2.08x
+       32               4.05x               4.06x
+       64               4.18x               4.18x
+      128               4.09x               4.07x
+      512               4.12x               4.05x
 
 VST3 speedup by input:
 
     Input     Median speedup vs Keller/ysfx
     --------  -----------------------------
-    di_like                           2.01x
-    silence                           2.06x
-    sine                              2.07x
-    sweep                             2.08x
+    di_like                           4.06x
+    silence                           5.22x
+    sine                              4.00x
+    sweep                             4.02x
 
 Native-vs-YSFX output residual sanity:
 
@@ -159,6 +172,20 @@ difference between nilamp native output and Keller/YSFX output, after trimming
 the first 100 ms warm-up window, normalized against the peak Keller/YSFX output
 for that condition. The residual range varies because the matrix includes both
 linear and nonlinear settings.
+
+Historical audio-only comparison:
+
+    Surface        Previous ns/frame  Current ns/frame  Change
+    -------------  -----------------  ----------------  ----------------
+    Keller/ysfx               941.11           1074.46  14.2% slower
+    nilamp CLAP               454.10            262.92  42.1% faster
+    nilamp VST3               456.84            266.27  41.7% faster
+
+The previous audio-only run was recorded on a Ryzen 9 7950X3D with the CPU
+governor set to performance. The current run was recorded on a Ryzen 7 PRO
+5850U with the governor set to powersave. The absolute ns/frame deltas are
+therefore not an apples-to-apples hardware comparison; the matched-condition
+speedup within each run is the more reliable DSP-throughput signal.
 
 
 MACOS REAPER HOST-VISIBLE CPU BENCHMARK
@@ -229,12 +256,12 @@ The command-line benchmark also reports warm-path lifecycle/reload timings:
 
     Phase             Surface        Median wall time
     ----------------  -------------  ----------------
-    plugin_lifecycle  Keller/ysfx             8.53 ms
-    plugin_lifecycle  nilamp CLAP             0.70 ms
-    plugin_lifecycle  nilamp VST3             0.002 ms
-    reload            Keller/ysfx             8.55 ms
-    reload            nilamp CLAP             0.69 ms
-    reload            nilamp VST3             0.002 ms
+    plugin_lifecycle  Keller/ysfx            12.75 ms
+    plugin_lifecycle  nilamp CLAP             1.17 ms
+    plugin_lifecycle  nilamp VST3             0.006 ms
+    reload            Keller/ysfx            12.78 ms
+    reload            nilamp CLAP             1.16 ms
+    reload            nilamp VST3             0.006 ms
 
 Keller/ysfx lifecycle and reload include JSFX load/compile/JIT behavior. The
 VST3 lifecycle/reload numbers are warm-path measurements inside one process, so
@@ -244,8 +271,8 @@ they are useful for regression checks but not for a cold-start DAW claim.
 CONCLUSION
 ----------
 
-For isolated audio processing, nilamp native CLAP/VST3 is about twice as fast
-as Keller's JSFX under ysfx on this machine.
+For isolated audio processing, the current nilamp native CLAP/VST3 build is
+about four times as fast as Keller's JSFX under ysfx on this machine.
 
 Inside REAPER, the difference is much smaller because REAPER measures a larger
 system: the DAW, transport, wrappers, editor windows, and scheduling. In the
@@ -255,7 +282,7 @@ CPU than Keller's JSFX under ysfx.
 The cleanest summary is:
 
     Audio-only command-line benchmark:
-        nilamp is about 2x faster.
+        nilamp is about 4x faster in the current refactor run.
 
     REAPER host-visible benchmark:
         nilamp is lower than Keller/ysfx, with CLAP showing the largest margin.
