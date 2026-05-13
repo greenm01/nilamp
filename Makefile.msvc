@@ -75,6 +75,7 @@ VST3_SDK_OBJS= \
 	$(NATIVE_BUILD)\vst3_vstnoteexpressiontypes.obj
 
 NATIVE_GUI_OBJS= \
+	$(NATIVE_BUILD)\nilamp_gui_edit.obj \
 	$(NATIVE_BUILD)\nilamp_gui.obj \
 	$(NATIVE_BUILD)\nilamp_font_0xproto.obj \
 	$(NATIVE_BUILD)\nilamp_sokol.obj \
@@ -89,6 +90,7 @@ NATIVE_TARGETS= \
 	$(NATIVE_BIN)\nilamp_render.exe \
 	$(NATIVE_BIN)\nilamp_taps_render.exe \
 	$(NATIVE_BIN)\test_native.exe \
+	$(NATIVE_BIN)\test_gui_edit.exe \
 	$(NATIVE_BIN)\test_clap_load.exe \
 	$(NATIVE_BIN)\test_vst3_load.exe \
 	$(NATIVE_BIN)\render_loaded_clap.exe \
@@ -107,8 +109,9 @@ all: native
 
 native: $(NATIVE_TARGETS)
 
-native-test: $(NATIVE_BIN)\test_native.exe $(NATIVE_BIN)\test_clap_load.exe $(NATIVE_BIN)\test_vst3_load.exe $(CLAP_PLUGIN) $(VST3_PLUGIN)
+native-test: $(NATIVE_BIN)\test_native.exe $(NATIVE_BIN)\test_gui_edit.exe $(NATIVE_BIN)\test_clap_load.exe $(NATIVE_BIN)\test_vst3_load.exe $(CLAP_PLUGIN) $(VST3_PLUGIN)
 	$(NATIVE_BIN)\test_native.exe
+	$(NATIVE_BIN)\test_gui_edit.exe
 	$(NATIVE_BIN)\test_clap_load.exe $(CLAP_PLUGIN)
 	$(NATIVE_BIN)\test_vst3_load.exe $(VST3_PLUGIN)
 
@@ -164,6 +167,12 @@ $(NATIVE_BUILD)\test_native.obj: $(NATIVE_DIR)\tests\test_native.c $(NATIVE_DIR)
 $(NATIVE_BIN)\test_native.exe: $(NATIVE_BUILD)\test_native.obj $(NATIVE_BUILD)\nilamp_dsp_test.obj $(NATIVE_BUILD)\nilamp_tables.obj
 	link /nologo /out:$@ $**
 
+$(NATIVE_BUILD)\test_gui_edit.obj: $(NATIVE_DIR)\tests\test_gui_edit.c $(NATIVE_DIR)\src\nilamp_gui_edit.h
+	cl $(BASE_CFLAGS) /c $(NATIVE_DIR)\tests\test_gui_edit.c /Fo$@
+
+$(NATIVE_BIN)\test_gui_edit.exe: $(NATIVE_BUILD)\test_gui_edit.obj $(NATIVE_BUILD)\nilamp_gui_edit.obj
+	link /nologo /out:$@ $**
+
 $(NATIVE_BUILD)\test_clap_load.obj: $(NATIVE_DIR)\tests\test_clap_load.c $(NATIVE_DIR)\src\nilamp_dsp.h
 	cl $(CLAP_CFLAGS) /DNILAMP_EXPECT_CLAP_GUI=1 $(TEST_CLAP_NAME_DEFINE) $(NILAMP_RELEASE_DEFINE) /c $(NATIVE_DIR)\tests\test_clap_load.c /Fo$@
 
@@ -179,7 +188,10 @@ $(NATIVE_BIN)\render_loaded_clap.exe: $(NATIVE_BUILD)\render_loaded_clap.obj
 $(NATIVE_BUILD)\nilamp_clap.obj: $(NATIVE_DIR)\src\nilamp_clap.c $(NATIVE_DIR)\src\nilamp_dsp.h $(NATIVE_DIR)\src\nilamp_cpu.h $(NATIVE_DIR)\src\nilamp_compat.h $(NATIVE_DIR)\src\nilamp_gui.h
 	cl $(GUI_CFLAGS) /DNILAMP_ENABLE_CLAP_GUI=1 $(CLAP_NAME_DEFINE) $(NILAMP_RELEASE_DEFINE) /c $(NATIVE_DIR)\src\nilamp_clap.c /Fo$@
 
-$(NATIVE_BUILD)\nilamp_gui.obj: $(NATIVE_DIR)\src\nilamp_gui.c $(NATIVE_DIR)\src\nilamp_gui.h $(NATIVE_GENERATED)\nilamp_font_0xproto.h
+$(NATIVE_BUILD)\nilamp_gui_edit.obj: $(NATIVE_DIR)\src\nilamp_gui_edit.c $(NATIVE_DIR)\src\nilamp_gui_edit.h
+	cl $(BASE_CFLAGS) /c $(NATIVE_DIR)\src\nilamp_gui_edit.c /Fo$@
+
+$(NATIVE_BUILD)\nilamp_gui.obj: $(NATIVE_DIR)\src\nilamp_gui.c $(NATIVE_DIR)\src\nilamp_gui.h $(NATIVE_DIR)\src\nilamp_gui_edit.h $(NATIVE_GENERATED)\nilamp_font_0xproto.h
 	cl $(GUI_CFLAGS) /c $(NATIVE_DIR)\src\nilamp_gui.c /Fo$@
 
 $(NATIVE_BUILD)\nilamp_font_0xproto.obj: $(NATIVE_GENERATED)\nilamp_font_0xproto.c $(NATIVE_GENERATED)\nilamp_font_0xproto.h

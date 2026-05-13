@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 #include "nilamp_gui.h"
+#include "nilamp_gui_edit.h"
 
 #include <pugl/gl.h>
 #include <pugl/pugl.h>
@@ -32,7 +33,6 @@
 #define NILAMP_GUI_DEFAULT_HEIGHT 340u
 #define NILAMP_GUI_MAX_PARAMS 24u
 #define NILAMP_GUI_MAX_MSGS (NILAMP_GUI_MAX_PARAMS * 3u)
-#define NILAMP_GUI_EDIT_TEXT_LEN 32u
 #define NILAMP_GUI_INDICATION_LABEL_LEN 24u
 #define NILAMP_GUI_TEXT_INPUT_LEN 64u
 #define NILAMP_GUI_MAX_VERTICES 32768u
@@ -202,14 +202,7 @@ static float nilamp_gui_clampf(float value, float min_value, float max_value)
 
 static size_t nilamp_gui_bounded_strlen(const char *text, size_t max_len)
 {
-    size_t len = 0u;
-    if (!text) {
-        return 0u;
-    }
-    while (len < max_len && text[len] != '\0') {
-        len++;
-    }
-    return len;
+    return nilamp_gui_edit_strlen(text, max_len);
 }
 
 static uint32_t nilamp_gui_param_index(const NilampGui *gui, uint32_t param_id)
@@ -893,73 +886,29 @@ static void nilamp_gui_update_active_edit(NilampGui *gui, NilampGuiMsg *outbox,
     }
 
     char *text = gui->model.edit_text[gui->active_edit];
-    text[NILAMP_GUI_EDIT_TEXT_LEN - 1u] = '\0';
     const NilampGuiParamSpec *param = &gui->params[gui->active_edit];
-    size_t len = nilamp_gui_bounded_strlen(text, NILAMP_GUI_EDIT_TEXT_LEN);
-    if (gui->edit_cursor > len) {
-        gui->edit_cursor = len;
-    }
+    nilamp_gui_edit_sanitize(text, NILAMP_GUI_EDIT_TEXT_LEN, &gui->edit_cursor);
+    const size_t log_len = nilamp_gui_bounded_strlen(text, NILAMP_GUI_EDIT_TEXT_LEN);
     bool changed = false;
-    if (gui->key_home) {
-        gui->edit_cursor = 0u;
-        gui->edit_replace_on_type = false;
-    }
-    if (gui->key_end) {
-        gui->edit_cursor = len;
-        gui->edit_replace_on_type = false;
-    }
-    if (gui->key_left) {
-        if (gui->edit_cursor > 0u) {
-            gui->edit_cursor--;
-        }
-        gui->edit_replace_on_type = false;
-    }
-    if (gui->key_right) {
-        if (gui->edit_cursor < len) {
-            gui->edit_cursor++;
-        }
-        gui->edit_replace_on_type = false;
-    }
     if (gui->key_backspace || gui->key_delete) {
         nilamp_gui_log("edit_key index=%d backspace=%d delete=%d len=%zu cursor=%zu replace=%d",
                        gui->active_edit, gui->key_backspace ? 1 : 0,
-                       gui->key_delete ? 1 : 0, len, gui->edit_cursor,
+                       gui->key_delete ? 1 : 0, log_len, gui->edit_cursor,
                        gui->edit_replace_on_type ? 1 : 0);
-        if (gui->edit_replace_on_type) {
-            gui->edit_replace_on_type = false;
-        }
-        if (gui->key_backspace && gui->edit_cursor > 0u) {
-            const size_t cursor = gui->edit_cursor;
-            memmove(&text[cursor - 1u], &text[cursor], len - cursor + 1u);
-            gui->edit_cursor--;
-            len--;
-            changed = true;
-        }
-        if (gui->key_delete && gui->edit_cursor < len) {
-            const size_t cursor = gui->edit_cursor;
-            memmove(&text[cursor], &text[cursor + 1u], len - cursor);
-            len--;
-            changed = true;
-        }
     }
+    changed = nilamp_gui_edit_apply_keys(text, NILAMP_GUI_EDIT_TEXT_LEN, &gui->edit_cursor,
+                                         &gui->edit_replace_on_type, gui->key_home,
+                                         gui->key_end, gui->key_left, gui->key_right,
+                                         gui->key_backspace, gui->key_delete) ||
+              changed;
     for (uint32_t i = 0; i < gui->text_input_len && i < NILAMP_GUI_TEXT_INPUT_LEN; i++) {
         const char c = gui->text_input[i];
         if (nilamp_gui_edit_accepts_char(param, c)) {
-            if (gui->edit_replace_on_type) {
-                text[0] = '\0';
-                len = 0u;
-                gui->edit_cursor = 0u;
-                gui->edit_replace_on_type = false;
-            }
-            if (len + 1u >= NILAMP_GUI_EDIT_TEXT_LEN) {
+            if (!nilamp_gui_edit_insert_char(text, NILAMP_GUI_EDIT_TEXT_LEN,
+                                             &gui->edit_cursor,
+                                             &gui->edit_replace_on_type, c)) {
                 break;
             }
-            const size_t cursor = gui->edit_cursor <= len ? gui->edit_cursor : len;
-            memmove(&text[cursor + 1u], &text[cursor], len - cursor + 1u);
-            text[cursor] = c;
-            gui->edit_cursor = cursor + 1u;
-            len++;
-            text[len] = '\0';
             changed = true;
         }
     }

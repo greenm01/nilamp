@@ -174,6 +174,7 @@ VST3_SDK_OBJS := \
 	$(NATIVE_BUILD)/vst3_vstnoteexpressiontypes.o
 
 NATIVE_GUI_OBJS := \
+	$(NATIVE_BUILD)/nilamp_gui_edit.pic.o \
 	$(NATIVE_BUILD)/nilamp_gui.pic.o \
 	$(NATIVE_BUILD)/nilamp_font_0xproto.pic.o \
 	$(NATIVE_BUILD)/nilamp_sokol.pic.o \
@@ -209,6 +210,7 @@ NATIVE_TARGETS := \
 	$(NATIVE_BIN)/nilamp_render \
 	$(NATIVE_BIN)/nilamp_taps_render \
 	$(NATIVE_BIN)/test_native \
+	$(NATIVE_BIN)/test_gui_edit \
 	$(NATIVE_BIN)/test_clap_load \
 	$(NATIVE_TEST_TARGETS_VST3) \
 	$(CLAP_PLUGIN) \
@@ -257,8 +259,9 @@ package-macos-release: $(CLAP_PLUGIN) $(VST3_PLUGIN)
 	    --dist-dir $(DIST_DIR) \
 	    --gpg-key $(RELEASE_GPG_KEY)
 
-native-test: $(NATIVE_BIN)/test_native $(NATIVE_BIN)/test_clap_load $(NATIVE_TEST_TARGETS_VST3) $(CLAP_PLUGIN) $(NATIVE_TARGETS_VST3)
+native-test: $(NATIVE_BIN)/test_native $(NATIVE_BIN)/test_gui_edit $(NATIVE_BIN)/test_clap_load $(NATIVE_TEST_TARGETS_VST3) $(CLAP_PLUGIN) $(NATIVE_TARGETS_VST3)
 	$(NATIVE_BIN)/test_native
+	$(NATIVE_BIN)/test_gui_edit
 	$(NATIVE_BIN)/test_clap_load $(CLAP_PLUGIN)
 	$(if $(NATIVE_TEST_TARGETS_VST3),$(NATIVE_BIN)/test_vst3_load $(VST3_PLUGIN),true)
 
@@ -369,7 +372,13 @@ $(NATIVE_BIN)/nilamp_taps_render: $(NATIVE_BUILD)/nilamp_taps_render.o $(NATIVE_
 $(NATIVE_BUILD)/nilamp_clap.o: $(NATIVE_DIR)/src/nilamp_clap.c $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_DIR)/src/nilamp_cpu.h $(NATIVE_DIR)/src/nilamp_gui.h $(CLAP_INCLUDE)/clap/clap.h | $(NATIVE_BUILD)
 	$(CC) $(CLAP_PLUGIN_CFLAGS) -fPIC -c $< -o $@
 
-$(NATIVE_BUILD)/nilamp_gui.pic.o: $(NATIVE_DIR)/src/nilamp_gui.c $(NATIVE_DIR)/src/nilamp_gui.h $(NATIVE_FONT_H) | $(NATIVE_BUILD)
+$(NATIVE_BUILD)/nilamp_gui_edit.o: $(NATIVE_DIR)/src/nilamp_gui_edit.c $(NATIVE_DIR)/src/nilamp_gui_edit.h | $(NATIVE_BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(NATIVE_BUILD)/nilamp_gui_edit.pic.o: $(NATIVE_DIR)/src/nilamp_gui_edit.c $(NATIVE_DIR)/src/nilamp_gui_edit.h | $(NATIVE_BUILD)
+	$(CC) $(CFLAGS) -fPIC -c $< -o $@
+
+$(NATIVE_BUILD)/nilamp_gui.pic.o: $(NATIVE_DIR)/src/nilamp_gui.c $(NATIVE_DIR)/src/nilamp_gui.h $(NATIVE_DIR)/src/nilamp_gui_edit.h $(NATIVE_FONT_H) | $(NATIVE_BUILD)
 	$(CC) $(GUI_CFLAGS) -fPIC -c $< -o $@
 
 $(NATIVE_BUILD)/nilamp_font_0xproto.pic.o: $(NATIVE_FONT_C) $(NATIVE_FONT_H) | $(NATIVE_BUILD)
@@ -534,6 +543,12 @@ $(NATIVE_BUILD)/test_native.o: $(NATIVE_DIR)/tests/test_native.c $(NATIVE_DIR)/s
 	$(CC) $(NILAMP_NATIVE_CFLAGS) -DNILAMP_ENABLE_TEST_API -c $< -o $@
 
 $(NATIVE_BIN)/test_native: $(NATIVE_BUILD)/test_native.o $(NATIVE_DSP_TEST_OBJS) | $(NATIVE_BIN)
+	$(CC) $(LDFLAGS) $^ $(LDLIBS) -o $@
+
+$(NATIVE_BUILD)/test_gui_edit.o: $(NATIVE_DIR)/tests/test_gui_edit.c $(NATIVE_DIR)/src/nilamp_gui_edit.h | $(NATIVE_BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(NATIVE_BIN)/test_gui_edit: $(NATIVE_BUILD)/test_gui_edit.o $(NATIVE_BUILD)/nilamp_gui_edit.o | $(NATIVE_BIN)
 	$(CC) $(LDFLAGS) $^ $(LDLIBS) -o $@
 
 $(NATIVE_BUILD)/bench_native.o: $(NATIVE_DIR)/tests/bench_native.c $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_DIR)/src/nilamp_cpu.h | $(NATIVE_BUILD)
