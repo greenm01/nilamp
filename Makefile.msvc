@@ -75,6 +75,7 @@ VST3_SDK_OBJS= \
 	$(NATIVE_BUILD)\vst3_vstnoteexpressiontypes.obj
 
 NATIVE_GUI_OBJS= \
+	$(NATIVE_BUILD)\nilamp_gui_input.obj \
 	$(NATIVE_BUILD)\nilamp_gui_edit.obj \
 	$(NATIVE_BUILD)\nilamp_gui.obj \
 	$(NATIVE_BUILD)\nilamp_font_0xproto.obj \
@@ -167,10 +168,10 @@ $(NATIVE_BUILD)\test_native.obj: $(NATIVE_DIR)\tests\test_native.c $(NATIVE_DIR)
 $(NATIVE_BIN)\test_native.exe: $(NATIVE_BUILD)\test_native.obj $(NATIVE_BUILD)\nilamp_dsp_test.obj $(NATIVE_BUILD)\nilamp_tables.obj
 	link /nologo /out:$@ $**
 
-$(NATIVE_BUILD)\test_gui_edit.obj: $(NATIVE_DIR)\tests\test_gui_edit.c $(NATIVE_DIR)\src\nilamp_gui_edit.h
+$(NATIVE_BUILD)\test_gui_edit.obj: $(NATIVE_DIR)\tests\test_gui_edit.c $(NATIVE_DIR)\src\nilamp_gui_edit.h $(NATIVE_DIR)\src\nilamp_gui_input.h
 	cl $(BASE_CFLAGS) /c $(NATIVE_DIR)\tests\test_gui_edit.c /Fo$@
 
-$(NATIVE_BIN)\test_gui_edit.exe: $(NATIVE_BUILD)\test_gui_edit.obj $(NATIVE_BUILD)\nilamp_gui_edit.obj
+$(NATIVE_BIN)\test_gui_edit.exe: $(NATIVE_BUILD)\test_gui_edit.obj $(NATIVE_BUILD)\nilamp_gui_edit.obj $(NATIVE_BUILD)\nilamp_gui_input.obj
 	link /nologo /out:$@ $**
 
 $(NATIVE_BUILD)\test_clap_load.obj: $(NATIVE_DIR)\tests\test_clap_load.c $(NATIVE_DIR)\src\nilamp_dsp.h
@@ -185,13 +186,16 @@ $(NATIVE_BUILD)\render_loaded_clap.obj: $(NATIVE_DIR)\src\render_loaded_clap.c $
 $(NATIVE_BIN)\render_loaded_clap.exe: $(NATIVE_BUILD)\render_loaded_clap.obj
 	link /nologo /out:$@ $**
 
-$(NATIVE_BUILD)\nilamp_clap.obj: $(NATIVE_DIR)\src\nilamp_clap.c $(NATIVE_DIR)\src\nilamp_dsp.h $(NATIVE_DIR)\src\nilamp_cpu.h $(NATIVE_DIR)\src\nilamp_compat.h $(NATIVE_DIR)\src\nilamp_gui.h
+$(NATIVE_BUILD)\nilamp_clap.obj: $(NATIVE_DIR)\src\nilamp_clap.c $(NATIVE_DIR)\src\nilamp_dsp.h $(NATIVE_DIR)\src\nilamp_cpu.h $(NATIVE_DIR)\src\nilamp_compat.h $(NATIVE_DIR)\src\nilamp_gui.h $(NATIVE_DIR)\src\nilamp_gui_input.h
 	cl $(GUI_CFLAGS) /DNILAMP_ENABLE_CLAP_GUI=1 $(CLAP_NAME_DEFINE) $(NILAMP_RELEASE_DEFINE) /c $(NATIVE_DIR)\src\nilamp_clap.c /Fo$@
 
 $(NATIVE_BUILD)\nilamp_gui_edit.obj: $(NATIVE_DIR)\src\nilamp_gui_edit.c $(NATIVE_DIR)\src\nilamp_gui_edit.h
 	cl $(BASE_CFLAGS) /c $(NATIVE_DIR)\src\nilamp_gui_edit.c /Fo$@
 
-$(NATIVE_BUILD)\nilamp_gui.obj: $(NATIVE_DIR)\src\nilamp_gui.c $(NATIVE_DIR)\src\nilamp_gui.h $(NATIVE_DIR)\src\nilamp_gui_edit.h $(NATIVE_GENERATED)\nilamp_font_0xproto.h
+$(NATIVE_BUILD)\nilamp_gui_input.obj: $(NATIVE_DIR)\src\nilamp_gui_input.c $(NATIVE_DIR)\src\nilamp_gui_input.h
+	cl $(BASE_CFLAGS) /c $(NATIVE_DIR)\src\nilamp_gui_input.c /Fo$@
+
+$(NATIVE_BUILD)\nilamp_gui.obj: $(NATIVE_DIR)\src\nilamp_gui.c $(NATIVE_DIR)\src\nilamp_gui.h $(NATIVE_DIR)\src\nilamp_gui_edit.h $(NATIVE_DIR)\src\nilamp_gui_input.h $(NATIVE_GENERATED)\nilamp_font_0xproto.h
 	cl $(GUI_CFLAGS) /c $(NATIVE_DIR)\src\nilamp_gui.c /Fo$@
 
 $(NATIVE_BUILD)\nilamp_font_0xproto.obj: $(NATIVE_GENERATED)\nilamp_font_0xproto.c $(NATIVE_GENERATED)\nilamp_font_0xproto.h
@@ -221,7 +225,7 @@ $(NATIVE_BUILD)\pugl_win_gl.obj: $(PUGL_SRC)\win_gl.c $(PUGL_SRC)\win.h
 $(CLAP_PLUGIN): $(NATIVE_BUILD)\nilamp_clap.obj $(NATIVE_OBJS) $(NATIVE_GUI_OBJS)
 	link /nologo /dll /out:$@ /implib:$(NATIVE_BUILD)\nilamp-twd-mkii.lib $** user32.lib gdi32.lib shell32.lib shlwapi.lib dwmapi.lib opengl32.lib
 
-$(NATIVE_BUILD)\nilamp_vst3.obj: $(NATIVE_DIR)\src\nilamp_vst3.mm $(NATIVE_DIR)\src\nilamp_host.h $(NATIVE_DIR)\src\nilamp_dsp.h $(NATIVE_DIR)\src\nilamp_gui.h
+$(NATIVE_BUILD)\nilamp_vst3.obj: $(NATIVE_DIR)\src\nilamp_vst3.mm $(NATIVE_DIR)\src\nilamp_host.h $(NATIVE_DIR)\src\nilamp_dsp.h $(NATIVE_DIR)\src\nilamp_gui.h $(NATIVE_DIR)\src\nilamp_gui_input.h $(NATIVE_DIR)\src\nilamp_vst3_keys.h
 	cl $(VST3_CXXFLAGS) $(VST3_NAME_DEFINE) $(NILAMP_RELEASE_DEFINE) /TP /c $(NATIVE_DIR)\src\nilamp_vst3.mm /Fo$@
 
 $(VST3_BINARY): $(NATIVE_BUILD)\nilamp_vst3.obj $(VST3_SDK_OBJS) $(NATIVE_OBJS) $(NATIVE_GUI_OBJS)
@@ -311,7 +315,7 @@ $(NATIVE_BUILD)\vst3_vstparameters.obj: $(VST3SDK_DIR)\public.sdk\source\vst\vst
 $(NATIVE_BUILD)\vst3_vstnoteexpressiontypes.obj: $(VST3SDK_DIR)\public.sdk\source\vst\vstnoteexpressiontypes.cpp
 	cl $(VST3_VENDOR_CXXFLAGS) /c $(VST3SDK_DIR)\public.sdk\source\vst\vstnoteexpressiontypes.cpp /Fo$@
 
-$(NATIVE_BUILD)\test_vst3_load.obj: $(NATIVE_DIR)\tests\test_vst3_load.mm $(NATIVE_DIR)\src\nilamp_dsp.h $(NATIVE_DIR)\src\nilamp_gui.h $(NATIVE_DIR)\src\nilamp_host.h
+$(NATIVE_BUILD)\test_vst3_load.obj: $(NATIVE_DIR)\tests\test_vst3_load.mm $(NATIVE_DIR)\src\nilamp_dsp.h $(NATIVE_DIR)\src\nilamp_gui.h $(NATIVE_DIR)\src\nilamp_host.h $(NATIVE_DIR)\src\nilamp_vst3_keys.h
 	cl $(VST3_CXXFLAGS) $(NILAMP_RELEASE_DEFINE) /TP /c $(NATIVE_DIR)\tests\test_vst3_load.mm /Fo$@
 
 $(NATIVE_BIN)\test_vst3_load.exe: $(NATIVE_BUILD)\test_vst3_load.obj $(NATIVE_OBJS) $(NATIVE_BUILD)\vst3_baseiids.obj $(NATIVE_BUILD)\vst3_coreiids.obj $(NATIVE_BUILD)\vst3_funknown.obj $(NATIVE_BUILD)\vst3_commoniids.obj $(NATIVE_BUILD)\vst3_vstinitiids.obj

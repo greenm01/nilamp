@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 #include "nilamp_gui_edit.h"
+#include "nilamp_gui_input.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -360,6 +361,77 @@ static void test_randomized_invariants(void)
     }
 }
 
+static void test_host_key_effects(void)
+{
+    NilampGuiInputKeyEffect effect =
+        nilamp_gui_input_key_effect(NILAMP_GUI_INPUT_KEY_BACKSPACE, true, true);
+    check_true(effect.handled, "backspace editing handled");
+    check_true(effect.key_backspace, "backspace editing flag");
+    check_true(effect.widget_key_valid, "backspace widget key valid");
+    check_true(effect.widget_key == NILAMP_GUI_INPUT_WIDGET_KEY_BACKSPACE,
+               "backspace widget key");
+    check_true(!effect.widget_key_down, "backspace editing widget suppressed");
+
+    effect = nilamp_gui_input_key_effect(NILAMP_GUI_INPUT_KEY_BACKSPACE, false, true);
+    check_true(effect.handled, "backspace release handled");
+    check_true(!effect.key_backspace, "backspace release no edit flag");
+
+    effect = nilamp_gui_input_key_effect(NILAMP_GUI_INPUT_KEY_DELETE, true, true);
+    check_true(effect.handled, "delete editing handled");
+    check_true(effect.key_delete, "delete editing ignored flag");
+    check_true(effect.widget_key == NILAMP_GUI_INPUT_WIDGET_KEY_DELETE,
+               "delete widget key");
+    check_true(!effect.widget_key_down, "delete editing widget suppressed");
+
+    effect = nilamp_gui_input_key_effect(NILAMP_GUI_INPUT_KEY_ENTER, true, true);
+    check_true(effect.handled && effect.key_enter, "enter editing commits");
+    effect = nilamp_gui_input_key_effect(NILAMP_GUI_INPUT_KEY_ESCAPE, true, true);
+    check_true(effect.handled && effect.key_escape, "escape editing exits");
+    effect = nilamp_gui_input_key_effect(NILAMP_GUI_INPUT_KEY_LEFT, true, true);
+    check_true(effect.handled && effect.key_left, "left editing moves");
+    effect = nilamp_gui_input_key_effect(NILAMP_GUI_INPUT_KEY_RIGHT, true, true);
+    check_true(effect.handled && effect.key_right, "right editing moves");
+    effect = nilamp_gui_input_key_effect(NILAMP_GUI_INPUT_KEY_HOME, true, true);
+    check_true(effect.handled && effect.key_home, "home editing moves");
+    effect = nilamp_gui_input_key_effect(NILAMP_GUI_INPUT_KEY_END, true, true);
+    check_true(effect.handled && effect.key_end, "end editing moves");
+
+    effect = nilamp_gui_input_key_effect(NILAMP_GUI_INPUT_KEY_TAB, true, true);
+    check_true(effect.handled && effect.widget_key_valid, "tab editing captured");
+    effect = nilamp_gui_input_key_effect(NILAMP_GUI_INPUT_KEY_UP, true, true);
+    check_true(effect.handled && effect.widget_key_valid, "up editing captured");
+    effect = nilamp_gui_input_key_effect(NILAMP_GUI_INPUT_KEY_DOWN, true, true);
+    check_true(effect.handled && effect.widget_key_valid, "down editing captured");
+
+    effect = nilamp_gui_input_key_effect(NILAMP_GUI_INPUT_KEY_LEFT, true, false);
+    check_true(effect.handled, "left inactive widget handled");
+    check_true(!effect.key_left, "left inactive no edit flag");
+    check_true(effect.widget_key_down, "left inactive feeds widget");
+
+    effect = nilamp_gui_input_key_effect(NILAMP_GUI_INPUT_KEY_UNKNOWN, true, true);
+    check_true(!effect.handled && !effect.widget_key_valid, "unknown ignored");
+}
+
+static void test_host_text_append(void)
+{
+    char text[4] = "";
+    uint32_t len = 0u;
+    check_true(nilamp_gui_input_append_text(text, sizeof(text), &len, '1'),
+               "append digit");
+    check_true(nilamp_gui_input_append_text(text, sizeof(text), &len, '.'),
+               "append decimal");
+    check_true(nilamp_gui_input_append_text(text, sizeof(text), &len, '-'),
+               "append minus");
+    check_true(strcmp(text, "1.-") == 0 && len == 3u, "append text state");
+    check_true(!nilamp_gui_input_append_text(text, sizeof(text), &len, '4'),
+               "append full rejected");
+    check_true(strcmp(text, "1.-") == 0 && len == 3u, "append full unchanged");
+    check_true(!nilamp_gui_input_append_text(text, sizeof(text), &len, '\n'),
+               "append control rejected");
+    check_true(!nilamp_gui_input_append_text(text, sizeof(text), &len, 0x80u),
+               "append non ascii rejected");
+}
+
 int main(void)
 {
     test_delete_and_backspace();
@@ -368,6 +440,8 @@ int main(void)
     test_limited_insert();
     test_apply_keys();
     test_randomized_invariants();
+    test_host_key_effects();
+    test_host_text_append();
     if (failures != 0) {
         return 1;
     }

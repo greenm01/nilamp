@@ -174,6 +174,7 @@ VST3_SDK_OBJS := \
 	$(NATIVE_BUILD)/vst3_vstnoteexpressiontypes.o
 
 NATIVE_GUI_OBJS := \
+	$(NATIVE_BUILD)/nilamp_gui_input.pic.o \
 	$(NATIVE_BUILD)/nilamp_gui_edit.pic.o \
 	$(NATIVE_BUILD)/nilamp_gui.pic.o \
 	$(NATIVE_BUILD)/nilamp_font_0xproto.pic.o \
@@ -369,7 +370,7 @@ $(NATIVE_BUILD)/nilamp_taps_render.o: $(NATIVE_DIR)/src/nilamp_render.c $(NATIVE
 $(NATIVE_BIN)/nilamp_taps_render: $(NATIVE_BUILD)/nilamp_taps_render.o $(NATIVE_OBJS) | $(NATIVE_BIN)
 	$(CC) $(LDFLAGS) $^ $(LDLIBS) -o $@
 
-$(NATIVE_BUILD)/nilamp_clap.o: $(NATIVE_DIR)/src/nilamp_clap.c $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_DIR)/src/nilamp_cpu.h $(NATIVE_DIR)/src/nilamp_gui.h $(CLAP_INCLUDE)/clap/clap.h | $(NATIVE_BUILD)
+$(NATIVE_BUILD)/nilamp_clap.o: $(NATIVE_DIR)/src/nilamp_clap.c $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_DIR)/src/nilamp_cpu.h $(NATIVE_DIR)/src/nilamp_gui.h $(NATIVE_DIR)/src/nilamp_gui_input.h $(CLAP_INCLUDE)/clap/clap.h | $(NATIVE_BUILD)
 	$(CC) $(CLAP_PLUGIN_CFLAGS) -fPIC -c $< -o $@
 
 $(NATIVE_BUILD)/nilamp_gui_edit.o: $(NATIVE_DIR)/src/nilamp_gui_edit.c $(NATIVE_DIR)/src/nilamp_gui_edit.h | $(NATIVE_BUILD)
@@ -378,7 +379,13 @@ $(NATIVE_BUILD)/nilamp_gui_edit.o: $(NATIVE_DIR)/src/nilamp_gui_edit.c $(NATIVE_
 $(NATIVE_BUILD)/nilamp_gui_edit.pic.o: $(NATIVE_DIR)/src/nilamp_gui_edit.c $(NATIVE_DIR)/src/nilamp_gui_edit.h | $(NATIVE_BUILD)
 	$(CC) $(CFLAGS) -fPIC -c $< -o $@
 
-$(NATIVE_BUILD)/nilamp_gui.pic.o: $(NATIVE_DIR)/src/nilamp_gui.c $(NATIVE_DIR)/src/nilamp_gui.h $(NATIVE_DIR)/src/nilamp_gui_edit.h $(NATIVE_FONT_H) | $(NATIVE_BUILD)
+$(NATIVE_BUILD)/nilamp_gui_input.o: $(NATIVE_DIR)/src/nilamp_gui_input.c $(NATIVE_DIR)/src/nilamp_gui_input.h | $(NATIVE_BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(NATIVE_BUILD)/nilamp_gui_input.pic.o: $(NATIVE_DIR)/src/nilamp_gui_input.c $(NATIVE_DIR)/src/nilamp_gui_input.h | $(NATIVE_BUILD)
+	$(CC) $(CFLAGS) -fPIC -c $< -o $@
+
+$(NATIVE_BUILD)/nilamp_gui.pic.o: $(NATIVE_DIR)/src/nilamp_gui.c $(NATIVE_DIR)/src/nilamp_gui.h $(NATIVE_DIR)/src/nilamp_gui_edit.h $(NATIVE_DIR)/src/nilamp_gui_input.h $(NATIVE_FONT_H) | $(NATIVE_BUILD)
 	$(CC) $(GUI_CFLAGS) -fPIC -c $< -o $@
 
 $(NATIVE_BUILD)/nilamp_font_0xproto.pic.o: $(NATIVE_FONT_C) $(NATIVE_FONT_H) | $(NATIVE_BUILD)
@@ -429,10 +436,10 @@ $(CLAP_PLUGIN): $(NATIVE_BUILD)/nilamp_clap.o $(NATIVE_PIC_OBJS) $(NATIVE_GUI_OB
 endif
 
 ifeq ($(UNAME_S),Linux)
-$(NATIVE_BUILD)/nilamp_vst3.o: $(NATIVE_DIR)/src/nilamp_vst3.mm $(NATIVE_DIR)/src/nilamp_host.h $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_DIR)/src/nilamp_gui.h | $(NATIVE_BUILD)
+$(NATIVE_BUILD)/nilamp_vst3.o: $(NATIVE_DIR)/src/nilamp_vst3.mm $(NATIVE_DIR)/src/nilamp_host.h $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_DIR)/src/nilamp_gui.h $(NATIVE_DIR)/src/nilamp_gui_input.h $(NATIVE_DIR)/src/nilamp_vst3_keys.h | $(NATIVE_BUILD)
 	$(CXX) $(VST3_PLUGIN_CXXFLAGS) -x c++ -c $< -o $@
 else
-$(NATIVE_BUILD)/nilamp_vst3.o: $(NATIVE_DIR)/src/nilamp_vst3.mm $(NATIVE_DIR)/src/nilamp_host.h $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_DIR)/src/nilamp_gui.h | $(NATIVE_BUILD)
+$(NATIVE_BUILD)/nilamp_vst3.o: $(NATIVE_DIR)/src/nilamp_vst3.mm $(NATIVE_DIR)/src/nilamp_host.h $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_DIR)/src/nilamp_gui.h $(NATIVE_DIR)/src/nilamp_gui_input.h $(NATIVE_DIR)/src/nilamp_vst3_keys.h | $(NATIVE_BUILD)
 	$(OBJCXX) $(VST3_PLUGIN_CXXFLAGS) -c $< -o $@
 endif
 
@@ -545,10 +552,10 @@ $(NATIVE_BUILD)/test_native.o: $(NATIVE_DIR)/tests/test_native.c $(NATIVE_DIR)/s
 $(NATIVE_BIN)/test_native: $(NATIVE_BUILD)/test_native.o $(NATIVE_DSP_TEST_OBJS) | $(NATIVE_BIN)
 	$(CC) $(LDFLAGS) $^ $(LDLIBS) -o $@
 
-$(NATIVE_BUILD)/test_gui_edit.o: $(NATIVE_DIR)/tests/test_gui_edit.c $(NATIVE_DIR)/src/nilamp_gui_edit.h | $(NATIVE_BUILD)
+$(NATIVE_BUILD)/test_gui_edit.o: $(NATIVE_DIR)/tests/test_gui_edit.c $(NATIVE_DIR)/src/nilamp_gui_edit.h $(NATIVE_DIR)/src/nilamp_gui_input.h | $(NATIVE_BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(NATIVE_BIN)/test_gui_edit: $(NATIVE_BUILD)/test_gui_edit.o $(NATIVE_BUILD)/nilamp_gui_edit.o | $(NATIVE_BIN)
+$(NATIVE_BIN)/test_gui_edit: $(NATIVE_BUILD)/test_gui_edit.o $(NATIVE_BUILD)/nilamp_gui_edit.o $(NATIVE_BUILD)/nilamp_gui_input.o | $(NATIVE_BIN)
 	$(CC) $(LDFLAGS) $^ $(LDLIBS) -o $@
 
 $(NATIVE_BUILD)/bench_native.o: $(NATIVE_DIR)/tests/bench_native.c $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_DIR)/src/nilamp_cpu.h | $(NATIVE_BUILD)
@@ -589,7 +596,7 @@ $(NATIVE_BUILD)/test_clap_load.o: $(NATIVE_DIR)/tests/test_clap_load.c $(NATIVE_
 $(NATIVE_BIN)/test_clap_load: $(NATIVE_BUILD)/test_clap_load.o $(NATIVE_OBJS) | $(NATIVE_BIN)
 	$(CC) $(LDFLAGS) $^ $(LDLIBS) $(DL_LDLIBS) -o $@
 
-$(NATIVE_BUILD)/test_vst3_load.o: $(NATIVE_DIR)/tests/test_vst3_load.mm $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_DIR)/src/nilamp_gui.h $(NATIVE_DIR)/src/nilamp_host.h | $(NATIVE_BUILD)
+$(NATIVE_BUILD)/test_vst3_load.o: $(NATIVE_DIR)/tests/test_vst3_load.mm $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_DIR)/src/nilamp_gui.h $(NATIVE_DIR)/src/nilamp_host.h $(NATIVE_DIR)/src/nilamp_vst3_keys.h | $(NATIVE_BUILD)
 ifeq ($(UNAME_S),Linux)
 	$(CXX) $(TEST_VST3_CXXFLAGS) -x c++ -c $< -o $@
 else

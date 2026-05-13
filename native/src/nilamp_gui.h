@@ -3,6 +3,7 @@
 #define NILAMP_GUI_H
 
 #include "nilamp_dsp.h"
+#include "nilamp_gui_input.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -76,6 +77,8 @@ bool nilamp_gui_get_size(const NilampGui *gui, uint32_t *width, uint32_t *height
 bool nilamp_gui_set_size(NilampGui *gui, uint32_t width, uint32_t height);
 bool nilamp_gui_is_visible(const NilampGui *gui);
 bool nilamp_gui_captures_keyboard(const NilampGui *gui);
+bool nilamp_gui_handle_host_key(NilampGui *gui, NilampGuiInputKey key, bool down);
+bool nilamp_gui_handle_host_text(NilampGui *gui, uint32_t codepoint);
 bool nilamp_gui_wants_fast_pump(const NilampGui *gui);
 bool nilamp_gui_start_frame_timer(NilampGui *gui, double interval_seconds);
 void nilamp_gui_stop_frame_timer(NilampGui *gui);

@@ -673,6 +673,96 @@ static void nilamp_gui_clear_transient_input(NilampGui *gui)
     gui->scroll_y = 0.0f;
 }
 
+static bool nilamp_gui_widget_key_to_nuklear(NilampGuiInputWidgetKey key,
+                                             enum nk_keys *out_key)
+{
+    if (!out_key) {
+        return false;
+    }
+    switch (key) {
+    case NILAMP_GUI_INPUT_WIDGET_KEY_BACKSPACE:
+        *out_key = NK_KEY_BACKSPACE;
+        return true;
+    case NILAMP_GUI_INPUT_WIDGET_KEY_DELETE:
+        *out_key = NK_KEY_DEL;
+        return true;
+    case NILAMP_GUI_INPUT_WIDGET_KEY_ENTER:
+        *out_key = NK_KEY_ENTER;
+        return true;
+    case NILAMP_GUI_INPUT_WIDGET_KEY_TAB:
+        *out_key = NK_KEY_TAB;
+        return true;
+    case NILAMP_GUI_INPUT_WIDGET_KEY_LEFT:
+        *out_key = NK_KEY_LEFT;
+        return true;
+    case NILAMP_GUI_INPUT_WIDGET_KEY_RIGHT:
+        *out_key = NK_KEY_RIGHT;
+        return true;
+    case NILAMP_GUI_INPUT_WIDGET_KEY_UP:
+        *out_key = NK_KEY_UP;
+        return true;
+    case NILAMP_GUI_INPUT_WIDGET_KEY_DOWN:
+        *out_key = NK_KEY_DOWN;
+        return true;
+    case NILAMP_GUI_INPUT_WIDGET_KEY_HOME:
+        *out_key = NK_KEY_TEXT_LINE_START;
+        return true;
+    case NILAMP_GUI_INPUT_WIDGET_KEY_END:
+        *out_key = NK_KEY_TEXT_LINE_END;
+        return true;
+    case NILAMP_GUI_INPUT_WIDGET_KEY_NONE:
+    default:
+        *out_key = NK_KEY_NONE;
+        return false;
+    }
+}
+
+bool nilamp_gui_handle_host_key(NilampGui *gui, NilampGuiInputKey key, bool down)
+{
+    if (!gui || key == NILAMP_GUI_INPUT_KEY_UNKNOWN) {
+        return false;
+    }
+
+    const NilampGuiInputKeyEffect effect =
+        nilamp_gui_input_key_effect(key, down, gui->active_edit >= 0);
+    if (effect.key_backspace) {
+        gui->key_backspace = true;
+        nilamp_gui_log("key_backspace active_edit=%d", gui->active_edit);
+    }
+    if (effect.key_delete) {
+        nilamp_gui_log("key_delete_ignored active_edit=%d", gui->active_edit);
+    }
+    gui->key_enter = gui->key_enter || effect.key_enter;
+    gui->key_escape = gui->key_escape || effect.key_escape;
+    gui->key_left = gui->key_left || effect.key_left;
+    gui->key_right = gui->key_right || effect.key_right;
+    gui->key_home = gui->key_home || effect.key_home;
+    gui->key_end = gui->key_end || effect.key_end;
+
+    enum nk_keys nk_key = NK_KEY_NONE;
+    if (effect.widget_key_valid &&
+        nilamp_gui_widget_key_to_nuklear(effect.widget_key, &nk_key) && nk_key >= 0 &&
+        nk_key < NK_KEY_MAX) {
+        gui->key_down[nk_key] = effect.widget_key_down;
+    }
+
+    if (effect.handled) {
+        nilamp_gui_request_redraw(gui);
+    }
+    return effect.handled;
+}
+
+bool nilamp_gui_handle_host_text(NilampGui *gui, uint32_t codepoint)
+{
+    if (!gui || !nilamp_gui_input_append_text(gui->text_input,
+                                              NILAMP_GUI_TEXT_INPUT_LEN,
+                                              &gui->text_input_len, codepoint)) {
+        return false;
+    }
+    nilamp_gui_request_redraw(gui);
+    return true;
+}
+
 static float nilamp_gui_minf(float a, float b)
 {
     return a < b ? a : b;
@@ -2184,93 +2274,65 @@ static PuglStatus nilamp_gui_event(PuglView *view, const PuglEvent *event)
     case PUGL_KEY_PRESS:
     case PUGL_KEY_RELEASE: {
         const bool down = event->type == PUGL_KEY_PRESS;
-        const bool editing = gui->active_edit >= 0;
-        enum nk_keys key = NK_KEY_NONE;
+        NilampGuiInputKey key = NILAMP_GUI_INPUT_KEY_UNKNOWN;
         switch (event->key.key) {
         case PUGL_KEY_BACKSPACE:
-            key = NK_KEY_BACKSPACE;
-            if (down && editing) {
-                gui->key_backspace = true;
-                nilamp_gui_log("key_backspace active_edit=%d", gui->active_edit);
-            }
+            key = NILAMP_GUI_INPUT_KEY_BACKSPACE;
             break;
         case PUGL_KEY_DELETE:
         case PUGL_KEY_PAD_DELETE:
-            key = NK_KEY_DEL;
-            if (down && editing) {
-                nilamp_gui_log("key_delete_ignored active_edit=%d", gui->active_edit);
-            }
+            key = NILAMP_GUI_INPUT_KEY_DELETE;
             break;
         case PUGL_KEY_ENTER:
         case PUGL_KEY_PAD_ENTER:
-            key = NK_KEY_ENTER;
-            if (down && editing) {
-                gui->key_enter = true;
-            }
+            key = NILAMP_GUI_INPUT_KEY_ENTER;
             break;
         case PUGL_KEY_ESCAPE:
-            if (down) {
-                gui->key_escape = true;
-            }
+            key = NILAMP_GUI_INPUT_KEY_ESCAPE;
             break;
         case PUGL_KEY_TAB:
-            key = NK_KEY_TAB;
+            key = NILAMP_GUI_INPUT_KEY_TAB;
             break;
         case PUGL_KEY_LEFT:
-            key = NK_KEY_LEFT;
-            if (down && editing) {
-                gui->key_left = true;
-            }
+            key = NILAMP_GUI_INPUT_KEY_LEFT;
             break;
         case PUGL_KEY_RIGHT:
-            key = NK_KEY_RIGHT;
-            if (down && editing) {
-                gui->key_right = true;
-            }
+            key = NILAMP_GUI_INPUT_KEY_RIGHT;
             break;
         case PUGL_KEY_UP:
-            key = NK_KEY_UP;
+            key = NILAMP_GUI_INPUT_KEY_UP;
             break;
         case PUGL_KEY_DOWN:
-            key = NK_KEY_DOWN;
+            key = NILAMP_GUI_INPUT_KEY_DOWN;
             break;
         case PUGL_KEY_HOME:
-            key = NK_KEY_TEXT_LINE_START;
-            if (down && editing) {
-                gui->key_home = true;
-            }
+            key = NILAMP_GUI_INPUT_KEY_HOME;
             break;
         case PUGL_KEY_END:
-            key = NK_KEY_TEXT_LINE_END;
-            if (down && editing) {
-                gui->key_end = true;
-            }
+            key = NILAMP_GUI_INPUT_KEY_END;
             break;
         case PUGL_KEY_SHIFT_L:
         case PUGL_KEY_SHIFT_R:
-            key = NK_KEY_SHIFT;
+            if (NK_KEY_SHIFT >= 0 && NK_KEY_SHIFT < NK_KEY_MAX) {
+                gui->key_down[NK_KEY_SHIFT] = down;
+                nilamp_gui_request_redraw(gui);
+            }
             break;
         case PUGL_KEY_CTRL_L:
         case PUGL_KEY_CTRL_R:
-            key = NK_KEY_CTRL;
+            if (NK_KEY_CTRL >= 0 && NK_KEY_CTRL < NK_KEY_MAX) {
+                gui->key_down[NK_KEY_CTRL] = down;
+                nilamp_gui_request_redraw(gui);
+            }
             break;
         default:
             break;
         }
-        if (key != NK_KEY_NONE && key >= 0 && key < NK_KEY_MAX) {
-            gui->key_down[key] = editing ? false : down;
-            nilamp_gui_request_redraw(gui);
-        }
+        (void)nilamp_gui_handle_host_key(gui, key, down);
         break;
     }
     case PUGL_TEXT:
-        if ((unsigned char)event->text.string[0] >= 32u &&
-            (unsigned char)event->text.string[0] <= 126u &&
-            gui->text_input_len + 1u < NILAMP_GUI_TEXT_INPUT_LEN) {
-            gui->text_input[gui->text_input_len++] = event->text.string[0];
-            gui->text_input[gui->text_input_len] = '\0';
-            nilamp_gui_request_redraw(gui);
-        }
+        (void)nilamp_gui_handle_host_text(gui, event->text.character);
         break;
     default:
         break;

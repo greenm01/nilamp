@@ -4,6 +4,7 @@
 #include "nilamp_gui.h"
 #include "nilamp_host.h"
 #include "nilamp_process_log.h"
+#include "nilamp_vst3_keys.h"
 
 #if !defined(__APPLE__)
 #include "base/source/timer.h"
@@ -1037,23 +1038,52 @@ tresult PLUGIN_API Editor::getSize(ViewRect *size)
 
 static bool nilamp_vst3_should_capture_key(const NilampGui *gui, int16 modifiers)
 {
-    if (!nilamp_gui_captures_keyboard(gui)) {
-        return false;
+    (void)modifiers;
+    return nilamp_gui_captures_keyboard(gui);
+}
+
+tresult PLUGIN_API Editor::onKeyDown(char16 key, int16 keyCode, int16 modifiers)
+{
+    if (!nilamp_vst3_should_capture_key(gui, modifiers)) {
+        return kResultFalse;
     }
-    const int16 host_shortcut_mods =
-        static_cast<int16>(Steinberg::kAlternateKey | Steinberg::kCommandKey |
-                           Steinberg::kControlKey);
-    return (modifiers & host_shortcut_mods) == 0;
+
+    bool handled = false;
+    const NilampGuiInputKey guiKey = nilamp_vst3_key_code_to_gui_key(keyCode);
+    if (guiKey != NILAMP_GUI_INPUT_KEY_UNKNOWN) {
+        handled = nilamp_gui_handle_host_key(gui, guiKey, true);
+    } else {
+        const char16 textKey = nilamp_vst3_text_char(key, keyCode);
+        if (nilamp_vst3_should_insert_text(textKey, modifiers)) {
+            handled = nilamp_gui_handle_host_text(gui, static_cast<uint32_t>(textKey));
+        } else if (nilamp_vst3_is_printable_ascii(textKey)) {
+            handled = true;
+        } else {
+            handled = true;
+        }
+    }
+
+    if (handled) {
+        requestFastPump("key");
+    }
+    return handled ? kResultTrue : kResultFalse;
 }
 
-tresult PLUGIN_API Editor::onKeyDown(char16, int16, int16 modifiers)
+tresult PLUGIN_API Editor::onKeyUp(char16, int16 keyCode, int16 modifiers)
 {
-    return nilamp_vst3_should_capture_key(gui, modifiers) ? kResultTrue : kResultFalse;
-}
+    if (!nilamp_vst3_should_capture_key(gui, modifiers)) {
+        return kResultFalse;
+    }
 
-tresult PLUGIN_API Editor::onKeyUp(char16, int16, int16 modifiers)
-{
-    return nilamp_vst3_should_capture_key(gui, modifiers) ? kResultTrue : kResultFalse;
+    const NilampGuiInputKey guiKey = nilamp_vst3_key_code_to_gui_key(keyCode);
+    if (guiKey == NILAMP_GUI_INPUT_KEY_UNKNOWN) {
+        return kResultTrue;
+    }
+    const bool handled = nilamp_gui_handle_host_key(gui, guiKey, false);
+    if (handled) {
+        requestFastPump("key");
+    }
+    return handled ? kResultTrue : kResultFalse;
 }
 
 tresult PLUGIN_API Editor::onSize(ViewRect *newSize)

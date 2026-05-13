@@ -2,6 +2,7 @@
 #include "nilamp_dsp.h"
 #include "nilamp_gui.h"
 #include "nilamp_host.h"
+#include "nilamp_vst3_keys.h"
 
 #include "pluginterfaces/base/ibstream.h"
 #include "pluginterfaces/base/ipluginbase.h"
@@ -392,9 +393,54 @@ static void renderReferenceMonoAfterWarmup(float gainDb, const float *input,
     nilamp_engine_destroy(engine);
 }
 
+static void checkVst3KeyTranslation(void)
+{
+    check(nilamp_vst3_key_code_to_gui_key(KEY_BACK) ==
+              NILAMP_GUI_INPUT_KEY_BACKSPACE,
+          "VST3 backspace key translation failed");
+    check(nilamp_vst3_key_code_to_gui_key(KEY_DELETE) ==
+              NILAMP_GUI_INPUT_KEY_DELETE,
+          "VST3 delete key translation failed");
+    check(nilamp_vst3_key_code_to_gui_key(KEY_RETURN) ==
+              NILAMP_GUI_INPUT_KEY_ENTER,
+          "VST3 return key translation failed");
+    check(nilamp_vst3_key_code_to_gui_key(KEY_ENTER) ==
+              NILAMP_GUI_INPUT_KEY_ENTER,
+          "VST3 enter key translation failed");
+    check(nilamp_vst3_key_code_to_gui_key(KEY_ESCAPE) ==
+              NILAMP_GUI_INPUT_KEY_ESCAPE,
+          "VST3 escape key translation failed");
+    check(nilamp_vst3_key_code_to_gui_key(KEY_TAB) == NILAMP_GUI_INPUT_KEY_TAB,
+          "VST3 tab key translation failed");
+    check(nilamp_vst3_key_code_to_gui_key(KEY_LEFT) == NILAMP_GUI_INPUT_KEY_LEFT,
+          "VST3 left key translation failed");
+    check(nilamp_vst3_key_code_to_gui_key(KEY_RIGHT) == NILAMP_GUI_INPUT_KEY_RIGHT,
+          "VST3 right key translation failed");
+    check(nilamp_vst3_key_code_to_gui_key(KEY_HOME) == NILAMP_GUI_INPUT_KEY_HOME,
+          "VST3 home key translation failed");
+    check(nilamp_vst3_key_code_to_gui_key(KEY_END) == NILAMP_GUI_INPUT_KEY_END,
+          "VST3 end key translation failed");
+    check(nilamp_vst3_key_code_to_gui_key(KEY_SPACE) ==
+              NILAMP_GUI_INPUT_KEY_UNKNOWN,
+          "VST3 space should be printable text, not a navigation key");
+    check(nilamp_vst3_text_char(0, KEY_SPACE) == ' ',
+          "VST3 keycode space text fallback failed");
+    check(nilamp_vst3_should_insert_text('7', 0), "VST3 digit text rejected");
+    check(nilamp_vst3_should_insert_text(' ', 0), "VST3 space text rejected");
+    check(nilamp_vst3_should_insert_text('.', kShiftKey),
+          "VST3 shifted printable text rejected");
+    check(!nilamp_vst3_should_insert_text('7', kCommandKey),
+          "VST3 command shortcut inserted text");
+    check(!nilamp_vst3_should_insert_text('7', kControlKey),
+          "VST3 control shortcut inserted text");
+    check(!nilamp_vst3_should_insert_text('\n', 0),
+          "VST3 control character inserted text");
+}
+
 int main(int argc, char **argv)
 {
     check(argc == 2, "usage: test_vst3_load /path/to/plugin.vst3");
+    checkVst3KeyTranslation();
 
 #if defined(__APPLE__)
     CFStringRef path = CFStringCreateWithCString(kCFAllocatorDefault, argv[1],
