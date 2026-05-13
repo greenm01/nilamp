@@ -40,9 +40,21 @@ TEST_CLAP_NAME_DEFINE="/DNILAMP_EXPECT_CLAP_NAME=\"nilamp TWD MKII\""
 VST3_NAME_DEFINE="/DNILAMP_VST3_NAME=\"nilamp TWD MKII\""
 NILAMP_RELEASE_DEFINE="/DNILAMP_RELEASE_VERSION=\"$(RELEASE_VERSION)\""
 
-NATIVE_OBJS= \
+NATIVE_DSP_OBJS= \
 	$(NATIVE_BUILD)\nilamp_dsp.obj \
+	$(NATIVE_BUILD)\nilamp_topologies.obj \
+	$(NATIVE_BUILD)\nilamp_topology_tweed_5e3_pp.obj \
+	$(NATIVE_BUILD)\nilamp_tables.obj
+
+NATIVE_OBJS= \
+	$(NATIVE_DSP_OBJS) \
 	$(NATIVE_BUILD)\nilamp_host.obj \
+	$(NATIVE_BUILD)\nilamp_process_log.obj
+
+NATIVE_DSP_TEST_OBJS= \
+	$(NATIVE_BUILD)\nilamp_dsp_test.obj \
+	$(NATIVE_BUILD)\nilamp_topologies_test.obj \
+	$(NATIVE_BUILD)\nilamp_topology_tweed_5e3_pp_test.obj \
 	$(NATIVE_BUILD)\nilamp_tables.obj
 
 VST3_SDK_OBJS= \
@@ -144,11 +156,26 @@ $(NATIVE_BUILD)\nilamp_tables.obj: $(NATIVE_GENERATED)\nilamp_tables.c $(NATIVE_
 $(NATIVE_BUILD)\nilamp_dsp.obj: $(NATIVE_DIR)\src\nilamp_dsp.c $(NATIVE_DIR)\src\nilamp_dsp.h $(NATIVE_GENERATED)\nilamp_tables.h $(NATIVE_GENERATED)\nilamp_models.inc
 	cl $(BASE_CFLAGS) $(NILAMP_RELEASE_DEFINE) /c $(NATIVE_DIR)\src\nilamp_dsp.c /Fo$@
 
+$(NATIVE_BUILD)\nilamp_topologies.obj: $(NATIVE_DIR)\src\nilamp_topologies.c $(NATIVE_DIR)\src\nilamp_topologies.h $(NATIVE_DIR)\src\nilamp_dsp_internal.h $(NATIVE_DIR)\src\nilamp_dsp.h
+	cl $(BASE_CFLAGS) /c $(NATIVE_DIR)\src\nilamp_topologies.c /Fo$@
+
+$(NATIVE_BUILD)\nilamp_topology_tweed_5e3_pp.obj: $(NATIVE_DIR)\src\nilamp_topology_tweed_5e3_pp.c $(NATIVE_DIR)\src\nilamp_topologies.h $(NATIVE_DIR)\src\nilamp_dsp_internal.h $(NATIVE_DIR)\src\nilamp_dsp.h $(NATIVE_GENERATED)\nilamp_tables.h
+	cl $(BASE_CFLAGS) /c $(NATIVE_DIR)\src\nilamp_topology_tweed_5e3_pp.c /Fo$@
+
 $(NATIVE_BUILD)\nilamp_host.obj: $(NATIVE_DIR)\src\nilamp_host.c $(NATIVE_DIR)\src\nilamp_host.h $(NATIVE_DIR)\src\nilamp_dsp.h $(NATIVE_DIR)\src\nilamp_cpu.h $(NATIVE_DIR)\src\nilamp_compat.h
 	cl $(BASE_CFLAGS) /c $(NATIVE_DIR)\src\nilamp_host.c /Fo$@
 
+$(NATIVE_BUILD)\nilamp_process_log.obj: $(NATIVE_DIR)\src\nilamp_process_log.c $(NATIVE_DIR)\src\nilamp_process_log.h
+	cl $(BASE_CFLAGS) /c $(NATIVE_DIR)\src\nilamp_process_log.c /Fo$@
+
 $(NATIVE_BUILD)\nilamp_dsp_test.obj: $(NATIVE_DIR)\src\nilamp_dsp.c $(NATIVE_DIR)\src\nilamp_dsp.h $(NATIVE_GENERATED)\nilamp_tables.h $(NATIVE_GENERATED)\nilamp_models.inc
 	cl $(BASE_CFLAGS) $(NILAMP_RELEASE_DEFINE) /DNILAMP_ENABLE_TEST_API /c $(NATIVE_DIR)\src\nilamp_dsp.c /Fo$@
+
+$(NATIVE_BUILD)\nilamp_topologies_test.obj: $(NATIVE_DIR)\src\nilamp_topologies.c $(NATIVE_DIR)\src\nilamp_topologies.h $(NATIVE_DIR)\src\nilamp_dsp_internal.h $(NATIVE_DIR)\src\nilamp_dsp.h
+	cl $(BASE_CFLAGS) /DNILAMP_ENABLE_TEST_API /c $(NATIVE_DIR)\src\nilamp_topologies.c /Fo$@
+
+$(NATIVE_BUILD)\nilamp_topology_tweed_5e3_pp_test.obj: $(NATIVE_DIR)\src\nilamp_topology_tweed_5e3_pp.c $(NATIVE_DIR)\src\nilamp_topologies.h $(NATIVE_DIR)\src\nilamp_dsp_internal.h $(NATIVE_DIR)\src\nilamp_dsp.h $(NATIVE_GENERATED)\nilamp_tables.h
+	cl $(BASE_CFLAGS) /DNILAMP_ENABLE_TEST_API /c $(NATIVE_DIR)\src\nilamp_topology_tweed_5e3_pp.c /Fo$@
 
 $(NATIVE_BUILD)\nilamp_render.obj: $(NATIVE_DIR)\src\nilamp_render.c $(NATIVE_DIR)\src\nilamp_dsp.h $(NATIVE_DIR)\src\nilamp_cpu.h $(NATIVE_DIR)\src\nilamp_compat.h
 	cl $(BASE_CFLAGS) /c $(NATIVE_DIR)\src\nilamp_render.c /Fo$@
@@ -165,7 +192,7 @@ $(NATIVE_BIN)\nilamp_taps_render.exe: $(NATIVE_BUILD)\nilamp_taps_render.obj $(N
 $(NATIVE_BUILD)\test_native.obj: $(NATIVE_DIR)\tests\test_native.c $(NATIVE_DIR)\src\nilamp_dsp.h $(NATIVE_DIR)\src\nilamp_gui.h
 	cl $(BASE_CFLAGS) $(NILAMP_RELEASE_DEFINE) /DNILAMP_ENABLE_TEST_API /c $(NATIVE_DIR)\tests\test_native.c /Fo$@
 
-$(NATIVE_BIN)\test_native.exe: $(NATIVE_BUILD)\test_native.obj $(NATIVE_BUILD)\nilamp_dsp_test.obj $(NATIVE_BUILD)\nilamp_tables.obj
+$(NATIVE_BIN)\test_native.exe: $(NATIVE_BUILD)\test_native.obj $(NATIVE_DSP_TEST_OBJS)
 	link /nologo /out:$@ $**
 
 $(NATIVE_BUILD)\test_gui_edit.obj: $(NATIVE_DIR)\tests\test_gui_edit.c $(NATIVE_DIR)\src\nilamp_gui_edit.h $(NATIVE_DIR)\src\nilamp_gui_input.h

@@ -2313,17 +2313,13 @@ static PuglStatus nilamp_gui_event(PuglView *view, const PuglEvent *event)
             break;
         case PUGL_KEY_SHIFT_L:
         case PUGL_KEY_SHIFT_R:
-            if (NK_KEY_SHIFT >= 0 && NK_KEY_SHIFT < NK_KEY_MAX) {
-                gui->key_down[NK_KEY_SHIFT] = down;
-                nilamp_gui_request_redraw(gui);
-            }
+            gui->key_down[NK_KEY_SHIFT] = down;
+            nilamp_gui_request_redraw(gui);
             break;
         case PUGL_KEY_CTRL_L:
         case PUGL_KEY_CTRL_R:
-            if (NK_KEY_CTRL >= 0 && NK_KEY_CTRL < NK_KEY_MAX) {
-                gui->key_down[NK_KEY_CTRL] = down;
-                nilamp_gui_request_redraw(gui);
-            }
+            gui->key_down[NK_KEY_CTRL] = down;
+            nilamp_gui_request_redraw(gui);
             break;
         default:
             break;

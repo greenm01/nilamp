@@ -6,6 +6,11 @@
 #include <string.h>
 #include <time.h>
 
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#endif
+
 #define NILAMP_PROCESS_LOG_CAPACITY 65536u
 
 struct NilampProcessLog {
@@ -22,9 +27,21 @@ struct NilampProcessLog {
 
 static uint64_t nilamp_process_log_clock_now(void)
 {
+#if defined(_WIN32)
+    LARGE_INTEGER counter;
+    LARGE_INTEGER frequency;
+    if (!QueryPerformanceCounter(&counter) || !QueryPerformanceFrequency(&frequency) ||
+        frequency.QuadPart <= 0) {
+        return 0;
+    }
+    const uint64_t ticks = (uint64_t)counter.QuadPart;
+    const uint64_t hz = (uint64_t)frequency.QuadPart;
+    return (ticks / hz) * 1000000000ULL + ((ticks % hz) * 1000000000ULL) / hz;
+#else
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (uint64_t)ts.tv_sec * 1000000000ULL + (uint64_t)ts.tv_nsec;
+#endif
 }
 
 NilampProcessLog *nilamp_process_log_create(const char *plugin_kind)

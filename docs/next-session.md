@@ -2,6 +2,43 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: Windows v1.0.3 release package deploy
+
+**Context.** The GitHub `v1.0.3` release had the macOS package plus checksum
+files. This session built, signed, uploaded, and documented the Windows x64
+package.
+
+**Edit summary.**
+
+- Fixed Windows MSVC release build drift by adding the split topology and
+  process-log objects to `Makefile.msvc`.
+- Added a Windows `QueryPerformanceCounter` path for the optional process
+  logger and removed MSVC `/WX` constant-condition warnings in GUI modifier-key
+  handling.
+- Downloaded the current release `SHA256SUMS` into
+  `dist/release-v1.0.3-current` so the existing macOS hash was preserved.
+- Ran the Windows MSVC host-test build and `package-windows-release`, producing
+  `dist/nilamp-twd-mkii-v1.0.3-windows-x64.zip`, its `.asc` signature, and a
+  refreshed `SHA256SUMS`/`SHA256SUMS.asc`.
+- Uploaded the Windows ZIP, ZIP signature, `SHA256SUMS`, and `SHA256SUMS.asc`
+  to GitHub release `v1.0.3` with `gh release upload --clobber`.
+- Updated the `v1.0.3` GitHub release notes so the downloads, validation, and
+  install instructions list both macOS and Windows packages.
+
+**Verification.**
+
+- `nmake /nologo /f Makefile.msvc native-host-test package-windows-release`
+- Windows CLAP validator: 21 tests run, 17 passed, 0 failed, 4 skipped.
+- Windows VST3 validator: 47 tests passed, 0 failed.
+- Windows package contents verified with `tar -tf`: CLAP, VST3, `install.cmd`,
+  `README-Windows.txt`, and `LICENSE`.
+- Windows ZIP SHA-256:
+  `6c2288805253686ff544d9d5a42e1ac9c3586547e7ce1d0a37194b51fc536f1b`.
+- GPG reported `Good signature` for the Windows ZIP and `SHA256SUMS`; the
+  sandbox still returned nonzero status because the trustdb is not writable.
+- `gh release view v1.0.3` confirms the uploaded Windows ZIP is 1,316,229 bytes
+  and the refreshed `SHA256SUMS` is 206 bytes.
+
 ### Session: nilamp v1.0.3 macOS release
 
 **Context.** After the VST3 text-box keyboard capture fix was committed and
