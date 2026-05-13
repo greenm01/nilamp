@@ -37,7 +37,7 @@
 #define NILAMP_TEST_VST3_WINDOWS_BINARY "x86_64-win\\nilamp-twd-mkii.vst3"
 #endif
 #ifndef NILAMP_RELEASE_VERSION
-#define NILAMP_RELEASE_VERSION "1.0.2"
+#define NILAMP_RELEASE_VERSION "1.0.3"
 #endif
 
 using namespace Steinberg;

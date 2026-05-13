@@ -2,6 +2,33 @@
 
 ## SESSION LOG (most recent first)
 
+### Session: nilamp v1.0.3 macOS release
+
+**Context.** After the VST3 text-box keyboard capture fix was committed and
+pushed, the macOS release package needed to be bumped and published as
+`v1.0.3`.
+
+**Edit summary.**
+
+- Bumped Unix and Windows build defaults plus fallback native/test
+  `NILAMP_RELEASE_VERSION` strings to `1.0.3`.
+- Built the macOS CLAP/VST3 bundles and packaged
+  `dist/nilamp-twd-mkii-v1.0.3-macos.zip`.
+- Signed the ZIP and checksum file with the release GPG key.
+
+**Verification.**
+
+- `PATH="$PWD/.dev-tools/bin:$PATH" make native-host-test`; CLAP validator:
+  21 run, 18 passed, 0 failed, 3 skipped. VST3 validator: 47 passed, 0 failed.
+- `make package-macos-release`
+- `shasum -a 256 -c dist/SHA256SUMS`
+- `gpg --verify dist/nilamp-twd-mkii-v1.0.3-macos.zip.asc dist/nilamp-twd-mkii-v1.0.3-macos.zip`
+- `gpg --verify dist/SHA256SUMS.asc dist/SHA256SUMS`
+- Extracted ZIP contents include CLAP, VST3, `install.command`,
+  `README-macOS.txt`, and `LICENSE`; extracted CLAP/VST3 load smoke tests pass.
+- macOS ZIP SHA256:
+  `78cdb4d29fcac75c491881de6abf04de3ec4e5eb36c21b5285f305b6a3802ad1`.
+
 ### Session: REAPER Performance Meter CPU/FX CPU measurement
 
 **Context.** After CLAP/VST3 editor and wrapper optimizations, REAPER's visible

@@ -50,7 +50,7 @@
 #define NILAMP_EXPECT_CLAP_NAME "nilamp"
 #endif
 #ifndef NILAMP_RELEASE_VERSION
-#define NILAMP_RELEASE_VERSION "1.0.2"
+#define NILAMP_RELEASE_VERSION "1.0.3"
 #endif
 
 static const char *clap_library_path(const char *plugin_path, char *buffer, size_t buffer_size)

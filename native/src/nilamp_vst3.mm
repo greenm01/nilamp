@@ -43,7 +43,7 @@
 #endif
 
 #ifndef NILAMP_RELEASE_VERSION
-#define NILAMP_RELEASE_VERSION "1.0.2"
+#define NILAMP_RELEASE_VERSION "1.0.3"
 #endif
 
 namespace NilampVst3 {
