@@ -120,9 +120,14 @@ struct NilampGui {
     bool key_escape;
     bool key_backspace;
     bool key_delete;
+    bool key_left;
+    bool key_right;
+    bool key_home;
+    bool key_end;
     bool value_box_hovered;
     bool dropdown_hovered;
     bool edit_replace_on_type;
+    size_t edit_cursor;
     int active_knob;
     int active_edit;
     int active_gesture;
@@ -169,6 +174,16 @@ static void nilamp_gui_log(const char *fmt, ...)
     va_end(args);
     fputc('\n', fp);
     fclose(fp);
+}
+
+static void nilamp_gui_grab_focus(NilampGui *gui, const char *reason)
+{
+    if (!gui || !gui->view) {
+        return;
+    }
+    const PuglStatus status = puglGrabFocus(gui->view);
+    nilamp_gui_log("grab_focus reason=%s status=%s",
+                   reason ? reason : "(none)", puglStrerror(status));
 }
 
 static float nilamp_gui_clampf(float value, float min_value, float max_value)
@@ -657,6 +672,10 @@ static void nilamp_gui_clear_transient_input(NilampGui *gui)
     gui->key_escape = false;
     gui->key_backspace = false;
     gui->key_delete = false;
+    gui->key_left = false;
+    gui->key_right = false;
+    gui->key_home = false;
+    gui->key_end = false;
     gui->scroll_x = 0.0f;
     gui->scroll_y = 0.0f;
 }
@@ -664,6 +683,39 @@ static void nilamp_gui_clear_transient_input(NilampGui *gui)
 static float nilamp_gui_minf(float a, float b)
 {
     return a < b ? a : b;
+}
+
+static float nilamp_gui_maxf(float a, float b)
+{
+    return a > b ? a : b;
+}
+
+static float nilamp_gui_font_height(const struct nk_context *ctx)
+{
+    return ctx && ctx->style.font ? ctx->style.font->height : 24.0f;
+}
+
+static float nilamp_gui_line_height(const struct nk_context *ctx, float s)
+{
+    return nilamp_gui_maxf(nilamp_gui_font_height(ctx) + 4.0f * s, 18.0f * s);
+}
+
+static float nilamp_gui_box_height(const struct nk_context *ctx, float s)
+{
+    return nilamp_gui_maxf(nilamp_gui_font_height(ctx) + 6.0f * s, 19.0f * s);
+}
+
+static float nilamp_gui_text_width(const struct nk_context *ctx, const char *text)
+{
+    const struct nk_user_font *font = ctx ? ctx->style.font : NULL;
+    if (!font || !font->width || !text) {
+        return 0.0f;
+    }
+    int len = 0;
+    while (len < (int)NILAMP_GUI_TEXT_INPUT_LEN && text[len] != '\0') {
+        len++;
+    }
+    return len > 0 ? font->width(font->userdata, font->height, text, len) : 0.0f;
 }
 
 static struct nk_rect nilamp_gui_scale_rect(float sx, float sy, float x, float y,
@@ -722,16 +774,20 @@ static void nilamp_gui_draw_text(struct nk_context *ctx, struct nk_command_buffe
 static void nilamp_gui_draw_panel(struct nk_context *ctx, struct nk_command_buffer *canvas,
                                   struct nk_rect bounds,
                                   const char *caption, struct nk_color fill,
-                                  struct nk_color border, struct nk_color gold)
+                                  struct nk_color border, struct nk_color gold,
+                                  float s)
 {
     nk_fill_rect(canvas, bounds, 8.0f, fill);
     nk_stroke_rect(canvas, bounds, 8.0f, 1.0f, border);
     if (caption) {
-        const struct nk_rect strip = nk_rect(bounds.x, bounds.y + bounds.h - 20.0f,
-                                            bounds.w, 20.0f);
+        const float strip_h = nilamp_gui_line_height(ctx, s) + 2.0f * s;
+        const float pad_y = 3.0f * s;
+        const struct nk_rect strip = nk_rect(bounds.x, bounds.y + bounds.h - strip_h,
+                                            bounds.w, strip_h);
         nk_stroke_line(canvas, strip.x, strip.y, strip.x + strip.w, strip.y, 1.0f, border);
         nilamp_gui_draw_text(ctx, canvas,
-                             nk_rect(strip.x, strip.y + 3.0f, strip.w, strip.h - 4.0f),
+                             nk_rect(strip.x, strip.y + pad_y, strip.w,
+                                     strip.h - pad_y * 2.0f),
                              caption, gold, true);
     }
 }
@@ -741,6 +797,7 @@ static void nilamp_gui_begin_edit(NilampGui *gui, uint32_t index)
     if (!gui || index >= gui->param_count || index >= NILAMP_GUI_MAX_PARAMS) {
         return;
     }
+    nilamp_gui_grab_focus(gui, "begin_edit");
     for (uint32_t i = 0; i < gui->param_count && i < NILAMP_GUI_MAX_PARAMS; i++) {
         gui->model.edit_active[i] = false;
     }
@@ -750,6 +807,10 @@ static void nilamp_gui_begin_edit(NilampGui *gui, uint32_t index)
     nilamp_gui_format_edit_value(&gui->params[index], gui->model.param_values[index],
                                  gui->model.edit_text[index],
                                  sizeof(gui->model.edit_text[index]));
+    gui->edit_cursor =
+        nilamp_gui_bounded_strlen(gui->model.edit_text[index], NILAMP_GUI_EDIT_TEXT_LEN);
+    nilamp_gui_log("begin_edit index=%u param=%u text=%s", index,
+                   gui->params[index].id, gui->model.edit_text[index]);
 }
 
 static void nilamp_gui_end_edit(NilampGui *gui, bool commit, NilampGuiMsg *outbox,
@@ -790,7 +851,10 @@ static void nilamp_gui_end_edit(NilampGui *gui, bool commit, NilampGuiMsg *outbo
     gui->model.edit_active[index] = false;
     gui->active_edit = -1;
     gui->edit_replace_on_type = false;
+    gui->edit_cursor = 0u;
     nilamp_gui_sync_edit_text(gui, index);
+    nilamp_gui_log("end_edit index=%u param=%u commit=%d raw=%.9g",
+                   index, param->id, commit ? 1 : 0, raw);
 }
 
 static bool nilamp_gui_edit_accepts_char(const NilampGuiParamSpec *param, char c)
@@ -832,14 +896,50 @@ static void nilamp_gui_update_active_edit(NilampGui *gui, NilampGuiMsg *outbox,
     text[NILAMP_GUI_EDIT_TEXT_LEN - 1u] = '\0';
     const NilampGuiParamSpec *param = &gui->params[gui->active_edit];
     size_t len = nilamp_gui_bounded_strlen(text, NILAMP_GUI_EDIT_TEXT_LEN);
+    if (gui->edit_cursor > len) {
+        gui->edit_cursor = len;
+    }
+    bool changed = false;
+    if (gui->key_home) {
+        gui->edit_cursor = 0u;
+        gui->edit_replace_on_type = false;
+    }
+    if (gui->key_end) {
+        gui->edit_cursor = len;
+        gui->edit_replace_on_type = false;
+    }
+    if (gui->key_left) {
+        if (gui->edit_cursor > 0u) {
+            gui->edit_cursor--;
+        }
+        gui->edit_replace_on_type = false;
+    }
+    if (gui->key_right) {
+        if (gui->edit_cursor < len) {
+            gui->edit_cursor++;
+        }
+        gui->edit_replace_on_type = false;
+    }
     if (gui->key_backspace || gui->key_delete) {
+        nilamp_gui_log("edit_key index=%d backspace=%d delete=%d len=%zu cursor=%zu replace=%d",
+                       gui->active_edit, gui->key_backspace ? 1 : 0,
+                       gui->key_delete ? 1 : 0, len, gui->edit_cursor,
+                       gui->edit_replace_on_type ? 1 : 0);
         if (gui->edit_replace_on_type) {
-            text[0] = '\0';
-            len = 0u;
             gui->edit_replace_on_type = false;
-        } else if (len > 0) {
-            text[len - 1u] = '\0';
+        }
+        if (gui->key_backspace && gui->edit_cursor > 0u) {
+            const size_t cursor = gui->edit_cursor;
+            memmove(&text[cursor - 1u], &text[cursor], len - cursor + 1u);
+            gui->edit_cursor--;
             len--;
+            changed = true;
+        }
+        if (gui->key_delete && gui->edit_cursor < len) {
+            const size_t cursor = gui->edit_cursor;
+            memmove(&text[cursor], &text[cursor + 1u], len - cursor);
+            len--;
+            changed = true;
         }
     }
     for (uint32_t i = 0; i < gui->text_input_len && i < NILAMP_GUI_TEXT_INPUT_LEN; i++) {
@@ -848,21 +948,32 @@ static void nilamp_gui_update_active_edit(NilampGui *gui, NilampGuiMsg *outbox,
             if (gui->edit_replace_on_type) {
                 text[0] = '\0';
                 len = 0u;
+                gui->edit_cursor = 0u;
                 gui->edit_replace_on_type = false;
             }
             if (len + 1u >= NILAMP_GUI_EDIT_TEXT_LEN) {
                 break;
             }
-            text[len++] = c;
+            const size_t cursor = gui->edit_cursor <= len ? gui->edit_cursor : len;
+            memmove(&text[cursor + 1u], &text[cursor], len - cursor + 1u);
+            text[cursor] = c;
+            gui->edit_cursor = cursor + 1u;
+            len++;
             text[len] = '\0';
+            changed = true;
         }
+    }
+    if (changed) {
+        gui->model.dirty = true;
+        nilamp_gui_log("edit_changed index=%d text=%s", gui->active_edit, text);
     }
 }
 
 static void nilamp_gui_value_box(NilampGui *gui, struct nk_context *ctx,
                                  struct nk_command_buffer *canvas, uint32_t index,
                                  struct nk_rect bounds, const char *unit,
-                                 NilampGuiMsg *outbox, uint32_t *outbox_count)
+                                 NilampGuiMsg *outbox, uint32_t *outbox_count,
+                                 float s)
 {
     if (!gui || !ctx || !canvas || index >= gui->param_count ||
         index >= NILAMP_GUI_MAX_PARAMS) {
@@ -883,12 +994,15 @@ static void nilamp_gui_value_box(NilampGui *gui, struct nk_context *ctx,
     const struct nk_color border = active ? nk_rgb(255, 205, 32) : nk_rgb(94, 116, 134);
     const struct nk_color fill = active ? nk_rgb(18, 29, 42) : nk_rgb(20, 33, 44);
     const struct nk_color text = active ? nk_rgb(255, 232, 116) : nk_rgb(255, 205, 32);
-    nk_fill_rect(canvas, bounds, 2.0f, fill);
-    nk_stroke_rect(canvas, bounds, 2.0f, 1.0f, border);
+    nk_fill_rect(canvas, bounds, 2.0f * s, fill);
+    nk_stroke_rect(canvas, bounds, 2.0f * s, 1.0f, border);
     gui->model.edit_text[index][NILAMP_GUI_EDIT_TEXT_LEN - 1u] = '\0';
     const char *box_text = gui->model.edit_text[index];
-    const struct nk_rect text_rect = nk_rect(bounds.x + 2.0f, bounds.y + 2.0f,
-                                            bounds.w - 4.0f, bounds.h - 3.0f);
+    const float pad_x = 4.0f * s;
+    const float pad_y = 3.0f * s;
+    const struct nk_rect text_rect = nk_rect(bounds.x + pad_x, bounds.y + pad_y,
+                                            bounds.w - pad_x * 2.0f,
+                                            bounds.h - pad_y * 2.0f);
     char display_text[NILAMP_GUI_EDIT_TEXT_LEN + 16u];
     if (unit && unit[0]) {
         (void)snprintf(display_text, sizeof(display_text), "%s %s", box_text, unit);
@@ -901,22 +1015,29 @@ static void nilamp_gui_value_box(NilampGui *gui, struct nk_context *ctx,
         const int len = (int)nilamp_gui_bounded_strlen(box_text, NILAMP_GUI_EDIT_TEXT_LEN);
         const int display_len =
             (int)nilamp_gui_bounded_strlen(display_text, sizeof(display_text));
+        const int cursor_len =
+            (int)(gui->edit_cursor < (size_t)len ? gui->edit_cursor : (size_t)len);
         float text_width = 0.0f;
         float display_width = 0.0f;
         if (font && font->width) {
-            text_width = font->width(font->userdata, font->height, box_text, len);
-            display_width = font->width(font->userdata, font->height,
-                                        display_text, display_len);
+            if (cursor_len > 0) {
+                text_width = font->width(font->userdata, font->height,
+                                         box_text, cursor_len);
+            }
+            if (display_len > 0) {
+                display_width = font->width(font->userdata, font->height,
+                                            display_text, display_len);
+            }
         }
         float text_x = text_rect.x;
         if (display_width < text_rect.w) {
             text_x += (text_rect.w - display_width) * 0.5f;
         }
         const float caret_x = nilamp_gui_clampf(text_x + text_width + 1.0f,
-                                                bounds.x + 4.0f,
-                                                bounds.x + bounds.w - 4.0f);
-        nk_stroke_line(canvas, caret_x, bounds.y + 4.0f, caret_x,
-                       bounds.y + bounds.h - 4.0f, 1.0f, text);
+                                                bounds.x + pad_x,
+                                                bounds.x + bounds.w - pad_x);
+        nk_stroke_line(canvas, caret_x, bounds.y + pad_y, caret_x,
+                       bounds.y + bounds.h - pad_y, 1.0f, text);
     }
 }
 
@@ -997,11 +1118,17 @@ static bool nilamp_gui_emit_param_value_once(NilampGui *gui, uint32_t index, flo
     return true;
 }
 
+static bool nilamp_gui_knob_has_bubble(NilampGuiKnobStyle knob_style)
+{
+    return knob_style == NILAMP_GUI_KNOB_PERCENT ||
+           knob_style == NILAMP_GUI_KNOB_GAIN_BIPOLAR;
+}
+
 static bool nilamp_gui_knob(NilampGui *gui, struct nk_context *ctx,
                             struct nk_command_buffer *canvas, uint32_t index,
                             struct nk_rect bounds, NilampGuiMsg *outbox,
                             uint32_t *outbox_count, float radius,
-                            NilampGuiKnobStyle knob_style)
+                            NilampGuiKnobStyle knob_style, float s)
 {
     if (!gui || !ctx || !canvas || index >= gui->param_count ||
         index >= NILAMP_GUI_MAX_PARAMS) {
@@ -1016,7 +1143,32 @@ static bool nilamp_gui_knob(NilampGui *gui, struct nk_context *ctx,
 
     float value = gui->model.param_values[index];
     const float cx = bounds.x + bounds.w * 0.5f;
-    const float cy = bounds.y + 50.0f;
+    const char *unit = NULL;
+    (void)nilamp_gui_display_box_value(param, value, &unit);
+    const char *box_text = gui->model.edit_text[index];
+    char display_text[NILAMP_GUI_EDIT_TEXT_LEN + 16u];
+    if (unit && unit[0]) {
+        (void)snprintf(display_text, sizeof(display_text), "%s %s", box_text, unit);
+    } else {
+        (void)snprintf(display_text, sizeof(display_text), "%s", box_text);
+    }
+    const float label_h = nilamp_gui_line_height(ctx, s);
+    const float box_h = nilamp_gui_box_height(ctx, s);
+    const float wanted_box_w = nilamp_gui_text_width(ctx, display_text) + 12.0f * s;
+    const float max_box_w = nilamp_gui_maxf(20.0f * s, bounds.w - 8.0f * s);
+    const float box_w = fminf(max_box_w, nilamp_gui_maxf(54.0f * s, wanted_box_w));
+    const struct nk_rect edit_rect =
+        nk_rect(cx - box_w * 0.5f, bounds.y + bounds.h - box_h - 7.0f * s,
+                box_w, box_h);
+    const float label_bottom = bounds.y + label_h;
+    const float box_top = edit_rect.y;
+    float cy = (label_bottom + box_top) * 0.5f;
+    const float knob_gap = 2.0f * s;
+    const float min_cy = label_bottom + radius + knob_gap;
+    const float max_cy = box_top - radius - knob_gap;
+    if (max_cy >= min_cy) {
+        cy = nilamp_gui_clampf(cy, min_cy, max_cy);
+    }
     const struct nk_rect circle = nk_rect(cx - radius, cy - radius, radius * 2.0f,
                                           radius * 2.0f);
     const bool hovered = nk_input_is_mouse_hovering_rect(&ctx->input, bounds);
@@ -1057,14 +1209,15 @@ static bool nilamp_gui_knob(NilampGui *gui, struct nk_context *ctx,
     const struct nk_color edge = nk_rgb(94, 116, 134);
     const struct nk_color text = nk_rgb(255, 205, 32);
 
-    nilamp_gui_draw_text(ctx, canvas, nk_rect(bounds.x, bounds.y, bounds.w, 18.0f),
+    nilamp_gui_draw_text(ctx, canvas,
+                         nk_rect(bounds.x, bounds.y, bounds.w, label_h),
                          param->name, text, true);
 
     nk_fill_circle(canvas, nk_rect(circle.x + 2.0f, circle.y + 3.0f, circle.w, circle.h),
                    shadow);
     nk_fill_circle(canvas, circle, gui->active_knob == (int)index ? knob_hi : knob);
     nk_stroke_circle(canvas, circle, 1.0f, edge);
-    if (knob_style == NILAMP_GUI_KNOB_PERCENT) {
+    if (nilamp_gui_knob_has_bubble(knob_style)) {
         const float bubble_angle = 135.0f * NILAMP_GUI_DEG_TO_RAD;
         nk_fill_circle(canvas,
                        nk_rect(cx + cosf(bubble_angle) * radius * 0.78f - radius * 0.12f,
@@ -1097,32 +1250,30 @@ static bool nilamp_gui_knob(NilampGui *gui, struct nk_context *ctx,
     nk_stroke_line(canvas, x1, y1, x2, y2, 2.0f,
                    gui->active_knob == (int)index ? gold_hi : gold);
 
-    const char *unit = NULL;
-    (void)nilamp_gui_display_box_value(param, value, &unit);
-    const float box_w = 54.0f;
-    const struct nk_rect edit_rect =
-        nk_rect(cx - box_w * 0.5f, bounds.y + bounds.h - 26.0f, box_w, 19.0f);
-    nilamp_gui_value_box(gui, ctx, canvas, index, edit_rect, unit, outbox, outbox_count);
+    nilamp_gui_value_box(gui, ctx, canvas, index, edit_rect, unit, outbox, outbox_count,
+                         s);
     return hovered || gui->active_knob == (int)index;
 }
 
 static void nilamp_gui_dropdown_box(struct nk_context *ctx,
                                     struct nk_command_buffer *canvas,
                                     struct nk_rect bounds, const char *text,
-                                    bool hovered)
+                                    bool hovered, float s)
 {
     const struct nk_color fill = hovered ? nk_rgb(57, 84, 107) : nk_rgb(49, 76, 103);
     const struct nk_color border = nk_rgb(105, 123, 137);
     const struct nk_color gold = nk_rgb(255, 205, 32);
-    nk_fill_rect(canvas, bounds, 5.0f, fill);
-    nk_stroke_rect(canvas, bounds, 5.0f, 1.0f, border);
-    nilamp_gui_draw_text(ctx, canvas, nk_rect(bounds.x + 5.0f, bounds.y + 4.0f,
-                                             bounds.w - 19.0f, bounds.h - 7.0f),
+    nk_fill_rect(canvas, bounds, 5.0f * s, fill);
+    nk_stroke_rect(canvas, bounds, 5.0f * s, 1.0f, border);
+    nilamp_gui_draw_text(ctx, canvas, nk_rect(bounds.x + 5.0f * s, bounds.y + 4.0f * s,
+                                             bounds.w - 19.0f * s,
+                                             bounds.h - 7.0f * s),
                          text, gold, true);
-    const float ax = bounds.x + bounds.w - 13.0f;
+    const float ax = bounds.x + bounds.w - 13.0f * s;
     const float ay = bounds.y + bounds.h * 0.5f - 1.0f;
-    nk_fill_triangle(canvas, ax - 4.0f, ay - 2.0f, ax + 4.0f, ay - 2.0f,
-                     ax, ay + 3.0f, gold);
+    nk_fill_triangle(canvas, ax - 4.0f * s, ay - 2.0f * s,
+                     ax + 4.0f * s, ay - 2.0f * s,
+                     ax, ay + 3.0f * s, gold);
 }
 
 static void nilamp_gui_close_dropdown(NilampGui *gui);
@@ -1130,7 +1281,7 @@ static void nilamp_gui_close_dropdown(NilampGui *gui);
 static void nilamp_gui_enum_toggle(NilampGui *gui, struct nk_context *ctx,
                                    struct nk_command_buffer *canvas, uint32_t index,
                                    struct nk_rect bounds, NilampGuiMsg *outbox,
-                                   uint32_t *outbox_count)
+                                   uint32_t *outbox_count, float s)
 {
     if (!gui || !ctx || !canvas || index >= gui->param_count ||
         index >= NILAMP_GUI_MAX_PARAMS || !gui->params[index].enum_names ||
@@ -1148,17 +1299,19 @@ static void nilamp_gui_enum_toggle(NilampGui *gui, struct nk_context *ctx,
                                     (uint32_t)value :
                                     (uint32_t)lroundf(spec->default_value);
 
-    nilamp_gui_draw_text(ctx, canvas, nk_rect(bounds.x, bounds.y, bounds.w, 18.0f),
+    nilamp_gui_draw_text(ctx, canvas,
+                         nk_rect(bounds.x, bounds.y, bounds.w,
+                                 nilamp_gui_line_height(ctx, s)),
                          spec->name, gold, true);
 
-    const float track_w = fminf(bounds.w - 28.0f, 36.0f);
-    const float track_h = 14.0f;
+    const float track_w = fminf(bounds.w - 28.0f * s, 36.0f * s);
+    const float track_h = 14.0f * s;
     const struct nk_rect switch_rect =
-        nk_rect(bounds.x + (bounds.w - track_w) * 0.5f, bounds.y + 30.0f,
+        nk_rect(bounds.x + (bounds.w - track_w) * 0.5f, bounds.y + 30.0f * s,
                 track_w, track_h);
     const struct nk_rect hit_rect =
-        nk_rect(switch_rect.x - 6.0f, switch_rect.y - 8.0f,
-                switch_rect.w + 12.0f, switch_rect.h + 31.0f);
+        nk_rect(switch_rect.x - 6.0f * s, switch_rect.y - 8.0f * s,
+                switch_rect.w + 12.0f * s, switch_rect.h + 31.0f * s);
     const bool hovered = nk_input_is_mouse_hovering_rect(&ctx->input, hit_rect);
 
     nk_fill_rect(canvas, switch_rect, 1.0f, track);
@@ -1172,7 +1325,8 @@ static void nilamp_gui_enum_toggle(NilampGui *gui, struct nk_context *ctx,
                  1.0f, hovered ? gold_hi : gold);
 
     nilamp_gui_draw_text(ctx, canvas,
-                         nk_rect(bounds.x, bounds.y + 52.0f, bounds.w, 18.0f),
+                         nk_rect(bounds.x, bounds.y + 52.0f * s, bounds.w,
+                                 nilamp_gui_line_height(ctx, s)),
                          spec->enum_names[safe_value], gold, true);
 
     if (hovered && nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT)) {
@@ -1204,7 +1358,7 @@ static void nilamp_gui_close_dropdown(NilampGui *gui)
 static void nilamp_gui_enum_dropdown(NilampGui *gui, struct nk_context *ctx,
                                      struct nk_command_buffer *canvas, uint32_t index,
                                      struct nk_rect bounds, NilampGuiMsg *outbox,
-                                     uint32_t *outbox_count)
+                                     uint32_t *outbox_count, float s)
 {
     if (!gui || !ctx || !canvas || index >= gui->param_count ||
         index >= NILAMP_GUI_MAX_PARAMS || !gui->params[index].enum_names ||
@@ -1217,15 +1371,20 @@ static void nilamp_gui_enum_dropdown(NilampGui *gui, struct nk_context *ctx,
     const uint32_t safe_value = (value >= 0 && (uint32_t)value < spec->enum_count) ?
                                     (uint32_t)value :
                                     (uint32_t)lroundf(spec->default_value);
-    nilamp_gui_draw_text(ctx, canvas, nk_rect(bounds.x, bounds.y, bounds.w, 18.0f),
+    nilamp_gui_draw_text(ctx, canvas,
+                         nk_rect(bounds.x, bounds.y, bounds.w,
+                                 nilamp_gui_line_height(ctx, s)),
                          spec->name, gold, true);
+    const float selector_h = nilamp_gui_maxf(nilamp_gui_box_height(ctx, s), 25.0f * s);
     const struct nk_rect selector =
-        nk_rect(bounds.x + 4.0f, bounds.y + 47.0f, bounds.w - 8.0f, 25.0f);
+        nk_rect(bounds.x + 4.0f * s, bounds.y + 47.0f * s,
+                bounds.w - 8.0f * s, selector_h);
     const bool hovered = nk_input_is_mouse_hovering_rect(&ctx->input, selector);
     const bool is_open = gui->open_dropdown == NILAMP_GUI_DROPDOWN_ENUM &&
                          gui->open_dropdown_param == spec->id;
     gui->dropdown_hovered = gui->dropdown_hovered || hovered;
-    nilamp_gui_dropdown_box(ctx, canvas, selector, spec->enum_names[safe_value], hovered);
+    nilamp_gui_dropdown_box(ctx, canvas, selector, spec->enum_names[safe_value],
+                            hovered, s);
     if (hovered && nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT)) {
         if (gui->active_edit >= 0) {
             nilamp_gui_end_edit(gui, true, outbox, outbox_count);
@@ -1266,7 +1425,8 @@ static void nilamp_gui_draw_open_dropdown(NilampGui *gui, struct nk_context *ctx
     const struct nk_color fill_hover = nk_rgb(57, 84, 107);
     const struct nk_color border = nk_rgb(105, 123, 137);
     const struct nk_color gold = nk_rgb(255, 205, 32);
-    const float row_h = 23.0f;
+    const float row_h = nilamp_gui_maxf(nilamp_gui_font_height(ctx) + 8.0f,
+                                        gui->open_dropdown_selector.h);
     const float gap = 3.0f;
     const struct nk_rect selector = gui->open_dropdown_selector;
     const float list_h = row_h * (float)spec->enum_count;
@@ -1285,7 +1445,7 @@ static void nilamp_gui_draw_open_dropdown(NilampGui *gui, struct nk_context *ctx
             nk_fill_rect(canvas, item, 4.0f, fill_hover);
         }
         nilamp_gui_draw_text(ctx, canvas, nk_rect(item.x + 4.0f, item.y + 4.0f,
-                                                 item.w - 8.0f, item.h - 6.0f),
+                                                 item.w - 8.0f, item.h - 8.0f),
                              spec->enum_names[i], gold, true);
         if (item_hovered && nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT)) {
             (void)nilamp_gui_emit_param_value_once(gui, index, (float)i,
@@ -1450,7 +1610,7 @@ static void nilamp_gui_draw_layout_widget(NilampGui *gui, struct nk_context *ctx
         }
         break;
     case NILAMP_GUI_WIDGET_PANEL:
-        nilamp_gui_draw_panel(ctx, canvas, bounds, widget->label, panel, border, text);
+        nilamp_gui_draw_panel(ctx, canvas, bounds, widget->label, panel, border, text, s);
         break;
     case NILAMP_GUI_WIDGET_KNOB:
         indication_index = nilamp_gui_find_param_index(gui, widget->param_id);
@@ -1458,17 +1618,17 @@ static void nilamp_gui_draw_layout_widget(NilampGui *gui, struct nk_context *ctx
                               indication_index,
                               bounds, outbox, outbox_count,
                               widget->radius * s,
-                              nilamp_gui_knob_style_from_spec(widget->knob_display));
+                              nilamp_gui_knob_style_from_spec(widget->knob_display), s);
         break;
     case NILAMP_GUI_WIDGET_ENUM:
         indication_index = nilamp_gui_find_param_index(gui, widget->param_id);
         nilamp_gui_enum_dropdown(gui, ctx, canvas,
-                                  indication_index, bounds, outbox, outbox_count);
+                                  indication_index, bounds, outbox, outbox_count, s);
         break;
     case NILAMP_GUI_WIDGET_TOGGLE:
         indication_index = nilamp_gui_find_param_index(gui, widget->param_id);
         nilamp_gui_enum_toggle(gui, ctx, canvas,
-                               indication_index, bounds, outbox, outbox_count);
+                               indication_index, bounds, outbox, outbox_count, s);
         break;
     default:
         break;
@@ -1589,24 +1749,21 @@ static void nilamp_gui_build(NilampGui *gui, struct nk_context *ctx,
         }
 
         nilamp_gui_draw_panel(ctx, canvas, nilamp_gui_scale_rect(sx, sy, 10.0f, 43.0f, 93.0f, 139.0f),
-                              "Input", panel, border, gold);
+                              "Input", panel, border, gold, s);
         nilamp_gui_draw_panel(ctx, canvas, nilamp_gui_scale_rect(sx, sy, 400.0f, 43.0f, 93.0f, 139.0f),
-                              "Output", panel, border, gold);
+                              "Output", panel, border, gold, s);
         nilamp_gui_draw_panel(ctx, canvas, nilamp_gui_scale_rect(sx, sy, 10.0f, 189.0f, 381.0f, 138.0f),
-                              "Pre Amp", panel, border, gold);
+                              "Pre Amp", panel, border, gold, s);
         nilamp_gui_draw_panel(ctx, canvas, nilamp_gui_scale_rect(sx, sy, 400.0f, 189.0f, 93.0f, 138.0f),
-                              "Splitter", panel, border, gold);
+                              "Splitter", panel, border, gold, s);
 
         nilamp_gui_draw_text_with_font(
-            ctx, canvas, nilamp_gui_scale_rect(sx, sy, 0.0f, 73.0f, 500.0f, 50.0f),
+            ctx, canvas, nilamp_gui_scale_rect(sx, sy, 0.0f, 66.0f, 500.0f, 60.0f),
             "nilamp", gold, true,
             nilamp_gui_custom_font(gui, gui->font_title));
-        const char *model = gui->callbacks.model_name ?
-                                gui->callbacks.model_name(gui->callbacks.user) :
-                                "Keller TWD DLX II";
         nilamp_gui_draw_text_with_font(
-            ctx, canvas, nilamp_gui_scale_rect(sx, sy, 0.0f, 122.0f, 500.0f, 28.0f),
-            model, gold, true,
+            ctx, canvas, nilamp_gui_scale_rect(sx, sy, 0.0f, 124.0f, 500.0f, 40.0f),
+            "KELLER TWD DLX II", gold, true,
             nilamp_gui_custom_font(gui, gui->font_subtitle));
 
         const uint32_t input_gain = nilamp_gui_find_param_index(gui, NILAMP_PARAM_GAIN_DB);
@@ -1622,31 +1779,31 @@ static void nilamp_gui_build(NilampGui *gui, struct nk_context *ctx,
         (void)nilamp_gui_knob(gui, ctx, canvas, input_gain,
                               nilamp_gui_scale_rect(sx, sy, 24.0f, 60.0f, 66.0f, 104.0f),
                               outbox, outbox_count, small_radius,
-                              NILAMP_GUI_KNOB_GAIN_BIPOLAR);
+                              NILAMP_GUI_KNOB_GAIN_BIPOLAR, s);
         (void)nilamp_gui_knob(gui, ctx, canvas, output_gain,
                               nilamp_gui_scale_rect(sx, sy, 413.0f, 60.0f, 66.0f, 104.0f),
                               outbox, outbox_count, small_radius,
-                              NILAMP_GUI_KNOB_GAIN_BIPOLAR);
+                              NILAMP_GUI_KNOB_GAIN_BIPOLAR, s);
         nilamp_gui_enum_dropdown(gui, ctx, canvas, tube1,
                                   nilamp_gui_scale_rect(sx, sy, 21.0f, 207.0f,
                                                         76.0f, 104.0f),
-                                  outbox, outbox_count);
+                                  outbox, outbox_count, s);
         (void)nilamp_gui_knob(gui, ctx, canvas, volume,
                               nilamp_gui_scale_rect(sx, sy, 100.0f, 207.0f, 66.0f, 104.0f),
-                              outbox, outbox_count, pre_radius, NILAMP_GUI_KNOB_PERCENT);
+                              outbox, outbox_count, pre_radius, NILAMP_GUI_KNOB_PERCENT, s);
         (void)nilamp_gui_knob(gui, ctx, canvas, bass,
                               nilamp_gui_scale_rect(sx, sy, 176.0f, 207.0f, 66.0f, 104.0f),
-                              outbox, outbox_count, pre_radius, NILAMP_GUI_KNOB_PERCENT);
+                              outbox, outbox_count, pre_radius, NILAMP_GUI_KNOB_PERCENT, s);
         (void)nilamp_gui_knob(gui, ctx, canvas, mid,
                               nilamp_gui_scale_rect(sx, sy, 252.0f, 207.0f, 66.0f, 104.0f),
-                              outbox, outbox_count, pre_radius, NILAMP_GUI_KNOB_PERCENT);
+                              outbox, outbox_count, pre_radius, NILAMP_GUI_KNOB_PERCENT, s);
         (void)nilamp_gui_knob(gui, ctx, canvas, treble,
                               nilamp_gui_scale_rect(sx, sy, 328.0f, 207.0f, 66.0f, 104.0f),
-                              outbox, outbox_count, pre_radius, NILAMP_GUI_KNOB_PERCENT);
+                              outbox, outbox_count, pre_radius, NILAMP_GUI_KNOB_PERCENT, s);
         nilamp_gui_enum_dropdown(gui, ctx, canvas, splitter,
                                   nilamp_gui_scale_rect(sx, sy, 407.0f, 207.0f,
                                                         79.0f, 104.0f),
-                                  outbox, outbox_count);
+                                  outbox, outbox_count, s);
     } else if (gui->screen == NILAMP_GUI_SCREEN_OPTIONS) {
         nilamp_gui_draw_text(ctx, canvas,
                              nilamp_gui_scale_rect(sx, sy, 0.0f, 10.0f, 500.0f, 18.0f),
@@ -1668,61 +1825,61 @@ static void nilamp_gui_build(NilampGui *gui, struct nk_context *ctx,
         }
 
         nilamp_gui_draw_panel(ctx, canvas, nilamp_gui_scale_rect(sx, sy, 10.0f, 43.0f, 165.0f, 139.0f),
-                              "Tone Stack", panel, border, gold);
+                              "Tone Stack", panel, border, gold, s);
         nilamp_gui_draw_panel(ctx, canvas, nilamp_gui_scale_rect(sx, sy, 256.0f, 43.0f, 237.0f, 139.0f),
-                              "Speaker Inductor", panel, border, gold);
+                              "Speaker Inductor", panel, border, gold, s);
         nilamp_gui_draw_panel(ctx, canvas, nilamp_gui_scale_rect(sx, sy, 10.0f, 189.0f, 78.0f, 138.0f),
-                              "Power", panel, border, gold);
+                              "Power", panel, border, gold, s);
         nilamp_gui_draw_panel(ctx, canvas, nilamp_gui_scale_rect(sx, sy, 97.0f, 189.0f, 94.0f, 138.0f),
-                              "Gain", panel, border, gold);
+                              "Gain", panel, border, gold, s);
         nilamp_gui_draw_panel(ctx, canvas, nilamp_gui_scale_rect(sx, sy, 200.0f, 189.0f, 293.0f, 138.0f),
-                              "Speaker Resonance", panel, border, gold);
+                              "Speaker Resonance", panel, border, gold, s);
 
         const float radius = 23.0f * s;
         (void)nilamp_gui_knob(gui, ctx, canvas,
                               nilamp_gui_find_param_index(gui, NILAMP_PARAM_TONE_FMID_DBHZ),
                               nilamp_gui_scale_rect(sx, sy, 25.0f, 60.0f, 66.0f, 104.0f),
-                              outbox, outbox_count, radius, NILAMP_GUI_KNOB_PERCENT);
+                              outbox, outbox_count, radius, NILAMP_GUI_KNOB_PERCENT, s);
         (void)nilamp_gui_knob(gui, ctx, canvas,
                               nilamp_gui_find_param_index(gui, NILAMP_PARAM_TONE_QMID_DB),
                               nilamp_gui_scale_rect(sx, sy, 100.0f, 60.0f, 66.0f, 104.0f),
-                              outbox, outbox_count, radius, NILAMP_GUI_KNOB_PERCENT);
+                              outbox, outbox_count, radius, NILAMP_GUI_KNOB_PERCENT, s);
         (void)nilamp_gui_knob(gui, ctx, canvas,
                               nilamp_gui_find_param_index(gui, NILAMP_PARAM_SPK_IND_GAIN1_DB),
                               nilamp_gui_scale_rect(sx, sy, 280.0f, 60.0f, 66.0f, 104.0f),
-                              outbox, outbox_count, radius, NILAMP_GUI_KNOB_PERCENT);
+                              outbox, outbox_count, radius, NILAMP_GUI_KNOB_PERCENT, s);
         (void)nilamp_gui_knob(gui, ctx, canvas,
                               nilamp_gui_find_param_index(gui, NILAMP_PARAM_SPK_IND_GAIN2_DB),
                               nilamp_gui_scale_rect(sx, sy, 352.0f, 60.0f, 66.0f, 104.0f),
-                              outbox, outbox_count, radius, NILAMP_GUI_KNOB_PERCENT);
+                              outbox, outbox_count, radius, NILAMP_GUI_KNOB_PERCENT, s);
         (void)nilamp_gui_knob(gui, ctx, canvas,
                               nilamp_gui_find_param_index(gui, NILAMP_PARAM_SPK_IND_FIND_DBHZ),
                               nilamp_gui_scale_rect(sx, sy, 424.0f, 60.0f, 66.0f, 104.0f),
-                              outbox, outbox_count, radius, NILAMP_GUI_KNOB_PERCENT);
+                              outbox, outbox_count, radius, NILAMP_GUI_KNOB_PERCENT, s);
         (void)nilamp_gui_knob(gui, ctx, canvas,
                               nilamp_gui_find_param_index(gui, NILAMP_PARAM_SAG_PCT),
                               nilamp_gui_scale_rect(sx, sy, 16.0f, 207.0f, 66.0f, 104.0f),
-                              outbox, outbox_count, radius, NILAMP_GUI_KNOB_PERCENT);
+                              outbox, outbox_count, radius, NILAMP_GUI_KNOB_PERCENT, s);
         nilamp_gui_enum_dropdown(gui, ctx, canvas,
                                   nilamp_gui_find_param_index(gui, NILAMP_PARAM_GAIN_COMP),
                                   nilamp_gui_scale_rect(sx, sy, 101.0f, 207.0f, 86.0f, 104.0f),
-                                  outbox, outbox_count);
+                                  outbox, outbox_count, s);
         (void)nilamp_gui_knob(gui, ctx, canvas,
                               nilamp_gui_find_param_index(gui, NILAMP_PARAM_SPK_RES_GAIN1_DB),
                               nilamp_gui_scale_rect(sx, sy, 210.0f, 207.0f, 66.0f, 104.0f),
-                              outbox, outbox_count, radius, NILAMP_GUI_KNOB_PERCENT);
+                              outbox, outbox_count, radius, NILAMP_GUI_KNOB_PERCENT, s);
         (void)nilamp_gui_knob(gui, ctx, canvas,
                               nilamp_gui_find_param_index(gui, NILAMP_PARAM_SPK_RES_GAIN2_DB),
                               nilamp_gui_scale_rect(sx, sy, 282.0f, 207.0f, 66.0f, 104.0f),
-                              outbox, outbox_count, radius, NILAMP_GUI_KNOB_PERCENT);
+                              outbox, outbox_count, radius, NILAMP_GUI_KNOB_PERCENT, s);
         (void)nilamp_gui_knob(gui, ctx, canvas,
                               nilamp_gui_find_param_index(gui, NILAMP_PARAM_SPK_RES_FRES_DBHZ),
                               nilamp_gui_scale_rect(sx, sy, 354.0f, 207.0f, 66.0f, 104.0f),
-                              outbox, outbox_count, radius, NILAMP_GUI_KNOB_PERCENT);
+                              outbox, outbox_count, radius, NILAMP_GUI_KNOB_PERCENT, s);
         (void)nilamp_gui_knob(gui, ctx, canvas,
                               nilamp_gui_find_param_index(gui, NILAMP_PARAM_SPK_RES_QTS_DB),
                               nilamp_gui_scale_rect(sx, sy, 426.0f, 207.0f, 66.0f, 104.0f),
-                              outbox, outbox_count, radius, NILAMP_GUI_KNOB_PERCENT);
+                              outbox, outbox_count, radius, NILAMP_GUI_KNOB_PERCENT, s);
     } else {
         nilamp_gui_draw_text(ctx, canvas,
                              nilamp_gui_scale_rect(sx, sy, 0.0f, 10.0f, 500.0f, 18.0f),
@@ -1820,16 +1977,16 @@ static bool nilamp_gui_init_custom_font(NilampGui *gui)
     font_cfg.range = nk_font_default_glyph_ranges();
     gui->font_default = nk_font_atlas_add_from_memory(
         &gui->font_atlas, (void *)nilamp_font_0xproto_regular_data,
-        nilamp_font_0xproto_regular_size, 15.0f, &font_cfg);
+        nilamp_font_0xproto_regular_size, 24.0f, &font_cfg);
     gui->font_about = nk_font_atlas_add_from_memory(
         &gui->font_atlas, (void *)nilamp_font_0xproto_regular_data,
         nilamp_font_0xproto_regular_size, 18.0f, &font_cfg);
     gui->font_subtitle = nk_font_atlas_add_from_memory(
         &gui->font_atlas, (void *)nilamp_font_0xproto_regular_data,
-        nilamp_font_0xproto_regular_size, 20.0f, &font_cfg);
+        nilamp_font_0xproto_regular_size, 32.0f, &font_cfg);
     gui->font_title = nk_font_atlas_add_from_memory(
         &gui->font_atlas, (void *)nilamp_font_0xproto_regular_data,
-        nilamp_font_0xproto_regular_size, 40.0f, &font_cfg);
+        nilamp_font_0xproto_regular_size, 54.0f, &font_cfg);
 
     int font_width = 0;
     int font_height = 0;
@@ -1996,6 +2153,7 @@ static PuglStatus nilamp_gui_event(PuglView *view, const PuglEvent *event)
         break;
     case PUGL_BUTTON_PRESS:
         if (event->button.button < 3u) {
+            nilamp_gui_grab_focus(gui, "button_press");
             const double dx = event->button.x - (double)gui->last_click_x;
             const double dy = event->button.y - (double)gui->last_click_y;
             const double dist = sqrt(dx * dx + dy * dy);
@@ -2045,12 +2203,14 @@ static PuglStatus nilamp_gui_event(PuglView *view, const PuglEvent *event)
             key = NK_KEY_BACKSPACE;
             if (down && editing) {
                 gui->key_backspace = true;
+                nilamp_gui_log("key_backspace active_edit=%d", gui->active_edit);
             }
             break;
         case PUGL_KEY_DELETE:
             key = NK_KEY_DEL;
             if (down && editing) {
                 gui->key_delete = true;
+                nilamp_gui_log("key_delete active_edit=%d", gui->active_edit);
             }
             break;
         case PUGL_KEY_ENTER:
@@ -2070,9 +2230,15 @@ static PuglStatus nilamp_gui_event(PuglView *view, const PuglEvent *event)
             break;
         case PUGL_KEY_LEFT:
             key = NK_KEY_LEFT;
+            if (down && editing) {
+                gui->key_left = true;
+            }
             break;
         case PUGL_KEY_RIGHT:
             key = NK_KEY_RIGHT;
+            if (down && editing) {
+                gui->key_right = true;
+            }
             break;
         case PUGL_KEY_UP:
             key = NK_KEY_UP;
@@ -2082,9 +2248,15 @@ static PuglStatus nilamp_gui_event(PuglView *view, const PuglEvent *event)
             break;
         case PUGL_KEY_HOME:
             key = NK_KEY_TEXT_LINE_START;
+            if (down && editing) {
+                gui->key_home = true;
+            }
             break;
         case PUGL_KEY_END:
             key = NK_KEY_TEXT_LINE_END;
+            if (down && editing) {
+                gui->key_end = true;
+            }
             break;
         case PUGL_KEY_SHIFT_L:
         case PUGL_KEY_SHIFT_R:
@@ -2097,7 +2269,7 @@ static PuglStatus nilamp_gui_event(PuglView *view, const PuglEvent *event)
         default:
             break;
         }
-        if (key != NK_KEY_NONE) {
+        if (key != NK_KEY_NONE && key >= 0 && key < NK_KEY_MAX) {
             gui->key_down[key] = editing ? false : down;
             nilamp_gui_request_redraw(gui);
         }
@@ -2142,12 +2314,10 @@ NilampGui *nilamp_gui_create(const NilampGuiCallbacks *callbacks,
     gui->layout = layout;
     gui->api = api;
     gui->is_floating = is_floating;
-    gui->model.width = layout && layout->design_width > 0u ?
-                           layout->design_width :
-                           NILAMP_GUI_DEFAULT_WIDTH;
-    gui->model.height = layout && layout->design_height > 0u ?
-                            layout->design_height :
-                            NILAMP_GUI_DEFAULT_HEIGHT;
+    if (!nilamp_gui_preferred_size(layout, &gui->model.width, &gui->model.height)) {
+        gui->model.width = NILAMP_GUI_DEFAULT_WIDTH;
+        gui->model.height = NILAMP_GUI_DEFAULT_HEIGHT;
+    }
     gui->model.dirty = true;
     gui->scale = 1.0;
     gui->active_knob = -1;
@@ -2371,7 +2541,8 @@ bool nilamp_gui_wants_fast_pump(const NilampGui *gui)
     if (gui->model.dirty || gui->mouse_motion || gui->mouse_double_click ||
         gui->scroll_x != 0.0f || gui->scroll_y != 0.0f ||
         gui->text_input_len > 0u || gui->key_enter || gui->key_escape ||
-        gui->key_backspace || gui->key_delete || gui->active_knob >= 0 ||
+        gui->key_backspace || gui->key_delete || gui->key_left ||
+        gui->key_right || gui->key_home || gui->key_end || gui->active_knob >= 0 ||
         gui->active_edit >= 0 || gui->open_dropdown != NILAMP_GUI_DROPDOWN_NONE) {
         return true;
     }

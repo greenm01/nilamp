@@ -5,6 +5,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifndef NILAMP_RELEASE_VERSION
+#define NILAMP_RELEASE_VERSION "1.0.2"
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

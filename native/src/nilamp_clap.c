@@ -1741,8 +1741,10 @@ static bool nilamp_gui_adjust_size_ext(const clap_plugin_t *plugin, uint32_t *wi
     if (!width || !height) {
         return false;
     }
-    *width = 540u;
-    *height = 360u;
+    const NilampGuiLayoutSpec *layout = nilamp_model_gui_layout(NILAMP_MODEL_DEFAULT);
+    if (!nilamp_gui_preferred_size(layout, width, height)) {
+        return false;
+    }
     nilamp_gui_log("adjust_size -> width=%u height=%u", *width, *height);
     return true;
 }

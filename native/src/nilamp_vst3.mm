@@ -1062,16 +1062,13 @@ tresult PLUGIN_API Editor::setContentScaleFactor(ScaleFactor factor)
 void Editor::updateScaledRect()
 {
     const NilampGuiLayoutSpec *layout = nilamp_model_gui_layout(NILAMP_MODEL_DEFAULT);
-    const uint32_t designWidth = layout && layout->design_width > 0u ?
-                                     layout->design_width :
-                                     500u;
-    const uint32_t designHeight = layout && layout->design_height > 0u ?
-                                      layout->design_height :
-                                      340u;
+    uint32_t preferredWidth = 500u;
+    uint32_t preferredHeight = 340u;
+    (void)nilamp_gui_preferred_size(layout, &preferredWidth, &preferredHeight);
     const int32 width =
-        std::max<int32>(1, static_cast<int32>(std::lround(designWidth * contentScale)));
+        std::max<int32>(1, static_cast<int32>(std::lround(preferredWidth * contentScale)));
     const int32 height =
-        std::max<int32>(1, static_cast<int32>(std::lround(designHeight * contentScale)));
+        std::max<int32>(1, static_cast<int32>(std::lround(preferredHeight * contentScale)));
     rect = ViewRect(0, 0, width, height);
 }
 

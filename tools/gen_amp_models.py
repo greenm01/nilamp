@@ -159,6 +159,11 @@ class Node:
     line: int = 0
 
 
+@dataclass(frozen=True)
+class CExpr:
+    text: str
+
+
 def fail(msg: str) -> None:
     raise SystemExit(f"gen_amp_models.py: {msg}")
 
@@ -335,6 +340,12 @@ def c_string(value: str) -> str:
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n") + '"'
 
 
+def c_label(value: str | CExpr) -> str:
+    if isinstance(value, CExpr):
+        return value.text
+    return c_string(value)
+
+
 def c_float(value: float) -> str:
     text = f"{value:.10g}"
     if "." not in text and "e" not in text.lower():
@@ -362,7 +373,7 @@ def validate_gui_rect(node: Node) -> dict[str, float]:
     }
 
 
-def resolve_metadata_label(amp_slug: str, label: str, metadata: dict[str, str]) -> str:
+def resolve_metadata_label(amp_slug: str, label: str, metadata: dict[str, str | CExpr]) -> str | CExpr:
     if not label.startswith("$"):
         return label
     key = label[1:]
@@ -372,7 +383,7 @@ def resolve_metadata_label(amp_slug: str, label: str, metadata: dict[str, str]) 
 
 
 def validate_gui(amp_slug: str, gui_node: Node,
-                 metadata: dict[str, str],
+                 metadata: dict[str, str | CExpr],
                  controls_by_key: dict[str, dict[str, Any]]) -> dict[str, Any]:
     width = int(required_number(gui_node, "width"))
     height = int(required_number(gui_node, "height"))
@@ -501,7 +512,8 @@ def validate_amp(node: Node) -> dict[str, Any]:
         "vst3_executable": vst3_executable,
         "vst3_bundle_id": vst3_bundle_id,
         "about_title": required_prop(metadata, "about_title", str),
-        "version": required_prop(metadata, "version", str),
+        "version": CExpr(f"{c_string(required_prop(metadata, 'version', str))} NILAMP_RELEASE_VERSION"),
+        "reference": required_prop(metadata, "reference", str),
         "author": required_prop(metadata, "author", str),
         "port": required_prop(metadata, "port", str),
     }
@@ -763,7 +775,7 @@ def render(models: list[dict[str, Any]]) -> str:
                 lines.append("    {")
                 lines.append(f"        .type = {widget['type']},")
                 lines.append(f"        .screen = {widget['screen']},")
-                lines.append(f"        .label = {c_string(widget['label'])},")
+                lines.append(f"        .label = {c_label(widget['label'])},")
                 lines.append(f"        .param_id = {widget['param_id']},")
                 lines.append(
                     "        .bounds = {"

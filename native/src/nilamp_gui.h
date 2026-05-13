@@ -55,6 +55,23 @@ bool nilamp_gui_set_transient(NilampGui *gui, NilampGuiParent parent);
 bool nilamp_gui_show(NilampGui *gui);
 bool nilamp_gui_hide(NilampGui *gui);
 bool nilamp_gui_set_scale(NilampGui *gui, double scale);
+static inline bool nilamp_gui_preferred_size(const NilampGuiLayoutSpec *layout,
+                                             uint32_t *width,
+                                             uint32_t *height)
+{
+    if (!width || !height) {
+        return false;
+    }
+    const uint32_t design_width = layout && layout->design_width > 0u ?
+                                      layout->design_width :
+                                      500u;
+    const uint32_t design_height = layout && layout->design_height > 0u ?
+                                       layout->design_height :
+                                       340u;
+    *width = (uint32_t)((float)design_width * 1.5f + 0.5f);
+    *height = (uint32_t)((float)design_height * 1.5f + 0.5f);
+    return *width > 0u && *height > 0u;
+}
 bool nilamp_gui_get_size(const NilampGui *gui, uint32_t *width, uint32_t *height);
 bool nilamp_gui_set_size(NilampGui *gui, uint32_t width, uint32_t height);
 bool nilamp_gui_is_visible(const NilampGui *gui);

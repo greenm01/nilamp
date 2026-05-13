@@ -1,5 +1,5 @@
 amp "keller_twd_dlx_ii" {
-  metadata id="NILAMP_MODEL_KELLER_TWD_DLX_II" name="Keller TWD DLX II" family="5E3 tweed deluxe" brand="nilamp" clap_name="nilamp TWD MKII" clap_filename="nilamp-twd-mkii.clap" vst3_name="nilamp TWD MKII" vst3_filename="nilamp-twd-mkii.vst3" vst3_executable="nilamp-twd-mkii" vst3_bundle_id="dev.niltempus.nilamp.twd-mkii.vst3" about_title="TWD DLX II" version="Keller JSFX Version 1.0.4" author="by Helmut Keller" port="Ported to C by niltempus"
+  metadata id="NILAMP_MODEL_KELLER_TWD_DLX_II" name="Keller TWD DLX II" family="5E3 tweed deluxe" brand="nilamp" clap_name="nilamp TWD MKII" clap_filename="nilamp-twd-mkii.clap" vst3_name="nilamp TWD MKII" vst3_filename="nilamp-twd-mkii.vst3" vst3_executable="nilamp-twd-mkii" vst3_bundle_id="dev.niltempus.nilamp.twd-mkii.vst3" about_title="TWD DLX II" version="nilamp " reference="Keller JSFX Version 1.0.4" author="by Helmut Keller" port="Ported to C by niltempus"
 
   dsp topology="tweed_5e3_cathodyne_pp" {
     speaker source_ohms=0.0 nominal_ohms=8.0
@@ -93,8 +93,8 @@ amp "keller_twd_dlx_ii" {
       panel "Output" x=400 y=43 w=93 h=139
       panel "Pre Amp" x=10 y=189 w=386 h=138
       panel "Splitter" x=400 y=189 w=93 h=138
-      text "$brand" x=0 y=73 w=500 h=50 style="title"
-      text "$name" x=0 y=122 w=500 h=28 style="subtitle"
+      text "$brand" x=0 y=66 w=500 h=60 style="title"
+      text "KELLER TWD DLX II" x=0 y=124 w=500 h=40 style="subtitle"
       knob bind="input_gain" x=17 y=55 w=80 h=104 radius=23 style="gain_bipolar"
       knob bind="output_gain" x=406 y=55 w=80 h=104 radius=23 style="gain_bipolar"
       toggle bind="tube1" x=21 y=207 w=76 h=104
@@ -132,8 +132,9 @@ amp "keller_twd_dlx_ii" {
       button "< back" x=0 y=2 w=65 h=28 target="options"
       text "$about_title" x=0 y=72 w=500 h=25 style="about"
       text "$version" x=0 y=104 w=500 h=25 style="about"
-      text "$author" x=0 y=136 w=500 h=25 style="about"
-      text "$port" x=0 y=168 w=500 h=25 style="about"
+      text "$reference" x=0 y=136 w=500 h=25 style="about"
+      text "$author" x=0 y=168 w=500 h=25 style="about"
+      text "$port" x=0 y=200 w=500 h=25 style="about"
     }
   }
 }

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 #include "nilamp_dsp.h"
+#include "nilamp_gui.h"
 #include "nilamp_host.h"
 
 #include "pluginterfaces/base/ibstream.h"
@@ -590,14 +591,21 @@ int main(int argc, char **argv)
                                (void **)&scaleSupport) == kResultOk,
           "editor scale support query failed");
     ViewRect viewSize = {};
+    uint32_t preferredWidth = 0u;
+    uint32_t preferredHeight = 0u;
+    check(nilamp_gui_preferred_size(nilamp_model_gui_layout(NILAMP_MODEL_DEFAULT),
+                                    &preferredWidth, &preferredHeight),
+          "failed to read preferred editor size");
     check(view->getSize(&viewSize) == kResultTrue, "editor getSize failed");
-    check(viewSize.getWidth() == 500 && viewSize.getHeight() == 340,
+    check(viewSize.getWidth() == (int32)preferredWidth &&
+              viewSize.getHeight() == (int32)preferredHeight,
           "unexpected default editor size");
     check(scaleSupport->setContentScaleFactor(1.5f) == kResultTrue,
           "editor scale set failed");
     viewSize = {};
     check(view->getSize(&viewSize) == kResultTrue, "scaled editor getSize failed");
-    check(viewSize.getWidth() == 750 && viewSize.getHeight() == 510,
+    check(viewSize.getWidth() == (int32)std::lround((double)preferredWidth * 1.5) &&
+              viewSize.getHeight() == (int32)std::lround((double)preferredHeight * 1.5),
           "unexpected scaled editor size");
     scaleSupport->release();
     view->release();

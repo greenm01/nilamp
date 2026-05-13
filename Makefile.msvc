@@ -138,13 +138,13 @@ $(NATIVE_BUILD)\nilamp_tables.obj: $(NATIVE_GENERATED)\nilamp_tables.c $(NATIVE_
 	cl $(BASE_CFLAGS) /c $(NATIVE_GENERATED)\nilamp_tables.c /Fo$@
 
 $(NATIVE_BUILD)\nilamp_dsp.obj: $(NATIVE_DIR)\src\nilamp_dsp.c $(NATIVE_DIR)\src\nilamp_dsp.h $(NATIVE_GENERATED)\nilamp_tables.h $(NATIVE_GENERATED)\nilamp_models.inc
-	cl $(BASE_CFLAGS) /c $(NATIVE_DIR)\src\nilamp_dsp.c /Fo$@
+	cl $(BASE_CFLAGS) $(NILAMP_RELEASE_DEFINE) /c $(NATIVE_DIR)\src\nilamp_dsp.c /Fo$@
 
 $(NATIVE_BUILD)\nilamp_host.obj: $(NATIVE_DIR)\src\nilamp_host.c $(NATIVE_DIR)\src\nilamp_host.h $(NATIVE_DIR)\src\nilamp_dsp.h $(NATIVE_DIR)\src\nilamp_cpu.h $(NATIVE_DIR)\src\nilamp_compat.h
 	cl $(BASE_CFLAGS) /c $(NATIVE_DIR)\src\nilamp_host.c /Fo$@
 
 $(NATIVE_BUILD)\nilamp_dsp_test.obj: $(NATIVE_DIR)\src\nilamp_dsp.c $(NATIVE_DIR)\src\nilamp_dsp.h $(NATIVE_GENERATED)\nilamp_tables.h $(NATIVE_GENERATED)\nilamp_models.inc
-	cl $(BASE_CFLAGS) /DNILAMP_ENABLE_TEST_API /c $(NATIVE_DIR)\src\nilamp_dsp.c /Fo$@
+	cl $(BASE_CFLAGS) $(NILAMP_RELEASE_DEFINE) /DNILAMP_ENABLE_TEST_API /c $(NATIVE_DIR)\src\nilamp_dsp.c /Fo$@
 
 $(NATIVE_BUILD)\nilamp_render.obj: $(NATIVE_DIR)\src\nilamp_render.c $(NATIVE_DIR)\src\nilamp_dsp.h $(NATIVE_DIR)\src\nilamp_cpu.h $(NATIVE_DIR)\src\nilamp_compat.h
 	cl $(BASE_CFLAGS) /c $(NATIVE_DIR)\src\nilamp_render.c /Fo$@
@@ -158,8 +158,8 @@ $(NATIVE_BUILD)\nilamp_taps_render.obj: $(NATIVE_DIR)\src\nilamp_render.c $(NATI
 $(NATIVE_BIN)\nilamp_taps_render.exe: $(NATIVE_BUILD)\nilamp_taps_render.obj $(NATIVE_OBJS)
 	link /nologo /out:$@ $**
 
-$(NATIVE_BUILD)\test_native.obj: $(NATIVE_DIR)\tests\test_native.c $(NATIVE_DIR)\src\nilamp_dsp.h
-	cl $(BASE_CFLAGS) /DNILAMP_ENABLE_TEST_API /c $(NATIVE_DIR)\tests\test_native.c /Fo$@
+$(NATIVE_BUILD)\test_native.obj: $(NATIVE_DIR)\tests\test_native.c $(NATIVE_DIR)\src\nilamp_dsp.h $(NATIVE_DIR)\src\nilamp_gui.h
+	cl $(BASE_CFLAGS) $(NILAMP_RELEASE_DEFINE) /DNILAMP_ENABLE_TEST_API /c $(NATIVE_DIR)\tests\test_native.c /Fo$@
 
 $(NATIVE_BIN)\test_native.exe: $(NATIVE_BUILD)\test_native.obj $(NATIVE_BUILD)\nilamp_dsp_test.obj $(NATIVE_BUILD)\nilamp_tables.obj
 	link /nologo /out:$@ $**
@@ -299,7 +299,7 @@ $(NATIVE_BUILD)\vst3_vstparameters.obj: $(VST3SDK_DIR)\public.sdk\source\vst\vst
 $(NATIVE_BUILD)\vst3_vstnoteexpressiontypes.obj: $(VST3SDK_DIR)\public.sdk\source\vst\vstnoteexpressiontypes.cpp
 	cl $(VST3_VENDOR_CXXFLAGS) /c $(VST3SDK_DIR)\public.sdk\source\vst\vstnoteexpressiontypes.cpp /Fo$@
 
-$(NATIVE_BUILD)\test_vst3_load.obj: $(NATIVE_DIR)\tests\test_vst3_load.mm $(NATIVE_DIR)\src\nilamp_dsp.h $(NATIVE_DIR)\src\nilamp_host.h
+$(NATIVE_BUILD)\test_vst3_load.obj: $(NATIVE_DIR)\tests\test_vst3_load.mm $(NATIVE_DIR)\src\nilamp_dsp.h $(NATIVE_DIR)\src\nilamp_gui.h $(NATIVE_DIR)\src\nilamp_host.h
 	cl $(VST3_CXXFLAGS) $(NILAMP_RELEASE_DEFINE) /TP /c $(NATIVE_DIR)\tests\test_vst3_load.mm /Fo$@
 
 $(NATIVE_BIN)\test_vst3_load.exe: $(NATIVE_BUILD)\test_vst3_load.obj $(NATIVE_OBJS) $(NATIVE_BUILD)\vst3_baseiids.obj $(NATIVE_BUILD)\vst3_coreiids.obj $(NATIVE_BUILD)\vst3_funknown.obj $(NATIVE_BUILD)\vst3_commoniids.obj $(NATIVE_BUILD)\vst3_vstinitiids.obj

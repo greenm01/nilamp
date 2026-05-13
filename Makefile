@@ -98,6 +98,7 @@ CLAP_INSTALL_DIR ?= $(CLAP_INSTALL_DIR_DEFAULT)
 VST3_INSTALL_DIR ?= $(VST3_INSTALL_DIR_DEFAULT)
 
 NILAMP_RELEASE_DEFINE := '-DNILAMP_RELEASE_VERSION="$(RELEASE_VERSION)"'
+NILAMP_NATIVE_CFLAGS := $(CFLAGS) $(NILAMP_RELEASE_DEFINE)
 CLAP_PLUGIN_CFLAGS := $(CLAP_CFLAGS) -DNILAMP_ENABLE_CLAP_GUI=$(NILAMP_ENABLE_CLAP_GUI) '-DNILAMP_CLAP_NAME=$(CLAP_NAME_C)' $(NILAMP_RELEASE_DEFINE)
 VST3_PLUGIN_CXXFLAGS := $(VST3_CXXFLAGS) '-DNILAMP_VST3_NAME=$(VST3_NAME_C)' $(NILAMP_RELEASE_DEFINE)
 TEST_VST3_CXXFLAGS := $(VST3_CXXFLAGS) $(NILAMP_RELEASE_DEFINE)
@@ -312,7 +313,7 @@ $(NATIVE_BUILD)/nilamp_tables.o: $(NATIVE_TABLES_C) $(NATIVE_TABLES_H) | $(NATIV
 	$(CC) $(CFLAGS) -c $(NATIVE_TABLES_C) -o $@
 
 $(NATIVE_BUILD)/nilamp_dsp.o: $(NATIVE_DIR)/src/nilamp_dsp.c $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_DIR)/src/nilamp_dsp_internal.h $(NATIVE_DIR)/src/nilamp_topologies.h $(NATIVE_TABLES_H) $(NATIVE_MODELS_INC) | $(NATIVE_BUILD)
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(CC) $(NILAMP_NATIVE_CFLAGS) -c $< -o $@
 
 $(NATIVE_BUILD)/nilamp_topologies.o: $(NATIVE_DIR)/src/nilamp_topologies.c $(NATIVE_DIR)/src/nilamp_topologies.h $(NATIVE_DIR)/src/nilamp_dsp_internal.h $(NATIVE_DIR)/src/nilamp_dsp.h | $(NATIVE_BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -330,7 +331,7 @@ $(NATIVE_BUILD)/nilamp_tables.pic.o: $(NATIVE_TABLES_C) $(NATIVE_TABLES_H) | $(N
 	$(CC) $(CFLAGS) -fPIC -c $(NATIVE_TABLES_C) -o $@
 
 $(NATIVE_BUILD)/nilamp_dsp.pic.o: $(NATIVE_DIR)/src/nilamp_dsp.c $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_DIR)/src/nilamp_dsp_internal.h $(NATIVE_DIR)/src/nilamp_topologies.h $(NATIVE_TABLES_H) $(NATIVE_MODELS_INC) | $(NATIVE_BUILD)
-	$(CC) $(CFLAGS) -fPIC -c $< -o $@
+	$(CC) $(NILAMP_NATIVE_CFLAGS) -fPIC -c $< -o $@
 
 $(NATIVE_BUILD)/nilamp_topologies.pic.o: $(NATIVE_DIR)/src/nilamp_topologies.c $(NATIVE_DIR)/src/nilamp_topologies.h $(NATIVE_DIR)/src/nilamp_dsp_internal.h $(NATIVE_DIR)/src/nilamp_dsp.h | $(NATIVE_BUILD)
 	$(CC) $(CFLAGS) -fPIC -c $< -o $@
@@ -345,7 +346,7 @@ $(NATIVE_BUILD)/nilamp_process_log.pic.o: $(NATIVE_DIR)/src/nilamp_process_log.c
 	$(CC) $(CFLAGS) -fPIC -c $< -o $@
 
 $(NATIVE_BUILD)/nilamp_dsp_test.o: $(NATIVE_DIR)/src/nilamp_dsp.c $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_DIR)/src/nilamp_dsp_internal.h $(NATIVE_DIR)/src/nilamp_topologies.h $(NATIVE_TABLES_H) $(NATIVE_MODELS_INC) | $(NATIVE_BUILD)
-	$(CC) $(CFLAGS) -DNILAMP_ENABLE_TEST_API -c $< -o $@
+	$(CC) $(NILAMP_NATIVE_CFLAGS) -DNILAMP_ENABLE_TEST_API -c $< -o $@
 
 $(NATIVE_BUILD)/nilamp_topologies_test.o: $(NATIVE_DIR)/src/nilamp_topologies.c $(NATIVE_DIR)/src/nilamp_topologies.h $(NATIVE_DIR)/src/nilamp_dsp_internal.h $(NATIVE_DIR)/src/nilamp_dsp.h | $(NATIVE_BUILD)
 	$(CC) $(CFLAGS) -DNILAMP_ENABLE_TEST_API -c $< -o $@
@@ -529,8 +530,8 @@ $(NATIVE_BUILD)/vst3_vstparameters.o: $(VST3SDK_DIR)/public.sdk/source/vst/vstpa
 $(NATIVE_BUILD)/vst3_vstnoteexpressiontypes.o: $(VST3SDK_DIR)/public.sdk/source/vst/vstnoteexpressiontypes.cpp | $(NATIVE_BUILD)
 	$(CXX) $(VST3_VENDOR_CXXFLAGS) -c $< -o $@
 
-$(NATIVE_BUILD)/test_native.o: $(NATIVE_DIR)/tests/test_native.c $(NATIVE_DIR)/src/nilamp_dsp.h | $(NATIVE_BUILD)
-	$(CC) $(CFLAGS) -DNILAMP_ENABLE_TEST_API -c $< -o $@
+$(NATIVE_BUILD)/test_native.o: $(NATIVE_DIR)/tests/test_native.c $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_DIR)/src/nilamp_gui.h | $(NATIVE_BUILD)
+	$(CC) $(NILAMP_NATIVE_CFLAGS) -DNILAMP_ENABLE_TEST_API -c $< -o $@
 
 $(NATIVE_BIN)/test_native: $(NATIVE_BUILD)/test_native.o $(NATIVE_DSP_TEST_OBJS) | $(NATIVE_BIN)
 	$(CC) $(LDFLAGS) $^ $(LDLIBS) -o $@
@@ -573,7 +574,7 @@ $(NATIVE_BUILD)/test_clap_load.o: $(NATIVE_DIR)/tests/test_clap_load.c $(NATIVE_
 $(NATIVE_BIN)/test_clap_load: $(NATIVE_BUILD)/test_clap_load.o $(NATIVE_OBJS) | $(NATIVE_BIN)
 	$(CC) $(LDFLAGS) $^ $(LDLIBS) $(DL_LDLIBS) -o $@
 
-$(NATIVE_BUILD)/test_vst3_load.o: $(NATIVE_DIR)/tests/test_vst3_load.mm $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_DIR)/src/nilamp_host.h | $(NATIVE_BUILD)
+$(NATIVE_BUILD)/test_vst3_load.o: $(NATIVE_DIR)/tests/test_vst3_load.mm $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_DIR)/src/nilamp_gui.h $(NATIVE_DIR)/src/nilamp_host.h | $(NATIVE_BUILD)
 ifeq ($(UNAME_S),Linux)
 	$(CXX) $(TEST_VST3_CXXFLAGS) -x c++ -c $< -o $@
 else

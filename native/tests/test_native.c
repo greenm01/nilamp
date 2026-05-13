@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: MIT
 
 #include "nilamp_dsp.h"
+#include "nilamp_gui.h"
 
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define SAMPLE_RATE 48000.0
 
@@ -482,10 +484,64 @@ static int test_model_identity(void)
     return ok ? 0 : 1;
 }
 
+static int test_model_gui_about_versions(void)
+{
+    const NilampGuiLayoutSpec *layout = nilamp_model_gui_layout(NILAMP_MODEL_KELLER_TWD_DLX_II);
+    if (!layout) {
+        return 1;
+    }
+
+    char nilamp_version[64];
+    snprintf(nilamp_version, sizeof(nilamp_version), "nilamp %s", NILAMP_RELEASE_VERSION);
+    int saw_nilamp_version = 0;
+    int saw_keller_reference = 0;
+    for (uint32_t screen_index = 0; screen_index < layout->screen_count; screen_index++) {
+        const NilampGuiScreenSpec *screen = &layout->screens[screen_index];
+        if (screen->id != NILAMP_GUI_SCREEN_ID_ABOUT) {
+            continue;
+        }
+        for (uint32_t widget_index = 0; widget_index < screen->widget_count; widget_index++) {
+            const NilampGuiWidgetSpec *widget = &screen->widgets[widget_index];
+            if (widget->type != NILAMP_GUI_WIDGET_TEXT || !widget->label) {
+                continue;
+            }
+            if (strcmp(widget->label, nilamp_version) == 0) {
+                saw_nilamp_version = 1;
+            }
+            if (strcmp(widget->label, "Keller JSFX Version 1.0.4") == 0) {
+                saw_keller_reference = 1;
+            }
+        }
+    }
+    if (!saw_nilamp_version || !saw_keller_reference) {
+        fprintf(stderr, "about screen missing nilamp version or Keller JSFX reference\n");
+        return 1;
+    }
+    return 0;
+}
+
+static int test_model_gui_preferred_size(void)
+{
+    const NilampGuiLayoutSpec *layout = nilamp_model_gui_layout(NILAMP_MODEL_KELLER_TWD_DLX_II);
+    if (!layout) {
+        return 1;
+    }
+    uint32_t width = 0u;
+    uint32_t height = 0u;
+    if (!nilamp_gui_preferred_size(layout, &width, &height) ||
+        width != 750u || height != 510u) {
+        fprintf(stderr, "unexpected preferred GUI size: %ux%u\n", width, height);
+        return 1;
+    }
+    return 0;
+}
+
 int main(void)
 {
     int rc = 0;
     if (test_model_identity() != 0) rc = 1;
+    if (test_model_gui_about_versions() != 0) rc = 1;
+    if (test_model_gui_preferred_size() != 0) rc = 1;
     if (test_pkd() != 0) rc = 1;
     if (test_filters() != 0) rc = 1;
     if (test_adnl() != 0) rc = 1;
