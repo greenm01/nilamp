@@ -131,9 +131,20 @@ bool nilamp_gui_edit_delete(char *text, size_t capacity, size_t *cursor,
 bool nilamp_gui_edit_insert_char(char *text, size_t capacity, size_t *cursor,
                                  bool *replace_on_type, char c)
 {
+    return nilamp_gui_edit_insert_char_limited(
+        text, capacity, capacity > 0u ? capacity - 1u : 0u, cursor, replace_on_type, c);
+}
+
+bool nilamp_gui_edit_insert_char_limited(char *text, size_t capacity,
+                                         size_t max_chars, size_t *cursor,
+                                         bool *replace_on_type, char c)
+{
     nilamp_gui_edit_sanitize(text, capacity, cursor);
     if (!text || capacity == 0u || !cursor) {
         return false;
+    }
+    if (max_chars >= capacity) {
+        max_chars = capacity - 1u;
     }
 
     size_t len = nilamp_gui_edit_strlen(text, capacity);
@@ -143,7 +154,7 @@ bool nilamp_gui_edit_insert_char(char *text, size_t capacity, size_t *cursor,
         *cursor = 0u;
         *replace_on_type = false;
     }
-    if (len + 1u >= capacity) {
+    if (len >= max_chars || len + 1u >= capacity) {
         return false;
     }
 
@@ -159,6 +170,7 @@ bool nilamp_gui_edit_apply_keys(char *text, size_t capacity, size_t *cursor,
                                 bool left, bool right, bool backspace,
                                 bool delete_key)
 {
+    (void)delete_key;
     nilamp_gui_edit_sanitize(text, capacity, cursor);
     if (home) {
         (void)nilamp_gui_edit_move_home(text, capacity, cursor, replace_on_type);
@@ -174,9 +186,6 @@ bool nilamp_gui_edit_apply_keys(char *text, size_t capacity, size_t *cursor,
     }
     if (backspace) {
         return nilamp_gui_edit_backspace(text, capacity, cursor, replace_on_type);
-    }
-    if (delete_key) {
-        return nilamp_gui_edit_delete(text, capacity, cursor, replace_on_type);
     }
     return false;
 }

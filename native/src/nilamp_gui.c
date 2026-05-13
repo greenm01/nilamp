@@ -683,6 +683,22 @@ static float nilamp_gui_maxf(float a, float b)
     return a > b ? a : b;
 }
 
+static size_t nilamp_gui_max_size(size_t a, size_t b)
+{
+    return a > b ? a : b;
+}
+
+static size_t nilamp_gui_clamp_size(size_t value, size_t min_value, size_t max_value)
+{
+    if (value < min_value) {
+        return min_value;
+    }
+    if (value > max_value) {
+        return max_value;
+    }
+    return value;
+}
+
 static float nilamp_gui_font_height(const struct nk_context *ctx)
 {
     return ctx && ctx->style.font ? ctx->style.font->height : 24.0f;
@@ -867,6 +883,27 @@ static bool nilamp_gui_edit_accepts_char(const NilampGuiParamSpec *param, char c
     return (c >= '0' && c <= '9') || c == '.';
 }
 
+static size_t nilamp_gui_param_edit_limit(const NilampGuiParamSpec *param, float raw_value)
+{
+    if (!param) {
+        return 4u;
+    }
+    if (nilamp_gui_is_percent_param(param)) {
+        return 3u;
+    }
+
+    char text[3][NILAMP_GUI_EDIT_TEXT_LEN];
+    nilamp_gui_format_edit_value(param, param->min_value, text[0], sizeof(text[0]));
+    nilamp_gui_format_edit_value(param, raw_value, text[1], sizeof(text[1]));
+    nilamp_gui_format_edit_value(param, param->max_value, text[2], sizeof(text[2]));
+    size_t limit = 0u;
+    for (size_t i = 0u; i < 3u; i++) {
+        limit = nilamp_gui_max_size(
+            limit, nilamp_gui_bounded_strlen(text[i], NILAMP_GUI_EDIT_TEXT_LEN));
+    }
+    return nilamp_gui_clamp_size(limit + 2u, 4u, 8u);
+}
+
 static void nilamp_gui_update_active_edit(NilampGui *gui, NilampGuiMsg *outbox,
                                           uint32_t *outbox_count)
 {
@@ -887,6 +924,8 @@ static void nilamp_gui_update_active_edit(NilampGui *gui, NilampGuiMsg *outbox,
 
     char *text = gui->model.edit_text[gui->active_edit];
     const NilampGuiParamSpec *param = &gui->params[gui->active_edit];
+    const size_t edit_limit =
+        nilamp_gui_param_edit_limit(param, gui->model.param_values[gui->active_edit]);
     nilamp_gui_edit_sanitize(text, NILAMP_GUI_EDIT_TEXT_LEN, &gui->edit_cursor);
     const size_t log_len = nilamp_gui_bounded_strlen(text, NILAMP_GUI_EDIT_TEXT_LEN);
     bool changed = false;
@@ -904,9 +943,9 @@ static void nilamp_gui_update_active_edit(NilampGui *gui, NilampGuiMsg *outbox,
     for (uint32_t i = 0; i < gui->text_input_len && i < NILAMP_GUI_TEXT_INPUT_LEN; i++) {
         const char c = gui->text_input[i];
         if (nilamp_gui_edit_accepts_char(param, c)) {
-            if (!nilamp_gui_edit_insert_char(text, NILAMP_GUI_EDIT_TEXT_LEN,
-                                             &gui->edit_cursor,
-                                             &gui->edit_replace_on_type, c)) {
+            if (!nilamp_gui_edit_insert_char_limited(
+                    text, NILAMP_GUI_EDIT_TEXT_LEN, edit_limit, &gui->edit_cursor,
+                    &gui->edit_replace_on_type, c)) {
                 break;
             }
             changed = true;
@@ -2156,10 +2195,10 @@ static PuglStatus nilamp_gui_event(PuglView *view, const PuglEvent *event)
             }
             break;
         case PUGL_KEY_DELETE:
+        case PUGL_KEY_PAD_DELETE:
             key = NK_KEY_DEL;
             if (down && editing) {
-                gui->key_delete = true;
-                nilamp_gui_log("key_delete active_edit=%d", gui->active_edit);
+                nilamp_gui_log("key_delete_ignored active_edit=%d", gui->active_edit);
             }
             break;
         case PUGL_KEY_ENTER:
@@ -2480,6 +2519,11 @@ bool nilamp_gui_set_size(NilampGui *gui, uint32_t width, uint32_t height)
 bool nilamp_gui_is_visible(const NilampGui *gui)
 {
     return gui && gui->visible;
+}
+
+bool nilamp_gui_captures_keyboard(const NilampGui *gui)
+{
+    return gui && gui->active_edit >= 0;
 }
 
 bool nilamp_gui_wants_fast_pump(const NilampGui *gui)

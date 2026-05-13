@@ -10,6 +10,7 @@
 #endif
 #include "base/source/fstreamer.h"
 #include "pluginterfaces/base/ibstream.h"
+#include "pluginterfaces/base/keycodes.h"
 #include "pluginterfaces/base/ustring.h"
 #include "pluginterfaces/gui/iplugview.h"
 #include "pluginterfaces/gui/iplugviewcontentscalesupport.h"
@@ -424,6 +425,10 @@ public:
     tresult PLUGIN_API attached(void *parent, FIDString type) SMTG_OVERRIDE;
     tresult PLUGIN_API removed() SMTG_OVERRIDE;
     tresult PLUGIN_API getSize(ViewRect *size) SMTG_OVERRIDE;
+    tresult PLUGIN_API onKeyDown(char16 key, int16 keyCode,
+                                 int16 modifiers) SMTG_OVERRIDE;
+    tresult PLUGIN_API onKeyUp(char16 key, int16 keyCode,
+                               int16 modifiers) SMTG_OVERRIDE;
     tresult PLUGIN_API onSize(ViewRect *newSize) SMTG_OVERRIDE;
     tresult PLUGIN_API setContentScaleFactor(ScaleFactor factor) SMTG_OVERRIDE;
 #if defined(__linux__)
@@ -1028,6 +1033,27 @@ tresult PLUGIN_API Editor::getSize(ViewRect *size)
     }
     *size = rect;
     return kResultTrue;
+}
+
+static bool nilamp_vst3_should_capture_key(const NilampGui *gui, int16 modifiers)
+{
+    if (!nilamp_gui_captures_keyboard(gui)) {
+        return false;
+    }
+    const int16 host_shortcut_mods =
+        static_cast<int16>(Steinberg::kAlternateKey | Steinberg::kCommandKey |
+                           Steinberg::kControlKey);
+    return (modifiers & host_shortcut_mods) == 0;
+}
+
+tresult PLUGIN_API Editor::onKeyDown(char16, int16, int16 modifiers)
+{
+    return nilamp_vst3_should_capture_key(gui, modifiers) ? kResultTrue : kResultFalse;
+}
+
+tresult PLUGIN_API Editor::onKeyUp(char16, int16, int16 modifiers)
+{
+    return nilamp_vst3_should_capture_key(gui, modifiers) ? kResultTrue : kResultFalse;
 }
 
 tresult PLUGIN_API Editor::onSize(ViewRect *newSize)

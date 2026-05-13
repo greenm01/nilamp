@@ -75,6 +75,7 @@ static inline bool nilamp_gui_preferred_size(const NilampGuiLayoutSpec *layout,
 bool nilamp_gui_get_size(const NilampGui *gui, uint32_t *width, uint32_t *height);
 bool nilamp_gui_set_size(NilampGui *gui, uint32_t width, uint32_t height);
 bool nilamp_gui_is_visible(const NilampGui *gui);
+bool nilamp_gui_captures_keyboard(const NilampGui *gui);
 bool nilamp_gui_wants_fast_pump(const NilampGui *gui);
 bool nilamp_gui_start_frame_timer(NilampGui *gui, double interval_seconds);
 void nilamp_gui_stop_frame_timer(NilampGui *gui);

@@ -231,6 +231,40 @@ static void test_capacity_and_dirty_buffers(void)
     check_guarded(&guarded, cursor, "unterminated guarded");
 }
 
+static void test_limited_insert(void)
+{
+    GuardedText guarded;
+    bool replace = false;
+    size_t cursor = 2u;
+    guarded_init(&guarded, 8u, "12");
+    check_true(!nilamp_gui_edit_insert_char_limited(guarded_text(&guarded),
+                                                    guarded.capacity, 2u,
+                                                    &cursor, &replace, '3'),
+               "limited insert rejected");
+    check_text(&guarded, "12", "limited insert text");
+    check_true(cursor == 2u && !replace, "limited insert state");
+    check_true(nilamp_gui_edit_backspace(guarded_text(&guarded), guarded.capacity,
+                                         &cursor, &replace),
+               "limited backspace still works");
+    check_true(nilamp_gui_edit_insert_char_limited(guarded_text(&guarded),
+                                                   guarded.capacity, 2u,
+                                                   &cursor, &replace, '3'),
+               "limited insert after delete");
+    check_text(&guarded, "13", "limited insert after delete text");
+    check_guarded(&guarded, cursor, "limited insert guarded");
+
+    guarded_init(&guarded, 8u, "12345");
+    replace = true;
+    cursor = 5u;
+    check_true(nilamp_gui_edit_insert_char_limited(guarded_text(&guarded),
+                                                   guarded.capacity, 2u,
+                                                   &cursor, &replace, '9'),
+               "limited replace insert");
+    check_text(&guarded, "9", "limited replace insert text");
+    check_true(cursor == 1u && !replace, "limited replace insert state");
+    check_guarded(&guarded, cursor, "limited replace guarded");
+}
+
 static void test_apply_keys(void)
 {
     GuardedText guarded;
@@ -244,6 +278,17 @@ static void test_apply_keys(void)
     check_text(&guarded, "13", "combined backspace precedence text");
     check_true(cursor == 1u && !replace, "combined backspace precedence state");
     check_guarded(&guarded, cursor, "combined guarded");
+
+    guarded_init(&guarded, 8u, "123");
+    replace = true;
+    cursor = 1u;
+    check_true(!nilamp_gui_edit_apply_keys(guarded_text(&guarded), guarded.capacity,
+                                           &cursor, &replace, false, false, false,
+                                           false, false, true),
+               "forward delete ignored");
+    check_text(&guarded, "123", "forward delete ignored text");
+    check_true(cursor == 1u && replace, "forward delete ignored state");
+    check_guarded(&guarded, cursor, "forward delete ignored guarded");
 
     guarded_init(&guarded, 8u, "123");
     replace = true;
@@ -301,8 +346,9 @@ static void test_randomized_invariants(void)
             case 6u:
             case 7u:
             case 8u:
-                (void)nilamp_gui_edit_insert_char(
-                    guarded_text(&guarded), guarded.capacity, &cursor, &replace,
+                (void)nilamp_gui_edit_insert_char_limited(
+                    guarded_text(&guarded), guarded.capacity,
+                    (size_t)(1u + (rng_next(&rng) % 7u)), &cursor, &replace,
                     (char)('0' + (rng_next(&rng) % 10u)));
                 break;
             default:
@@ -319,6 +365,7 @@ int main(void)
     test_delete_and_backspace();
     test_navigation_and_insert();
     test_capacity_and_dirty_buffers();
+    test_limited_insert();
     test_apply_keys();
     test_randomized_invariants();
     if (failures != 0) {

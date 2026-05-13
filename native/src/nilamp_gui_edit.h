@@ -25,6 +25,9 @@ bool nilamp_gui_edit_delete(char *text, size_t capacity, size_t *cursor,
                             bool *replace_on_type);
 bool nilamp_gui_edit_insert_char(char *text, size_t capacity, size_t *cursor,
                                  bool *replace_on_type, char c);
+bool nilamp_gui_edit_insert_char_limited(char *text, size_t capacity,
+                                         size_t max_chars, size_t *cursor,
+                                         bool *replace_on_type, char c);
 bool nilamp_gui_edit_apply_keys(char *text, size_t capacity, size_t *cursor,
                                 bool *replace_on_type, bool home, bool end,
                                 bool left, bool right, bool backspace,
