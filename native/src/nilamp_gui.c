@@ -571,7 +571,11 @@ static void nilamp_gui_end_param_gesture(NilampGui *gui, uint32_t index,
 
 static void nilamp_gui_request_redraw(NilampGui *gui)
 {
-    if (gui && gui->view) {
+    if (!gui) {
+        return;
+    }
+    gui->model.dirty = true;
+    if (gui->view) {
         (void)puglObscureView(gui->view);
     }
 }
@@ -759,6 +763,68 @@ bool nilamp_gui_handle_host_text(NilampGui *gui, uint32_t codepoint)
                                               &gui->text_input_len, codepoint)) {
         return false;
     }
+    nilamp_gui_request_redraw(gui);
+    return true;
+}
+
+bool nilamp_gui_handle_pointer_motion(NilampGui *gui, int32_t x, int32_t y)
+{
+    if (!gui) {
+        return false;
+    }
+    gui->mouse_x = (int)x;
+    gui->mouse_y = (int)y;
+    gui->mouse_motion = true;
+    nilamp_gui_request_redraw(gui);
+    return true;
+}
+
+bool nilamp_gui_handle_pointer_button(NilampGui *gui,
+                                      uint32_t button,
+                                      bool down,
+                                      int32_t x,
+                                      int32_t y,
+                                      double time_seconds)
+{
+    if (!gui || button >= 3u) {
+        return false;
+    }
+    gui->mouse_x = (int)x;
+    gui->mouse_y = (int)y;
+    if (down) {
+        const double dx = (double)x - (double)gui->last_click_x;
+        const double dy = (double)y - (double)gui->last_click_y;
+        const double dist = sqrt(dx * dx + dy * dy);
+        gui->mouse_double_click =
+            button == gui->last_click_button &&
+            gui->last_click_time > 0.0 &&
+            time_seconds - gui->last_click_time <= NILAMP_GUI_DOUBLE_CLICK_SECONDS &&
+            dist <= NILAMP_GUI_DOUBLE_CLICK_DISTANCE;
+        gui->last_click_time = time_seconds;
+        gui->last_click_x = (int)x;
+        gui->last_click_y = (int)y;
+        gui->last_click_button = button;
+        gui->mouse_down[button] = true;
+    } else {
+        gui->mouse_up[button] = true;
+    }
+    nilamp_gui_request_redraw(gui);
+    return true;
+}
+
+bool nilamp_gui_handle_pointer_scroll(NilampGui *gui,
+                                      float dx,
+                                      float dy,
+                                      int32_t x,
+                                      int32_t y)
+{
+    if (!gui) {
+        return false;
+    }
+    gui->mouse_x = (int)x;
+    gui->mouse_y = (int)y;
+    gui->scroll_x += dx;
+    gui->scroll_y += dy;
     nilamp_gui_request_redraw(gui);
     return true;
 }
@@ -2372,6 +2438,12 @@ NilampGui *nilamp_gui_create(const NilampGuiCallbacks *callbacks,
     gui->screen = layout ? (NilampGuiScreen)layout->default_screen : NILAMP_GUI_SCREEN_MAIN;
     nilamp_gui_refresh_params(gui);
 
+    if (api == NILAMP_GUI_API_WAYLAND) {
+        nilamp_gui_log("create ok api=%d external_gl=1 floating=%d", (int)api,
+                       is_floating ? 1 : 0);
+        return gui;
+    }
+
     gui->world = puglNewWorld(PUGL_MODULE, 0u);
     gui->view = gui->world ? puglNewView(gui->world) : NULL;
     if (!gui->view) {
@@ -2435,7 +2507,9 @@ void nilamp_gui_destroy(NilampGui *gui)
     } else {
         nilamp_gui_shutdown_gpu(gui);
     }
-    puglFreeWorld(gui->world);
+    if (gui->world) {
+        puglFreeWorld(gui->world);
+    }
     free(gui);
 }
 
@@ -2491,7 +2565,20 @@ bool nilamp_gui_set_transient(NilampGui *gui, NilampGuiParent parent)
 
 bool nilamp_gui_show(NilampGui *gui)
 {
-    if (!gui || !gui->view) {
+    if (!gui) {
+        return false;
+    }
+    if (!gui->view && gui->api == NILAMP_GUI_API_WAYLAND) {
+        if (!gui->realized || !gui->gpu_ready) {
+            nilamp_gui_log("show external rejected realized=%d gpu_ready=%d",
+                           gui->realized ? 1 : 0, gui->gpu_ready ? 1 : 0);
+            return false;
+        }
+        gui->visible = true;
+        nilamp_gui_request_redraw(gui);
+        return true;
+    }
+    if (!gui->view) {
         nilamp_gui_log("show rejected: missing gui/view");
         return false;
     }
@@ -2523,7 +2610,21 @@ bool nilamp_gui_show(NilampGui *gui)
 
 bool nilamp_gui_hide(NilampGui *gui)
 {
-    if (!gui || !gui->view) {
+    if (!gui) {
+        return false;
+    }
+    if (!gui->view && gui->api == NILAMP_GUI_API_WAYLAND) {
+        if (gui->active_gesture >= 0 &&
+            (uint32_t)gui->active_gesture < gui->param_count &&
+            gui->callbacks.end_param_gesture) {
+            gui->callbacks.end_param_gesture(
+                gui->callbacks.user, gui->params[gui->active_gesture].id);
+            gui->active_gesture = -1;
+        }
+        gui->visible = false;
+        return true;
+    }
+    if (!gui->view) {
         return false;
     }
     if (gui->active_gesture >= 0 &&
@@ -2605,6 +2706,50 @@ bool nilamp_gui_wants_fast_pump(const NilampGui *gui)
     return false;
 }
 
+bool nilamp_gui_realize_external_gl(NilampGui *gui)
+{
+    if (!gui || gui->api != NILAMP_GUI_API_WAYLAND || gui->view) {
+        return false;
+    }
+    if (!gui->gpu_ready && !nilamp_gui_init_gpu(gui)) {
+        return false;
+    }
+    gui->realized = true;
+    gui->visible = true;
+    nilamp_gui_request_redraw(gui);
+    nilamp_gui_log("realize external gl ok");
+    return true;
+}
+
+void nilamp_gui_unrealize_external_gl(NilampGui *gui)
+{
+    if (!gui || gui->api != NILAMP_GUI_API_WAYLAND || gui->view) {
+        return;
+    }
+    if (gui->active_gesture >= 0 &&
+        (uint32_t)gui->active_gesture < gui->param_count &&
+        gui->callbacks.end_param_gesture) {
+        gui->callbacks.end_param_gesture(
+            gui->callbacks.user, gui->params[gui->active_gesture].id);
+        gui->active_gesture = -1;
+    }
+    nilamp_gui_shutdown_gpu(gui);
+    gui->realized = false;
+    gui->visible = false;
+    nilamp_gui_log("unrealize external gl");
+}
+
+bool nilamp_gui_render_external_gl(NilampGui *gui)
+{
+    if (!gui || gui->api != NILAMP_GUI_API_WAYLAND || gui->view ||
+        !gui->realized || !gui->gpu_ready) {
+        return false;
+    }
+    nilamp_gui_draw(gui);
+    gui->model.dirty = false;
+    return true;
+}
+
 bool nilamp_gui_start_frame_timer(NilampGui *gui, double interval_seconds)
 {
     if (!gui || !gui->view || !gui->realized || interval_seconds <= 0.0) {
@@ -2654,10 +2799,13 @@ void nilamp_gui_refresh(NilampGui *gui)
 
 void nilamp_gui_on_main_thread(NilampGui *gui)
 {
-    if (!gui || !gui->world || !gui->visible) {
+    if (!gui || !gui->visible) {
         return;
     }
     nilamp_gui_refresh(gui);
+    if (!gui->world) {
+        return;
+    }
     (void)puglUpdate(gui->world, 0.0);
     if (gui->model.dirty) {
         nilamp_gui_request_redraw(gui);

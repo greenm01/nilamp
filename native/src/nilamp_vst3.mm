@@ -31,9 +31,12 @@
 #import <Cocoa/Cocoa.h>
 #elif defined(__linux__)
 #include "pluginterfaces/gui/iwaylandframe.h"
-#include <sys/mman.h>
+#include <EGL/egl.h>
+#include <EGL/eglext.h>
+#include <poll.h>
 #include <unistd.h>
 #include <wayland-client.h>
+#include <wayland-egl.h>
 #endif
 
 #include <algorithm>
@@ -388,11 +391,16 @@ static bool nilamp_wayland_parent_matches_display(wl_surface *parent, wl_display
 #endif
 }
 
-class WaylandSmokeEditor final {
+class WaylandGuiEditor final {
 public:
-    ~WaylandSmokeEditor() { close(); }
+    ~WaylandGuiEditor() { close(); }
 
-    bool attach(IWaylandHost *hostIn, void *parentIn, int32 widthIn, int32 heightIn)
+    bool attach(IWaylandHost *hostIn,
+                void *parentIn,
+                const NilampGuiCallbacks &callbacksIn,
+                int32 widthIn,
+                int32 heightIn,
+                double scaleIn)
     {
         if (!hostIn || !parentIn || widthIn <= 0 || heightIn <= 0) {
             return false;
@@ -411,8 +419,11 @@ public:
             close();
             return false;
         }
+        callbacks = callbacksIn;
+        callbacksReady = true;
         width = widthIn;
         height = heightIn;
+        scale = scaleIn;
         registry = wl_display_get_registry(display);
         if (!registry) {
             close();
@@ -421,6 +432,7 @@ public:
 
         wl_registry_add_listener(registry, &registryListener, this);
         wl_display_flush(display);
+        nilamp_vst3_log("wayland gui attach pending %dx%d", width, height);
         return true;
     }
 
@@ -431,27 +443,76 @@ public:
         }
         width = widthIn;
         height = heightIn;
-        if (!surface) {
+        if (eglWindow) {
+            wl_egl_window_resize(eglWindow, width, height, 0, 0);
+        }
+        if (gui) {
+            (void)nilamp_gui_set_size(gui, static_cast<uint32_t>(width),
+                                      static_cast<uint32_t>(height));
+        }
+        if (!gui) {
             return true;
         }
-        if (!draw()) {
+        if (!render()) {
             return false;
         }
-        wl_surface_commit(surface);
         wl_display_flush(display);
         return true;
     }
 
+    void tick()
+    {
+        const bool hadGui = gui != nullptr;
+        pumpWayland();
+        if (gui) {
+            nilamp_gui_on_main_thread(gui);
+        }
+        if (hadGui) {
+            (void)render();
+        }
+        wl_display_flush(display);
+    }
+
     void close()
     {
-        if (buffer) {
-            wl_buffer_destroy(buffer);
-            buffer = nullptr;
+        if (gui) {
+            if (eglDisplay != EGL_NO_DISPLAY) {
+                eglMakeCurrent(eglDisplay, eglSurface, eglSurface, eglContext);
+            }
+            nilamp_gui_unrealize_external_gl(gui);
+            nilamp_gui_destroy(gui);
+            gui = nullptr;
         }
-        if (shmData && shmSize > 0) {
-            munmap(shmData, shmSize);
-            shmData = nullptr;
-            shmSize = 0;
+        if (eglDisplay != EGL_NO_DISPLAY) {
+            eglMakeCurrent(eglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+        }
+        if (eglSurface != EGL_NO_SURFACE) {
+            eglDestroySurface(eglDisplay, eglSurface);
+            eglSurface = EGL_NO_SURFACE;
+        }
+        if (eglContext != EGL_NO_CONTEXT) {
+            eglDestroyContext(eglDisplay, eglContext);
+            eglContext = EGL_NO_CONTEXT;
+        }
+        if (eglDisplay != EGL_NO_DISPLAY) {
+            eglTerminate(eglDisplay);
+            eglDisplay = EGL_NO_DISPLAY;
+        }
+        if (eglWindow) {
+            wl_egl_window_destroy(eglWindow);
+            eglWindow = nullptr;
+        }
+        if (keyboard) {
+            wl_keyboard_destroy(keyboard);
+            keyboard = nullptr;
+        }
+        if (pointer) {
+            wl_pointer_destroy(pointer);
+            pointer = nullptr;
+        }
+        if (seat) {
+            wl_seat_destroy(seat);
+            seat = nullptr;
         }
         if (subsurface) {
             wl_subsurface_destroy(subsurface);
@@ -460,10 +521,6 @@ public:
         if (surface) {
             wl_surface_destroy(surface);
             surface = nullptr;
-        }
-        if (shm) {
-            wl_shm_destroy(shm);
-            shm = nullptr;
         }
         if (subcompositor) {
             wl_subcompositor_destroy(subcompositor);
@@ -489,10 +546,16 @@ public:
     }
 
 private:
+    enum {
+        kLinuxBtnLeft = 0x110,
+        kLinuxBtnRight = 0x111,
+        kLinuxBtnMiddle = 0x112,
+    };
+
     static void registryGlobal(void *data, wl_registry *registryIn, uint32 name,
                                const char *interface, uint32 version)
     {
-        WaylandSmokeEditor *self = static_cast<WaylandSmokeEditor *>(data);
+        WaylandGuiEditor *self = static_cast<WaylandGuiEditor *>(data);
         if (!self || !interface) {
             return;
         }
@@ -503,86 +566,191 @@ private:
         } else if (std::strcmp(interface, "wl_subcompositor") == 0) {
             self->subcompositor = static_cast<wl_subcompositor *>(
                 wl_registry_bind(registryIn, name, &wl_subcompositor_interface, 1));
-        } else if (std::strcmp(interface, "wl_shm") == 0) {
-            self->shm = static_cast<wl_shm *>(
-                wl_registry_bind(registryIn, name, &wl_shm_interface, version > 1 ? 1 : version));
-        }
-        self->tryCreateSurface();
-    }
-
-    static void registryGlobalRemove(void *, wl_registry *, uint32) {}
-
-    static void fill(uint32_t *pixels, int32 widthIn, int32 heightIn)
-    {
-        for (int32 y = 0; y < heightIn; y++) {
-            for (int32 x = 0; x < widthIn; x++) {
-                const uint32_t stripe =
-                    (((x / 18) + (y / 18)) % 2) == 0 ? 0xff2e6f95u : 0xffd7a24au;
-                pixels[(size_t)y * (size_t)widthIn + (size_t)x] = stripe;
+        } else if (std::strcmp(interface, "wl_seat") == 0) {
+            self->seat = static_cast<wl_seat *>(
+                wl_registry_bind(registryIn, name, &wl_seat_interface, version > 5 ? 5 : version));
+            if (self->seat) {
+                wl_seat_add_listener(self->seat, &seatListener, self);
             }
         }
     }
 
-    bool draw()
+    static void registryGlobalRemove(void *, wl_registry *, uint32) {}
+
+    static void seatCapabilities(void *data, wl_seat *, uint32_t capabilities)
     {
-        if (!shm || !surface) {
-            return false;
+        WaylandGuiEditor *self = static_cast<WaylandGuiEditor *>(data);
+        if (!self || !self->seat) {
+            return;
         }
-        if (buffer) {
-            wl_buffer_destroy(buffer);
-            buffer = nullptr;
+        if ((capabilities & WL_SEAT_CAPABILITY_POINTER) && !self->pointer) {
+            self->pointer = wl_seat_get_pointer(self->seat);
+            if (self->pointer) {
+                wl_pointer_add_listener(self->pointer, &pointerListener, self);
+            }
+        } else if (!(capabilities & WL_SEAT_CAPABILITY_POINTER) && self->pointer) {
+            wl_pointer_destroy(self->pointer);
+            self->pointer = nullptr;
         }
-        if (shmData && shmSize > 0) {
-            munmap(shmData, shmSize);
-            shmData = nullptr;
-            shmSize = 0;
+        if ((capabilities & WL_SEAT_CAPABILITY_KEYBOARD) && !self->keyboard) {
+            self->keyboard = wl_seat_get_keyboard(self->seat);
+            if (self->keyboard) {
+                wl_keyboard_add_listener(self->keyboard, &keyboardListener, self);
+            }
+        } else if (!(capabilities & WL_SEAT_CAPABILITY_KEYBOARD) && self->keyboard) {
+            wl_keyboard_destroy(self->keyboard);
+            self->keyboard = nullptr;
         }
-
-        const int32 stride = width * 4;
-        const size_t size = (size_t)stride * (size_t)height;
-        const int fd = memfd_create("nilamp-vst3-wayland-smoke", MFD_CLOEXEC);
-        if (fd < 0) {
-            return false;
-        }
-        if (ftruncate(fd, (off_t)size) != 0) {
-            closeFd(fd);
-            return false;
-        }
-
-        void *data = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-        if (data == MAP_FAILED) {
-            closeFd(fd);
-            return false;
-        }
-
-        fill(static_cast<uint32_t *>(data), width, height);
-        wl_shm_pool *pool = wl_shm_create_pool(shm, fd, static_cast<int32>(size));
-        if (!pool) {
-            munmap(data, size);
-            closeFd(fd);
-            return false;
-        }
-
-        buffer = wl_shm_pool_create_buffer(pool, 0, width, height, stride,
-                                           WL_SHM_FORMAT_XRGB8888);
-        wl_shm_pool_destroy(pool);
-        closeFd(fd);
-        if (!buffer) {
-            munmap(data, size);
-            return false;
-        }
-
-        shmData = data;
-        shmSize = size;
-        wl_surface_attach(surface, buffer, 0, 0);
-        wl_surface_damage(surface, 0, 0, width, height);
-        return true;
     }
 
-    void tryCreateSurface()
+    static void seatName(void *, wl_seat *, const char *) {}
+
+    static void pointerEnter(void *data, wl_pointer *, uint32_t, wl_surface *surfaceIn,
+                             wl_fixed_t sx, wl_fixed_t sy)
     {
-        if (surface || !compositor || !subcompositor || !shm) {
+        WaylandGuiEditor *self = static_cast<WaylandGuiEditor *>(data);
+        if (!self || surfaceIn != self->surface) {
             return;
+        }
+        self->pointerX = wl_fixed_to_int(sx);
+        self->pointerY = wl_fixed_to_int(sy);
+        if (self->gui) {
+            (void)nilamp_gui_handle_pointer_motion(self->gui, self->pointerX, self->pointerY);
+        }
+    }
+
+    static void pointerLeave(void *, wl_pointer *, uint32_t, wl_surface *) {}
+
+    static void pointerMotion(void *data, wl_pointer *, uint32_t, wl_fixed_t sx, wl_fixed_t sy)
+    {
+        WaylandGuiEditor *self = static_cast<WaylandGuiEditor *>(data);
+        if (!self || !self->gui) {
+            return;
+        }
+        self->pointerX = wl_fixed_to_int(sx);
+        self->pointerY = wl_fixed_to_int(sy);
+        (void)nilamp_gui_handle_pointer_motion(self->gui, self->pointerX, self->pointerY);
+    }
+
+    static void pointerButton(void *data, wl_pointer *, uint32_t, uint32_t time,
+                              uint32_t button, uint32_t state)
+    {
+        WaylandGuiEditor *self = static_cast<WaylandGuiEditor *>(data);
+        if (!self || !self->gui) {
+            return;
+        }
+        uint32_t guiButton = 3u;
+        if (button == kLinuxBtnLeft) {
+            guiButton = 0u;
+        } else if (button == kLinuxBtnMiddle) {
+            guiButton = 1u;
+        } else if (button == kLinuxBtnRight) {
+            guiButton = 2u;
+        }
+        if (guiButton >= 3u) {
+            return;
+        }
+        (void)nilamp_gui_handle_pointer_button(self->gui, guiButton,
+                                               state == WL_POINTER_BUTTON_STATE_PRESSED,
+                                               self->pointerX, self->pointerY,
+                                               (double)time / 1000.0);
+    }
+
+    static void pointerAxis(void *data, wl_pointer *, uint32_t, uint32_t axis,
+                            wl_fixed_t value)
+    {
+        WaylandGuiEditor *self = static_cast<WaylandGuiEditor *>(data);
+        if (!self || !self->gui) {
+            return;
+        }
+        const float delta = -(float)wl_fixed_to_double(value) / 32.0f;
+        if (axis == WL_POINTER_AXIS_VERTICAL_SCROLL) {
+            (void)nilamp_gui_handle_pointer_scroll(self->gui, 0.0f, delta,
+                                                   self->pointerX, self->pointerY);
+        } else if (axis == WL_POINTER_AXIS_HORIZONTAL_SCROLL) {
+            (void)nilamp_gui_handle_pointer_scroll(self->gui, delta, 0.0f,
+                                                   self->pointerX, self->pointerY);
+        }
+    }
+
+    static void pointerFrame(void *, wl_pointer *) {}
+    static void pointerAxisSource(void *, wl_pointer *, uint32_t) {}
+    static void pointerAxisStop(void *, wl_pointer *, uint32_t, uint32_t) {}
+    static void pointerAxisDiscrete(void *, wl_pointer *, uint32_t, int32_t) {}
+    static void pointerAxisValue120(void *, wl_pointer *, uint32_t, int32_t) {}
+    static void pointerAxisRelativeDirection(void *, wl_pointer *, uint32_t, uint32_t) {}
+
+    static void keyboardKeymap(void *, wl_keyboard *, uint32_t, int32_t fd, uint32_t)
+    {
+        if (fd >= 0) {
+            (void)::close(fd);
+        }
+    }
+    static void keyboardEnter(void *, wl_keyboard *, uint32_t, wl_surface *, wl_array *) {}
+    static void keyboardLeave(void *, wl_keyboard *, uint32_t, wl_surface *) {}
+    static void keyboardKey(void *data, wl_keyboard *, uint32_t, uint32_t, uint32_t key,
+                            uint32_t state)
+    {
+        WaylandGuiEditor *self = static_cast<WaylandGuiEditor *>(data);
+        if (!self || !self->gui) {
+            return;
+        }
+        NilampGuiInputKey guiKey = NILAMP_GUI_INPUT_KEY_UNKNOWN;
+        switch (key) {
+        case 1:
+            guiKey = NILAMP_GUI_INPUT_KEY_ESCAPE;
+            break;
+        case 14:
+            guiKey = NILAMP_GUI_INPUT_KEY_BACKSPACE;
+            break;
+        case 15:
+            guiKey = NILAMP_GUI_INPUT_KEY_TAB;
+            break;
+        case 28:
+            guiKey = NILAMP_GUI_INPUT_KEY_ENTER;
+            break;
+        case 102:
+            guiKey = NILAMP_GUI_INPUT_KEY_HOME;
+            break;
+        case 105:
+            guiKey = NILAMP_GUI_INPUT_KEY_LEFT;
+            break;
+        case 106:
+            guiKey = NILAMP_GUI_INPUT_KEY_RIGHT;
+            break;
+        case 107:
+            guiKey = NILAMP_GUI_INPUT_KEY_END;
+            break;
+        case 108:
+            guiKey = NILAMP_GUI_INPUT_KEY_DOWN;
+            break;
+        case 111:
+            guiKey = NILAMP_GUI_INPUT_KEY_DELETE;
+            break;
+        case 103:
+            guiKey = NILAMP_GUI_INPUT_KEY_UP;
+            break;
+        default:
+            break;
+        }
+        if (guiKey != NILAMP_GUI_INPUT_KEY_UNKNOWN) {
+            (void)nilamp_gui_handle_host_key(self->gui, guiKey,
+                                             state == WL_KEYBOARD_KEY_STATE_PRESSED);
+        }
+    }
+    static void keyboardModifiers(void *, wl_keyboard *, uint32_t, uint32_t, uint32_t,
+                                  uint32_t, uint32_t) {}
+    static void keyboardRepeatInfo(void *, wl_keyboard *, int32_t, int32_t) {}
+
+    bool createSurface()
+    {
+        if (surface) {
+            return true;
+        }
+        if (!compositor || !subcompositor || !parent) {
+            nilamp_vst3_log("wayland gui missing globals compositor=%p subcompositor=%p parent=%p",
+                            (void *)compositor, (void *)subcompositor, (void *)parent);
+            return false;
         }
         surface = wl_compositor_create_surface(compositor);
         subsurface = surface ? wl_subcompositor_get_subsurface(subcompositor, surface, parent) :
@@ -591,17 +759,171 @@ private:
             wl_subsurface_set_desync(subsurface);
             wl_subsurface_set_position(subsurface, 0, 0);
         }
-        if (!surface || !subsurface || !draw()) {
-            close();
-            return;
+        if (!surface || !subsurface) {
+            nilamp_vst3_log("wayland gui create surface failed surface=%p subsurface=%p",
+                            (void *)surface, (void *)subsurface);
+            return false;
         }
         wl_surface_commit(surface);
-        wl_display_flush(display);
+        return true;
     }
 
-    static void closeFd(int fd) { (void)::close(fd); }
+    void tryCreate()
+    {
+        if (gui || initFailed || !callbacksReady || !compositor || !subcompositor) {
+            return;
+        }
+        if (!createSurface() || !createEgl() || !createGui() || !render()) {
+            initFailed = true;
+            nilamp_vst3_log("wayland gui async create failed");
+            return;
+        }
+        wl_display_flush(display);
+        nilamp_vst3_log("wayland gui attached %dx%d", width, height);
+    }
+
+    bool createEgl()
+    {
+        eglWindow = wl_egl_window_create(surface, width, height);
+        if (!eglWindow) {
+            nilamp_vst3_log("wayland gui wl_egl_window_create failed");
+            return false;
+        }
+
+        eglDisplay = eglGetDisplay((EGLNativeDisplayType)display);
+        if (eglDisplay == EGL_NO_DISPLAY || !eglInitialize(eglDisplay, nullptr, nullptr) ||
+            !eglBindAPI(EGL_OPENGL_API)) {
+            nilamp_vst3_log("wayland gui egl init failed error=0x%x", eglGetError());
+            return false;
+        }
+
+        const EGLint configAttrs[] = {
+            EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
+            EGL_RENDERABLE_TYPE, EGL_OPENGL_BIT,
+            EGL_RED_SIZE, 8,
+            EGL_GREEN_SIZE, 8,
+            EGL_BLUE_SIZE, 8,
+            EGL_ALPHA_SIZE, 8,
+            EGL_DEPTH_SIZE, 0,
+            EGL_STENCIL_SIZE, 0,
+            EGL_NONE,
+        };
+        EGLint configCount = 0;
+        if (!eglChooseConfig(eglDisplay, configAttrs, &eglConfig, 1, &configCount) ||
+            configCount <= 0) {
+            nilamp_vst3_log("wayland gui egl choose config failed error=0x%x", eglGetError());
+            return false;
+        }
+
+        eglContext = createContext();
+        if (eglContext == EGL_NO_CONTEXT) {
+            nilamp_vst3_log("wayland gui egl context failed error=0x%x", eglGetError());
+            return false;
+        }
+
+        eglSurface = eglCreateWindowSurface(eglDisplay, eglConfig,
+                                            (EGLNativeWindowType)eglWindow, nullptr);
+        if (eglSurface == EGL_NO_SURFACE ||
+            !eglMakeCurrent(eglDisplay, eglSurface, eglSurface, eglContext)) {
+            nilamp_vst3_log("wayland gui egl surface/current failed error=0x%x", eglGetError());
+            return false;
+        }
+        (void)eglSwapInterval(eglDisplay, 0);
+        return true;
+    }
+
+    EGLContext createContext()
+    {
+        const EGLint coreAttrs[] = {
+            EGL_CONTEXT_MAJOR_VERSION, 3,
+            EGL_CONTEXT_MINOR_VERSION, 3,
+#ifdef EGL_CONTEXT_OPENGL_PROFILE_MASK_KHR
+            EGL_CONTEXT_OPENGL_PROFILE_MASK_KHR, EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT_KHR,
+#endif
+            EGL_NONE,
+        };
+        EGLContext context =
+            eglCreateContext(eglDisplay, eglConfig, EGL_NO_CONTEXT, coreAttrs);
+        if (context != EGL_NO_CONTEXT) {
+            return context;
+        }
+
+        const EGLint versionAttrs[] = {
+            EGL_CONTEXT_MAJOR_VERSION, 3,
+            EGL_CONTEXT_MINOR_VERSION, 3,
+            EGL_NONE,
+        };
+        context = eglCreateContext(eglDisplay, eglConfig, EGL_NO_CONTEXT, versionAttrs);
+        if (context != EGL_NO_CONTEXT) {
+            return context;
+        }
+        return eglCreateContext(eglDisplay, eglConfig, EGL_NO_CONTEXT, nullptr);
+    }
+
+    bool createGui()
+    {
+        gui = nilamp_gui_create(&callbacks, (const NilampGuiParamSpec *)nilamp_control_specs(NULL),
+                                NILAMP_PARAM_COUNT,
+                                nilamp_model_gui_layout(NILAMP_MODEL_DEFAULT),
+                                NILAMP_GUI_API_WAYLAND, false);
+        if (!gui || !nilamp_gui_set_scale(gui, scale) ||
+            !nilamp_gui_set_size(gui, static_cast<uint32_t>(width),
+                                 static_cast<uint32_t>(height)) ||
+            !nilamp_gui_realize_external_gl(gui)) {
+            nilamp_vst3_log("wayland gui create nilamp gui failed");
+            return false;
+        }
+        return true;
+    }
+
+    bool render()
+    {
+        if (!gui || eglDisplay == EGL_NO_DISPLAY || eglSurface == EGL_NO_SURFACE ||
+            eglContext == EGL_NO_CONTEXT) {
+            return false;
+        }
+        if (!eglMakeCurrent(eglDisplay, eglSurface, eglSurface, eglContext)) {
+            nilamp_vst3_log("wayland gui egl make current failed error=0x%x", eglGetError());
+            return false;
+        }
+        if (!nilamp_gui_render_external_gl(gui)) {
+            return false;
+        }
+        if (!eglSwapBuffers(eglDisplay, eglSurface)) {
+            nilamp_vst3_log("wayland gui egl swap failed error=0x%x", eglGetError());
+            return false;
+        }
+        wl_surface_commit(surface);
+        return true;
+    }
+
+    void pumpWayland()
+    {
+        if (!display) {
+            return;
+        }
+        while (wl_display_prepare_read(display) != 0) {
+            if (wl_display_dispatch_pending(display) < 0) {
+                return;
+            }
+        }
+        wl_display_flush(display);
+        pollfd fd = {wl_display_get_fd(display), POLLIN, 0};
+        if (poll(&fd, 1, 0) > 0 && (fd.revents & POLLIN)) {
+            if (wl_display_read_events(display) < 0) {
+                return;
+            }
+        } else {
+            wl_display_cancel_read(display);
+        }
+        (void)wl_display_dispatch_pending(display);
+        tryCreate();
+    }
 
     static const wl_registry_listener registryListener;
+    static const wl_seat_listener seatListener;
+    static const wl_pointer_listener pointerListener;
+    static const wl_keyboard_listener keyboardListener;
 
     IWaylandHost *host = nullptr;
     wl_display *display = nullptr;
@@ -609,19 +931,58 @@ private:
     wl_registry *registry = nullptr;
     wl_compositor *compositor = nullptr;
     wl_subcompositor *subcompositor = nullptr;
-    wl_shm *shm = nullptr;
+    wl_seat *seat = nullptr;
+    wl_pointer *pointer = nullptr;
+    wl_keyboard *keyboard = nullptr;
     wl_surface *surface = nullptr;
     wl_subsurface *subsurface = nullptr;
-    wl_buffer *buffer = nullptr;
-    void *shmData = nullptr;
-    size_t shmSize = 0;
+    wl_egl_window *eglWindow = nullptr;
+    EGLDisplay eglDisplay = EGL_NO_DISPLAY;
+    EGLConfig eglConfig = nullptr;
+    EGLContext eglContext = EGL_NO_CONTEXT;
+    EGLSurface eglSurface = EGL_NO_SURFACE;
+    NilampGui *gui = nullptr;
+    NilampGuiCallbacks callbacks = {};
     int32 width = 1;
     int32 height = 1;
+    int32 pointerX = 0;
+    int32 pointerY = 0;
+    double scale = 1.0;
+    bool callbacksReady = false;
+    bool initFailed = false;
 };
 
-const wl_registry_listener WaylandSmokeEditor::registryListener = {
-    WaylandSmokeEditor::registryGlobal,
-    WaylandSmokeEditor::registryGlobalRemove,
+const wl_registry_listener WaylandGuiEditor::registryListener = {
+    WaylandGuiEditor::registryGlobal,
+    WaylandGuiEditor::registryGlobalRemove,
+};
+
+const wl_seat_listener WaylandGuiEditor::seatListener = {
+    WaylandGuiEditor::seatCapabilities,
+    WaylandGuiEditor::seatName,
+};
+
+const wl_pointer_listener WaylandGuiEditor::pointerListener = {
+    WaylandGuiEditor::pointerEnter,
+    WaylandGuiEditor::pointerLeave,
+    WaylandGuiEditor::pointerMotion,
+    WaylandGuiEditor::pointerButton,
+    WaylandGuiEditor::pointerAxis,
+    WaylandGuiEditor::pointerFrame,
+    WaylandGuiEditor::pointerAxisSource,
+    WaylandGuiEditor::pointerAxisStop,
+    WaylandGuiEditor::pointerAxisDiscrete,
+    WaylandGuiEditor::pointerAxisValue120,
+    WaylandGuiEditor::pointerAxisRelativeDirection,
+};
+
+const wl_keyboard_listener WaylandGuiEditor::keyboardListener = {
+    WaylandGuiEditor::keyboardKeymap,
+    WaylandGuiEditor::keyboardEnter,
+    WaylandGuiEditor::keyboardLeave,
+    WaylandGuiEditor::keyboardKey,
+    WaylandGuiEditor::keyboardModifiers,
+    WaylandGuiEditor::keyboardRepeatInfo,
 };
 
 class LinuxEditorTimer final : public Linux::ITimerHandler {
@@ -720,7 +1081,7 @@ private:
 #if defined(__linux__)
     FUnknownPtr<Linux::IRunLoop> runLoop;
     LinuxEditorTimer *runLoopTimer = nullptr;
-    WaylandSmokeEditor *waylandSmoke = nullptr;
+    WaylandGuiEditor *waylandGui = nullptr;
     bool runLoopTimerRegistered = false;
 #endif
     uint32_t idlePumpTicks = 0u;
@@ -1110,8 +1471,8 @@ Editor::~Editor()
         controller->unregisterEditor(this);
     }
 #if defined(__linux__)
-    delete waylandSmoke;
-    waylandSmoke = nullptr;
+    delete waylandGui;
+    waylandGui = nullptr;
 #endif
     nilamp_gui_destroy(gui);
     gui = nullptr;
@@ -1158,14 +1519,23 @@ tresult PLUGIN_API Editor::attached(void *parent, FIDString type)
         if (!waylandHost) {
             return kResultFalse;
         }
-        WaylandSmokeEditor *smoke = new WaylandSmokeEditor();
-        if (!smoke->attach(waylandHost, parent, rect.getWidth(), rect.getHeight())) {
+        const NilampGuiCallbacks callbacks = {
+            this,
+            getParam,
+            beginParamGesture,
+            setParam,
+            endParamGesture,
+            modelName,
+        };
+        WaylandGuiEditor *waylandEditor = new WaylandGuiEditor();
+        if (!waylandEditor->attach(waylandHost, parent, callbacks, rect.getWidth(),
+                                   rect.getHeight(), contentScale)) {
             waylandHost->release();
-            delete smoke;
+            delete waylandEditor;
             return kResultFalse;
         }
         waylandHost->release();
-        waylandSmoke = smoke;
+        waylandGui = waylandEditor;
         controller->registerEditor(this);
         systemWindow = parent;
         startTimer();
@@ -1332,8 +1702,8 @@ tresult PLUGIN_API Editor::removed()
 {
     stopTimer();
 #if defined(__linux__)
-    delete waylandSmoke;
-    waylandSmoke = nullptr;
+    delete waylandGui;
+    waylandGui = nullptr;
 #endif
     if (gui) {
         (void)nilamp_gui_hide(gui);
@@ -1413,9 +1783,9 @@ tresult PLUGIN_API Editor::onSize(ViewRect *newSize)
     }
     rect = *newSize;
 #if defined(__linux__)
-    if (waylandSmoke) {
-        return waylandSmoke->resize(rect.getWidth(), rect.getHeight()) ? kResultTrue :
-                                                                         kResultFalse;
+    if (waylandGui) {
+        return waylandGui->resize(rect.getWidth(), rect.getHeight()) ? kResultTrue :
+                                                                       kResultFalse;
     }
 #endif
     if (gui) {
@@ -1510,6 +1880,10 @@ void Editor::onTimer(Timer *timerIn)
 
 void Editor::tick()
 {
+    if (waylandGui) {
+        waylandGui->tick();
+        return;
+    }
     if (shouldPumpThisTick()) {
         nilamp_gui_on_main_thread(gui);
     }

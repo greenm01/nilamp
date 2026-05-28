@@ -76,7 +76,7 @@ NILAMP_ENABLE_CLAP_GUI ?= $(if $(filter Linux Darwin,$(UNAME_S)),1,0)
 
 ifeq ($(UNAME_S),Linux)
 DL_LDLIBS := -ldl
-GUI_LDLIBS := -lX11 -lXrandr -lXcursor -lXext -lGL -lwayland-client -ldl
+GUI_LDLIBS := -lX11 -lXrandr -lXcursor -lXext -lGL -lEGL -lwayland-client -lwayland-egl -ldl
 VST3_BINARY := $(VST3_PLUGIN)/Contents/$(VST3_LINUX_ARCH)/$(VST3_EXECUTABLE).so
 VST3_INSTALL_DIR_DEFAULT := $(HOME)/.vst3
 endif

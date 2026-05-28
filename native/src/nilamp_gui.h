@@ -18,6 +18,7 @@ typedef enum NilampGuiApi {
     NILAMP_GUI_API_X11 = 0,
     NILAMP_GUI_API_COCOA = 1,
     NILAMP_GUI_API_WIN32 = 2,
+    NILAMP_GUI_API_WAYLAND = 3,
 } NilampGuiApi;
 
 typedef struct NilampGuiParent {
@@ -79,7 +80,22 @@ bool nilamp_gui_is_visible(const NilampGui *gui);
 bool nilamp_gui_captures_keyboard(const NilampGui *gui);
 bool nilamp_gui_handle_host_key(NilampGui *gui, NilampGuiInputKey key, bool down);
 bool nilamp_gui_handle_host_text(NilampGui *gui, uint32_t codepoint);
+bool nilamp_gui_handle_pointer_motion(NilampGui *gui, int32_t x, int32_t y);
+bool nilamp_gui_handle_pointer_button(NilampGui *gui,
+                                      uint32_t button,
+                                      bool down,
+                                      int32_t x,
+                                      int32_t y,
+                                      double time_seconds);
+bool nilamp_gui_handle_pointer_scroll(NilampGui *gui,
+                                      float dx,
+                                      float dy,
+                                      int32_t x,
+                                      int32_t y);
 bool nilamp_gui_wants_fast_pump(const NilampGui *gui);
+bool nilamp_gui_realize_external_gl(NilampGui *gui);
+void nilamp_gui_unrealize_external_gl(NilampGui *gui);
+bool nilamp_gui_render_external_gl(NilampGui *gui);
 bool nilamp_gui_start_frame_timer(NilampGui *gui, double interval_seconds);
 void nilamp_gui_stop_frame_timer(NilampGui *gui);
 void nilamp_gui_refresh(NilampGui *gui);
