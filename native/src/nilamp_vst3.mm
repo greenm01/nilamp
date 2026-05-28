@@ -395,6 +395,10 @@ public:
         }
 
         parent = static_cast<wl_surface *>(parentIn);
+        if (wl_proxy_get_display(reinterpret_cast<wl_proxy *>(parent)) != display) {
+            close();
+            return false;
+        }
         width = widthIn;
         height = heightIn;
         registry = wl_display_get_registry(display);
