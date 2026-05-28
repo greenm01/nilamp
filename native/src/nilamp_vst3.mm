@@ -20,6 +20,7 @@
 #include "pluginterfaces/vst/ivstmidicontrollers.h"
 #include "pluginterfaces/vst/ivstparameterchanges.h"
 #include "pluginterfaces/vst/vstpresetkeys.h"
+#include "pluginterfaces/vst/ivsthostapplication.h"
 #include "public.sdk/source/common/pluginview.h"
 #include "public.sdk/source/main/pluginfactory.h"
 #include "public.sdk/source/vst/vstaudioeffect.h"
@@ -28,6 +29,11 @@
 
 #if defined(__APPLE__)
 #import <Cocoa/Cocoa.h>
+#elif defined(__linux__)
+#include "pluginterfaces/gui/iwaylandframe.h"
+#include <sys/mman.h>
+#include <unistd.h>
+#include <wayland-client.h>
 #endif
 
 #include <algorithm>
@@ -370,6 +376,219 @@ class Controller;
 class Editor;
 
 #if defined(__linux__)
+class WaylandSmokeEditor final {
+public:
+    ~WaylandSmokeEditor() { close(); }
+
+    bool attach(IWaylandHost *hostIn, void *parentIn, int32 widthIn, int32 heightIn)
+    {
+        if (!hostIn || !parentIn || widthIn <= 0 || heightIn <= 0) {
+            return false;
+        }
+
+        host = hostIn;
+        host->addRef();
+        display = host->openWaylandConnection();
+        if (!display) {
+            close();
+            return false;
+        }
+
+        parent = static_cast<wl_surface *>(parentIn);
+        width = widthIn;
+        height = heightIn;
+        registry = wl_display_get_registry(display);
+        if (!registry) {
+            close();
+            return false;
+        }
+
+        wl_registry_add_listener(registry, &registryListener, this);
+        wl_display_flush(display);
+        return true;
+    }
+
+    bool resize(int32 widthIn, int32 heightIn)
+    {
+        if (widthIn <= 0 || heightIn <= 0) {
+            return false;
+        }
+        width = widthIn;
+        height = heightIn;
+        if (!surface) {
+            return true;
+        }
+        if (!draw()) {
+            return false;
+        }
+        wl_surface_commit(surface);
+        wl_display_flush(display);
+        return true;
+    }
+
+    void close()
+    {
+        if (buffer) {
+            wl_buffer_destroy(buffer);
+            buffer = nullptr;
+        }
+        if (shmData && shmSize > 0) {
+            munmap(shmData, shmSize);
+            shmData = nullptr;
+            shmSize = 0;
+        }
+        if (surface) {
+            wl_surface_destroy(surface);
+            surface = nullptr;
+        }
+        if (shm) {
+            wl_shm_destroy(shm);
+            shm = nullptr;
+        }
+        if (compositor) {
+            wl_compositor_destroy(compositor);
+            compositor = nullptr;
+        }
+        if (registry) {
+            wl_registry_destroy(registry);
+            registry = nullptr;
+        }
+        if (host && display) {
+            (void)host->closeWaylandConnection(display);
+            display = nullptr;
+        }
+        if (host) {
+            host->release();
+            host = nullptr;
+        }
+        parent = nullptr;
+    }
+
+private:
+    static void registryGlobal(void *data, wl_registry *registryIn, uint32 name,
+                               const char *interface, uint32 version)
+    {
+        WaylandSmokeEditor *self = static_cast<WaylandSmokeEditor *>(data);
+        if (!self || !interface) {
+            return;
+        }
+        const uint32 bindVersion = version > 4 ? 4 : version;
+        if (std::strcmp(interface, "wl_compositor") == 0) {
+            self->compositor = static_cast<wl_compositor *>(
+                wl_registry_bind(registryIn, name, &wl_compositor_interface, bindVersion));
+        } else if (std::strcmp(interface, "wl_shm") == 0) {
+            self->shm = static_cast<wl_shm *>(
+                wl_registry_bind(registryIn, name, &wl_shm_interface, version > 1 ? 1 : version));
+        }
+        self->tryCreateSurface();
+    }
+
+    static void registryGlobalRemove(void *, wl_registry *, uint32) {}
+
+    static void fill(uint32_t *pixels, int32 widthIn, int32 heightIn)
+    {
+        for (int32 y = 0; y < heightIn; y++) {
+            for (int32 x = 0; x < widthIn; x++) {
+                const uint32_t stripe =
+                    (((x / 18) + (y / 18)) % 2) == 0 ? 0xff2e6f95u : 0xffd7a24au;
+                pixels[(size_t)y * (size_t)widthIn + (size_t)x] = stripe;
+            }
+        }
+    }
+
+    bool draw()
+    {
+        if (!shm || !surface) {
+            return false;
+        }
+        if (buffer) {
+            wl_buffer_destroy(buffer);
+            buffer = nullptr;
+        }
+        if (shmData && shmSize > 0) {
+            munmap(shmData, shmSize);
+            shmData = nullptr;
+            shmSize = 0;
+        }
+
+        const int32 stride = width * 4;
+        const size_t size = (size_t)stride * (size_t)height;
+        const int fd = memfd_create("nilamp-vst3-wayland-smoke", MFD_CLOEXEC);
+        if (fd < 0) {
+            return false;
+        }
+        if (ftruncate(fd, (off_t)size) != 0) {
+            closeFd(fd);
+            return false;
+        }
+
+        void *data = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+        if (data == MAP_FAILED) {
+            closeFd(fd);
+            return false;
+        }
+
+        fill(static_cast<uint32_t *>(data), width, height);
+        wl_shm_pool *pool = wl_shm_create_pool(shm, fd, static_cast<int32>(size));
+        if (!pool) {
+            munmap(data, size);
+            closeFd(fd);
+            return false;
+        }
+
+        buffer = wl_shm_pool_create_buffer(pool, 0, width, height, stride,
+                                           WL_SHM_FORMAT_XRGB8888);
+        wl_shm_pool_destroy(pool);
+        closeFd(fd);
+        if (!buffer) {
+            munmap(data, size);
+            return false;
+        }
+
+        shmData = data;
+        shmSize = size;
+        wl_surface_attach(surface, buffer, 0, 0);
+        wl_surface_damage(surface, 0, 0, width, height);
+        return true;
+    }
+
+    void tryCreateSurface()
+    {
+        if (surface || !compositor || !shm) {
+            return;
+        }
+        surface = wl_compositor_create_surface(compositor);
+        if (!surface || !draw()) {
+            close();
+            return;
+        }
+        wl_surface_commit(surface);
+        wl_display_flush(display);
+    }
+
+    static void closeFd(int fd) { (void)::close(fd); }
+
+    static const wl_registry_listener registryListener;
+
+    IWaylandHost *host = nullptr;
+    wl_display *display = nullptr;
+    wl_surface *parent = nullptr;
+    wl_registry *registry = nullptr;
+    wl_compositor *compositor = nullptr;
+    wl_shm *shm = nullptr;
+    wl_surface *surface = nullptr;
+    wl_buffer *buffer = nullptr;
+    void *shmData = nullptr;
+    size_t shmSize = 0;
+    int32 width = 1;
+    int32 height = 1;
+};
+
+const wl_registry_listener WaylandSmokeEditor::registryListener = {
+    WaylandSmokeEditor::registryGlobal,
+    WaylandSmokeEditor::registryGlobalRemove,
+};
+
 class LinuxEditorTimer final : public Linux::ITimerHandler {
 public:
     explicit LinuxEditorTimer(Editor *ownerIn) : owner(ownerIn) {}
@@ -466,6 +685,7 @@ private:
 #if defined(__linux__)
     FUnknownPtr<Linux::IRunLoop> runLoop;
     LinuxEditorTimer *runLoopTimer = nullptr;
+    WaylandSmokeEditor *waylandSmoke = nullptr;
     bool runLoopTimerRegistered = false;
 #endif
     uint32_t idlePumpTicks = 0u;
@@ -489,7 +709,16 @@ static UnitID findUnitIdForModule(const char *module,
 class Controller final : public EditControllerEx1, public IMidiMapping {
 public:
     Controller() { nilamp_host_core_init(&core); }
-    ~Controller() override { nilamp_host_core_deinit(&core); }
+    ~Controller() override
+    {
+#if defined(__linux__)
+        if (hostApplication) {
+            hostApplication->release();
+            hostApplication = nullptr;
+        }
+#endif
+        nilamp_host_core_deinit(&core);
+    }
 
     uint32 PLUGIN_API addRef() SMTG_OVERRIDE { return EditControllerEx1::addRef(); }
     uint32 PLUGIN_API release() SMTG_OVERRIDE { return EditControllerEx1::release(); }
@@ -515,6 +744,16 @@ public:
         }
 #if defined(__linux__)
         runLoop = context;
+        if (hostApplication) {
+            hostApplication->release();
+            hostApplication = nullptr;
+        }
+        if (context &&
+            context->queryInterface(IHostApplication::iid,
+                                    reinterpret_cast<void **>(&hostApplication)) !=
+                kResultOk) {
+            hostApplication = nullptr;
+        }
 #endif
 
         const NilampControlSpec *specs = nilamp_control_specs(NULL);
@@ -731,6 +970,21 @@ public:
 
 #if defined(__linux__)
     Linux::IRunLoop *getRunLoop() const { return runLoop; }
+
+    IWaylandHost *createWaylandHost() const
+    {
+        if (!hostApplication) {
+            return nullptr;
+        }
+        IWaylandHost *waylandHost = nullptr;
+        TUID iid = INLINE_UID(0x5E9582EE, 0x86594652, 0xB213678E, 0x7F1A705E);
+        if (hostApplication->createInstance(iid, iid,
+                                            reinterpret_cast<void **>(&waylandHost)) !=
+            kResultOk) {
+            return nullptr;
+        }
+        return waylandHost;
+    }
 #endif
 
 private:
@@ -802,6 +1056,7 @@ private:
     bool editorEditActive = false;
 #if defined(__linux__)
     FUnknownPtr<Linux::IRunLoop> runLoop;
+    IHostApplication *hostApplication = nullptr;
 #endif
 };
 
@@ -819,6 +1074,10 @@ Editor::~Editor()
     if (controller) {
         controller->unregisterEditor(this);
     }
+#if defined(__linux__)
+    delete waylandSmoke;
+    waylandSmoke = nullptr;
+#endif
     nilamp_gui_destroy(gui);
     gui = nullptr;
     if (controller) {
@@ -833,8 +1092,10 @@ tresult PLUGIN_API Editor::isPlatformTypeSupported(FIDString type)
 #elif defined(_WIN32)
     return type && std::strcmp(type, kPlatformTypeHWND) == 0 ? kResultTrue : kResultFalse;
 #else
-    return type && std::strcmp(type, kPlatformTypeX11EmbedWindowID) == 0 ? kResultTrue :
-                                                                          kResultFalse;
+    return type && (std::strcmp(type, kPlatformTypeX11EmbedWindowID) == 0 ||
+                    std::strcmp(type, kPlatformTypeWaylandSurfaceID) == 0) ?
+               kResultTrue :
+               kResultFalse;
 #endif
 }
 
@@ -856,6 +1117,26 @@ tresult PLUGIN_API Editor::attached(void *parent, FIDString type)
     if (!parent || isPlatformTypeSupported(type) != kResultTrue || !controller) {
         return kResultFalse;
     }
+#if defined(__linux__)
+    if (std::strcmp(type, kPlatformTypeWaylandSurfaceID) == 0) {
+        IWaylandHost *waylandHost = controller->createWaylandHost();
+        if (!waylandHost) {
+            return kResultFalse;
+        }
+        WaylandSmokeEditor *smoke = new WaylandSmokeEditor();
+        if (!smoke->attach(waylandHost, parent, rect.getWidth(), rect.getHeight())) {
+            waylandHost->release();
+            delete smoke;
+            return kResultFalse;
+        }
+        waylandHost->release();
+        waylandSmoke = smoke;
+        controller->registerEditor(this);
+        systemWindow = parent;
+        startTimer();
+        return kResultOk;
+    }
+#endif
     const NilampGuiCallbacks callbacks = {
         this,
         getParam,
@@ -1015,6 +1296,10 @@ tresult PLUGIN_API Editor::setFrame(IPlugFrame *frame)
 tresult PLUGIN_API Editor::removed()
 {
     stopTimer();
+#if defined(__linux__)
+    delete waylandSmoke;
+    waylandSmoke = nullptr;
+#endif
     if (gui) {
         (void)nilamp_gui_hide(gui);
         nilamp_gui_destroy(gui);
@@ -1092,6 +1377,12 @@ tresult PLUGIN_API Editor::onSize(ViewRect *newSize)
         return kInvalidArgument;
     }
     rect = *newSize;
+#if defined(__linux__)
+    if (waylandSmoke) {
+        return waylandSmoke->resize(rect.getWidth(), rect.getHeight()) ? kResultTrue :
+                                                                         kResultFalse;
+    }
+#endif
     if (gui) {
         (void)nilamp_gui_set_size(gui, static_cast<uint32_t>(rect.getWidth()),
                                   static_cast<uint32_t>(rect.getHeight()));

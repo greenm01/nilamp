@@ -76,7 +76,7 @@ NILAMP_ENABLE_CLAP_GUI ?= $(if $(filter Linux Darwin,$(UNAME_S)),1,0)
 
 ifeq ($(UNAME_S),Linux)
 DL_LDLIBS := -ldl
-GUI_LDLIBS := -lX11 -lXrandr -lXcursor -lXext -lGL -ldl
+GUI_LDLIBS := -lX11 -lXrandr -lXcursor -lXext -lGL -lwayland-client -ldl
 VST3_BINARY := $(VST3_PLUGIN)/Contents/$(VST3_LINUX_ARCH)/$(VST3_EXECUTABLE).so
 VST3_INSTALL_DIR_DEFAULT := $(HOME)/.vst3
 endif
@@ -436,7 +436,7 @@ $(CLAP_PLUGIN): $(NATIVE_BUILD)/nilamp_clap.o $(NATIVE_PIC_OBJS) $(NATIVE_GUI_OB
 endif
 
 ifeq ($(UNAME_S),Linux)
-$(NATIVE_BUILD)/nilamp_vst3.o: $(NATIVE_DIR)/src/nilamp_vst3.mm $(NATIVE_DIR)/src/nilamp_host.h $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_DIR)/src/nilamp_gui.h $(NATIVE_DIR)/src/nilamp_gui_input.h $(NATIVE_DIR)/src/nilamp_vst3_keys.h | $(NATIVE_BUILD)
+$(NATIVE_BUILD)/nilamp_vst3.o: $(NATIVE_DIR)/src/nilamp_vst3.mm $(NATIVE_DIR)/src/nilamp_host.h $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_DIR)/src/nilamp_gui.h $(NATIVE_DIR)/src/nilamp_gui_input.h $(NATIVE_DIR)/src/nilamp_vst3_keys.h $(VST3SDK_DIR)/pluginterfaces/gui/iwaylandframe.h | $(NATIVE_BUILD)
 	$(CXX) $(VST3_PLUGIN_CXXFLAGS) -x c++ -c $< -o $@
 else
 $(NATIVE_BUILD)/nilamp_vst3.o: $(NATIVE_DIR)/src/nilamp_vst3.mm $(NATIVE_DIR)/src/nilamp_host.h $(NATIVE_DIR)/src/nilamp_dsp.h $(NATIVE_DIR)/src/nilamp_gui.h $(NATIVE_DIR)/src/nilamp_gui_input.h $(NATIVE_DIR)/src/nilamp_vst3_keys.h | $(NATIVE_BUILD)
