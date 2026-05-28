@@ -441,6 +441,10 @@ public:
             shmData = nullptr;
             shmSize = 0;
         }
+        if (subsurface) {
+            wl_subsurface_destroy(subsurface);
+            subsurface = nullptr;
+        }
         if (surface) {
             wl_surface_destroy(surface);
             surface = nullptr;
@@ -448,6 +452,10 @@ public:
         if (shm) {
             wl_shm_destroy(shm);
             shm = nullptr;
+        }
+        if (subcompositor) {
+            wl_subcompositor_destroy(subcompositor);
+            subcompositor = nullptr;
         }
         if (compositor) {
             wl_compositor_destroy(compositor);
@@ -480,6 +488,9 @@ private:
         if (std::strcmp(interface, "wl_compositor") == 0) {
             self->compositor = static_cast<wl_compositor *>(
                 wl_registry_bind(registryIn, name, &wl_compositor_interface, bindVersion));
+        } else if (std::strcmp(interface, "wl_subcompositor") == 0) {
+            self->subcompositor = static_cast<wl_subcompositor *>(
+                wl_registry_bind(registryIn, name, &wl_subcompositor_interface, 1));
         } else if (std::strcmp(interface, "wl_shm") == 0) {
             self->shm = static_cast<wl_shm *>(
                 wl_registry_bind(registryIn, name, &wl_shm_interface, version > 1 ? 1 : version));
@@ -558,11 +569,17 @@ private:
 
     void tryCreateSurface()
     {
-        if (surface || !compositor || !shm) {
+        if (surface || !compositor || !subcompositor || !shm) {
             return;
         }
         surface = wl_compositor_create_surface(compositor);
-        if (!surface || !draw()) {
+        subsurface = surface ? wl_subcompositor_get_subsurface(subcompositor, surface, parent) :
+                               nullptr;
+        if (subsurface) {
+            wl_subsurface_set_desync(subsurface);
+            wl_subsurface_set_position(subsurface, 0, 0);
+        }
+        if (!surface || !subsurface || !draw()) {
             close();
             return;
         }
@@ -579,8 +596,10 @@ private:
     wl_surface *parent = nullptr;
     wl_registry *registry = nullptr;
     wl_compositor *compositor = nullptr;
+    wl_subcompositor *subcompositor = nullptr;
     wl_shm *shm = nullptr;
     wl_surface *surface = nullptr;
+    wl_subsurface *subsurface = nullptr;
     wl_buffer *buffer = nullptr;
     void *shmData = nullptr;
     size_t shmSize = 0;
