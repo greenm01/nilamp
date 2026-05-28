@@ -376,6 +376,18 @@ class Controller;
 class Editor;
 
 #if defined(__linux__)
+static bool nilamp_wayland_parent_matches_display(wl_surface *parent, wl_display *display)
+{
+#if defined(WAYLAND_VERSION_MAJOR) && \
+    (WAYLAND_VERSION_MAJOR > 1 || (WAYLAND_VERSION_MAJOR == 1 && WAYLAND_VERSION_MINOR >= 23))
+    return wl_proxy_get_display(reinterpret_cast<wl_proxy *>(parent)) == display;
+#else
+    (void)parent;
+    (void)display;
+    return true;
+#endif
+}
+
 class WaylandSmokeEditor final {
 public:
     ~WaylandSmokeEditor() { close(); }
@@ -395,7 +407,7 @@ public:
         }
 
         parent = static_cast<wl_surface *>(parentIn);
-        if (wl_proxy_get_display(reinterpret_cast<wl_proxy *>(parent)) != display) {
+        if (!nilamp_wayland_parent_matches_display(parent, display)) {
             close();
             return false;
         }
